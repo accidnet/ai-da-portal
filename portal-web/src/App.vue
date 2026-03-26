@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+import PortalDashboardPage from './pages/PortalDashboardPage.vue'
 </script>
 
 <template>
-  <HelloWorld />
+  <PortalDashboardPage />
 </template>
