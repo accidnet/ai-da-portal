@@ -2,7 +2,7 @@ import type { PortalDashboardData } from '../types'
 
 export const portalDashboard: PortalDashboardData = {
   sidebar: {
-    productName: 'Architect AI',
+    productName: 'Data Analysis AI',
     productTagline: 'Data Intelligence',
     primaryNav: [
       { label: 'New Analysis', icon: 'add_chart', active: true },
