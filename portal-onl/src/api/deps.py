@@ -1,29 +1,57 @@
+from functools import lru_cache
+
 from agents.graph import build_agent_graph
 from core.config import Settings, get_settings
+from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from domain.messages.service import MessageService
 from domain.sessions.service import SessionService
+from infrastructure.llm.client import LlmClient
 
 
 def get_app_settings() -> Settings:
     return get_settings()
 
 
+@lru_cache
 def get_session_service() -> SessionService:
     return SessionService()
 
 
-def get_message_service() -> MessageService:
-    return MessageService()
+@lru_cache
+def get_openai_auth_store() -> OpenAiAuthStore:
+    settings = get_settings()
+    return OpenAiAuthStore(settings.openai_auth_storage_path)
 
 
+@lru_cache
+def get_openai_auth_service() -> OpenAiAuthService:
+    return OpenAiAuthService(settings=get_settings(), store=get_openai_auth_store())
+
+
+@lru_cache
+def get_llm_client() -> LlmClient:
+    return LlmClient(settings=get_settings(), auth_service=get_openai_auth_service())
+
+
+@lru_cache
 def get_dataset_service() -> DatasetService:
     return DatasetService()
 
 
+@lru_cache
 def get_analysis_service() -> AnalysisService:
-    return AnalysisService()
+    return AnalysisService(dataset_service=get_dataset_service())
+
+
+@lru_cache
+def get_message_service() -> MessageService:
+    return MessageService(
+        llm_client=get_llm_client(),
+        dataset_service=get_dataset_service(),
+        analysis_service=get_analysis_service(),
+    )
 
 
 def get_agent_runtime() -> object:

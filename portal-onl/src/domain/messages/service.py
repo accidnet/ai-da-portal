@@ -1,21 +1,29 @@
 from agents.router import route_message
 from agents.state import AgentRoute
+from domain.analyses.schemas import AnalysisRequest
+from domain.analyses.service import AnalysisService
+from domain.datasets.service import DatasetService
 from domain.messages.schemas import ChatRequest, ChatResponse
-from domain.shared import (
-    AnalyticsPayload,
-    ChartPayload,
-    ChartSeries,
-    InsightPayload,
-    SummaryCard,
-)
+from domain.shared import AnalyticsPayload
+from infrastructure.llm.client import LlmClient
 
 
 class MessageService:
+    def __init__(
+        self,
+        llm_client: LlmClient,
+        dataset_service: DatasetService,
+        analysis_service: AnalysisService,
+    ) -> None:
+        self._llm_client = llm_client
+        self._dataset_service = dataset_service
+        self._analysis_service = analysis_service
+
     def handle_chat(self, payload: ChatRequest, agent_runtime: object) -> ChatResponse:
         del agent_runtime
         route = route_message(payload.message, has_dataset=bool(payload.dataset_ids))
-        analytics = self._build_analytics(route)
-        assistant_message = self._build_reply(route)
+        analytics = self._build_analytics(route=route, payload=payload)
+        assistant_message = self._build_reply(route=route, payload=payload, analytics=analytics)
 
         return ChatResponse(
             session_id=payload.session_id,
@@ -24,7 +32,22 @@ class MessageService:
             analytics=analytics,
         )
 
-    def _build_reply(self, route: AgentRoute) -> str:
+    def _build_reply(
+        self, route: AgentRoute, payload: ChatRequest, analytics: AnalyticsPayload | None
+    ) -> str:
+        llm_reply = self._llm_client.generate(
+            system=self._system_prompt(route),
+            user_message=payload.message,
+            dataset_ids=payload.dataset_ids,
+        )
+        if llm_reply:
+            return llm_reply
+
+        if analytics:
+            summary = analytics.summary_cards[0].value if analytics.summary_cards else "the uploaded dataset"
+            return (
+                f"I analyzed {summary} and prepared the dashboard output from the live dataset."
+            )
         if route == "dataset_analysis":
             return "Uploaded data is the best starting point. I can summarize quality, surface trends, and prepare the first charts for the analytics pane."
         if route == "analysis_request":
@@ -50,36 +73,55 @@ class MessageService:
             "Request a chart-ready summary for the dashboard.",
         ]
 
-    def _build_analytics(self, route: AgentRoute) -> AnalyticsPayload | None:
-        if route == "conversation":
+    def _build_analytics(
+        self, route: AgentRoute, payload: ChatRequest
+    ) -> AnalyticsPayload | None:
+        dataset_id = self._resolve_dataset_id(payload.dataset_ids)
+        if dataset_id is None:
             return None
 
-        return AnalyticsPayload(
-            summary_cards=[
-                SummaryCard(
-                    label="Status",
-                    value="Scaffolded",
-                    detail="Agent and chart contract are wired",
-                ),
-                SummaryCard(
-                    label="Mode",
-                    value=route.replace("_", " ").title(),
-                    detail="Ready for tool execution",
-                ),
-            ],
-            charts=[
-                ChartPayload(
-                    type="line",
-                    title="Sample Analysis Output",
-                    x=["Step 1", "Step 2", "Step 3"],
-                    series=[ChartSeries(name="progress", data=[15, 60, 100])],
-                )
-            ],
-            insights=[
-                InsightPayload(
-                    title="Next Step",
-                    body="Connect upload profiling and dataframe tools to replace placeholder analytics with real dataset-driven output.",
-                    action_label="Run Dataset Profile",
-                )
-            ],
+        analysis_type = self._route_to_analysis_type(route, payload.message)
+        result = self._analysis_service.create(
+            AnalysisRequest(
+                session_id=payload.session_id,
+                dataset_id=dataset_id,
+                analysis_type=analysis_type,
+                prompt=payload.message,
+            )
+        )
+        return result.analytics
+
+    def _resolve_dataset_id(self, dataset_ids: list[str]) -> str | None:
+        if dataset_ids:
+            return dataset_ids[0]
+        return self._dataset_service.get_latest_dataset_id()
+
+    def _route_to_analysis_type(self, route: AgentRoute, message: str) -> str:
+        lowered = message.lower()
+        if route == "dataset_analysis":
+            return "dataset_profile"
+        if "anomaly" in lowered or "outlier" in lowered:
+            return "anomaly_detection"
+        if "trend" in lowered or "monthly" in lowered or "time" in lowered:
+            return "trend"
+        if "correlation" in lowered or "correlat" in lowered:
+            return "correlation"
+        if "group" in lowered or "segment" in lowered or "break down" in lowered:
+            return "grouped_aggregation"
+        return "descriptive_summary"
+
+    def _system_prompt(self, route: AgentRoute) -> str:
+        if route == "dataset_analysis":
+            return (
+                "You are a data analysis copilot inside a portal dashboard. "
+                "Help the user explore uploaded datasets, summarize quality, and propose the next best analysis."
+            )
+        if route == "analysis_request":
+            return (
+                "You are a data analysis copilot inside a portal dashboard. "
+                "Return a concise, business-friendly analysis response with specific next steps."
+            )
+        return (
+            "You are a concise AI assistant inside a data portal. "
+            "Answer clearly and suggest the next useful dataset or analytics action when relevant."
         )
