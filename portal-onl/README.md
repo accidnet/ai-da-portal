@@ -26,13 +26,25 @@ uv sync
 ## Run
 
 ```bash
-uv run uvicorn portal_onl.main:app --reload
+uv run uvicorn main:app --reload
+```
+
+If your shell does not pick up `pyenv` or `uv` cleanly, use the local wrapper instead:
+
+```powershell
+.\scripts\dev.ps1
 ```
 
 ## Test
 
 ```bash
 uv run pytest
+```
+
+If you want to bypass shell Python resolution entirely, use:
+
+```powershell
+.\scripts\test.ps1
 ```
 
 ## API surface

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from portal_onl.main import app
+from main import app
 
 
 def test_cors_allows_local_frontend_origin() -> None:
