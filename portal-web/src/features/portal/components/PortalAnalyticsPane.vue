@@ -7,14 +7,29 @@ const props = defineProps<{
   analytics: AnalyticsData
 }>()
 
+const chartPoints = computed(() => props.analytics.chartPoints)
+
+const hasChartData = computed(() => chartPoints.value.length > 0)
+
 const chartPath = computed(() => {
-  const points = props.analytics.chartPoints
+  const points = chartPoints.value
+
+  if (points.length === 0) {
+    return ''
+  }
+
   const maxValue = Math.max(...points.map((point) => point.spend))
+  const safeMaxValue = maxValue > 0 ? maxValue : 1
+  const midpoint = 50
+
+  if (points.length === 1) {
+    return `M 0 ${midpoint} L 100 ${midpoint}`
+  }
 
   return points
     .map((point, index) => {
       const x = (index / (points.length - 1)) * 100
-      const y = 100 - (point.spend / maxValue) * 100
+      const y = 100 - (point.spend / safeMaxValue) * 100
       return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
     })
     .join(' ')
@@ -49,16 +64,18 @@ const chartPath = computed(() => {
       </div>
 
       <div class="chart-body">
-        <div class="chart-bars">
+        <div v-if="hasChartData" class="chart-bars">
           <div v-for="point in analytics.chartPoints" :key="point.label" class="bar-item">
             <div class="bar-fill" :style="{ height: `${point.spend}%` }"></div>
             <small>{{ point.label }}</small>
           </div>
         </div>
 
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <svg v-if="hasChartData" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <path :d="chartPath"></path>
         </svg>
+
+        <p v-else class="chart-empty">No chart data available.</p>
       </div>
     </section>
 
@@ -212,6 +229,16 @@ const chartPath = computed(() => {
   height: 220px;
   margin-top: 16px;
   padding: 12px 0 24px;
+}
+
+.chart-empty {
+  margin: 0;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  text-align: center;
 }
 
 .chart-bars {
