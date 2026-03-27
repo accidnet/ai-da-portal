@@ -26,7 +26,7 @@ uv sync
 ## Run
 
 ```bash
-uv run uvicorn main:app --reload
+uv run uvicorn --app-dir src main:app --reload
 ```
 
 If your shell does not pick up `pyenv` or `uv` cleanly, use the local wrapper instead:

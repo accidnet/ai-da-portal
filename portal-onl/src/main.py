@@ -48,6 +48,7 @@ def main() -> None:
         port=settings.port,
         reload=settings.reload,
         factory=False,
+        app_dir="src",
     )
 
 

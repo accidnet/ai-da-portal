@@ -20,19 +20,12 @@ dependencies = [
     "orjson>=3.11.0,<4.0.0",
 ]
 
-[project.scripts]
-portal-onl = "main:main"
-
 [dependency-groups]
 dev = [
     "pytest>=8.4.0,<9.0.0",
     "pytest-asyncio>=1.1.0,<2.0.0",
     "ruff>=0.12.0,<0.13.0",
 ]
-
-[build-system]
-requires = ["uv_build>=0.10.9,<0.11.0"]
-build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
