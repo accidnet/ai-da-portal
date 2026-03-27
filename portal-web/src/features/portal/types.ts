@@ -5,6 +5,7 @@ export interface NavItem {
 }
 
 export interface SessionItem {
+  id?: string
   title: string
 }
 
@@ -27,6 +28,17 @@ export interface HeaderData {
 }
 
 export type BackendConnectionStatus = 'checking' | 'connected' | 'offline'
+export type OpenAiAuthState = 'disconnected' | 'pending' | 'connected'
+
+export interface OpenAiAuthStatus {
+  state: OpenAiAuthState
+  connected: boolean
+  pending: boolean
+  accountEmail: string | null
+  accountId: string | null
+  expiresAt: string | null
+  scopes: string[]
+}
 
 export interface MessageCodeBlock {
   language: string
@@ -59,6 +71,7 @@ export interface ComposerData {
 export interface ConversationData {
   messages: ChatMessage[]
   thinkingLabel: string
+  isThinking?: boolean
 }
 
 export interface MetricCard {
@@ -85,6 +98,34 @@ export interface InsightData {
   actionLabel: string
 }
 
+export interface DatasetColumnProfile {
+  name: string
+  dtype: string
+  nullRatio: number
+  sampleValues: string[]
+}
+
+export interface DatasetProfile {
+  rowCount: number
+  columnCount: number
+  columns: DatasetColumnProfile[]
+  suggestedPrompts: string[]
+}
+
+export interface DatasetPreview {
+  columns: string[]
+  rows: Record<string, string | number | null>[]
+}
+
+export interface DatasetAsset {
+  id: string
+  filename: string
+  contentType: string | null
+  createdAt: string
+  preview?: DatasetPreview | null
+  profile?: DatasetProfile | null
+}
+
 export interface AnalyticsData {
   title: string
   chartTitle: string
@@ -93,6 +134,60 @@ export interface AnalyticsData {
   metrics: MetricCard[]
   tableRows: TableRow[]
   insight: InsightData
+}
+
+export interface AnalyticsChartSeries {
+  name: string
+  data: Array<number | string | null>
+}
+
+export interface AnalyticsChartPayload {
+  type: 'line' | 'bar' | 'scatter' | 'table' | 'metric'
+  title: string
+  x: string[]
+  series: AnalyticsChartSeries[]
+}
+
+export interface AnalyticsTableColumn {
+  key: string
+  label: string
+}
+
+export interface AnalyticsTablePayload {
+  title: string
+  columns: AnalyticsTableColumn[]
+  rows: Record<string, string | number | null>[]
+}
+
+export interface AnalyticsSummaryCard {
+  label: string
+  value: string
+  detail?: string | null
+  tone?: 'primary' | 'warning' | 'neutral'
+}
+
+export interface AnalyticsInsight {
+  title: string
+  body: string
+  action_label?: string | null
+}
+
+export interface AnalyticsPayload {
+  summary_cards: AnalyticsSummaryCard[]
+  charts: AnalyticsChartPayload[]
+  tables: AnalyticsTablePayload[]
+  insights: AnalyticsInsight[]
+  dataset_profile?: {
+    row_count: number
+    column_count: number
+    columns: Array<{
+      name: string
+      dtype: string
+      null_ratio: number
+      sample_values: string[]
+    }>
+    suggested_prompts: string[]
+  } | null
 }
 
 export interface PortalDashboardData {

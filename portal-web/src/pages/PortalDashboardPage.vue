@@ -1,15 +1,523 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import PortalAnalyticsPane from '../features/portal/components/PortalAnalyticsPane.vue'
 import PortalConversationPane from '../features/portal/components/PortalConversationPane.vue'
 import PortalHeader from '../features/portal/components/PortalHeader.vue'
 import PortalSidebar from '../features/portal/components/PortalSidebar.vue'
-import { portalDashboard } from '../features/portal/data/dashboard'
-import type { BackendConnectionStatus } from '../features/portal/types'
-import { fetchHealthcheck } from '../shared/api/portalApi'
+import type {
+  AnalyticsData,
+  AnalyticsPayload,
+  ChatMessage,
+  ComposerChip,
+  ComposerData,
+  ConversationData,
+  DatasetAsset,
+  HeaderData,
+  OpenAiAuthStatus,
+  SessionItem,
+  SidebarData,
+} from '../features/portal/types'
+import {
+  authorizeOpenAi,
+  createAnalysis,
+  createSession,
+  fetchDatasetPreview,
+  fetchDatasetProfile,
+  fetchHealthcheck,
+  fetchOpenAiAuthStatus,
+  fetchSessions,
+  sendChatMessage,
+  uploadDataset,
+} from '../shared/api/portalApi'
 
-const connectionStatus = ref<BackendConnectionStatus>('checking')
+interface SessionRuntimeState {
+  title: string
+  messages: ChatMessage[]
+  analyticsPayload: AnalyticsPayload | null
+  datasets: DatasetAsset[]
+}
+
+const shellSidebar: SidebarData = {
+  productName: 'Data Analysis AI',
+  productTagline: 'Data Intelligence',
+  primaryNav: [
+    { label: 'New Analysis', icon: 'add_chart', active: true },
+    { label: 'History', icon: 'history' },
+    { label: 'Data Sources', icon: 'database' },
+    { label: 'Models', icon: 'neurology' },
+  ],
+  recentSessions: [],
+  secondaryNav: [
+    { label: 'Settings', icon: 'settings' },
+    { label: 'Help', icon: 'help' },
+  ],
+  profile: {
+    name: 'Alex Architect',
+    plan: 'Pro Plan',
+    initials: 'AA',
+  },
+}
+
+const shellHeader: HeaderData = {
+  searchPlaceholder: 'Search analysis, datasets, or prompts...',
+  actions: ['notifications', 'ios_share', 'account_circle'],
+}
+
+const shellAnalytics: AnalyticsData = {
+  title: 'Analytical Canvas',
+  chartTitle: 'Waiting for live analysis',
+  chartChange: 'No analysis yet',
+  chartPoints: [],
+  metrics: [],
+  tableRows: [],
+  insight: {
+    title: 'Start here',
+    body: 'Upload a dataset or send a prompt to populate the analytics pane with live backend output.',
+    actionLabel: 'Run Analysis',
+  },
+}
+
+const connectionStatus = ref<'checking' | 'connected' | 'offline'>('checking')
+const authStatus = ref<OpenAiAuthStatus>({
+  state: 'disconnected',
+  connected: false,
+  pending: false,
+  accountEmail: null,
+  accountId: null,
+  expiresAt: null,
+  scopes: [],
+})
+const isConnecting = ref(false)
+const authError = ref<string | null>(null)
+const chatError = ref<string | null>(null)
+const uploadError = ref<string | null>(null)
+const analyticsError = ref<string | null>(null)
+const isSending = ref(false)
+const isUploading = ref(false)
+const isRunningAnalysis = ref(false)
+const activeSessionId = ref<string | null>(null)
+const sessionSummaries = ref<SessionItem[]>([])
+const sessionStates = ref<Record<string, SessionRuntimeState>>({})
+const datasetPickerRef = ref<HTMLInputElement | null>(null)
+let authPollTimer: number | null = null
+
+function createWelcomeMessages(title: string): ChatMessage[] {
+  return [
+    {
+      role: 'assistant',
+      author: 'ChatGPT Codex',
+      text: `You're in ${title}. Upload a dataset or send a prompt to start the live workflow.`,
+      bullets: [
+        { text: 'Attach a CSV or spreadsheet' },
+        { text: 'Ask for a trend, correlation, or anomaly view' },
+        { text: 'Run analysis to populate the dashboard cards' },
+      ],
+    },
+  ]
+}
+
+function createSessionState(title: string): SessionRuntimeState {
+  return {
+    title,
+    messages: createWelcomeMessages(title),
+    analyticsPayload: null,
+    datasets: [],
+  }
+}
+
+function ensureSessionState(sessionId: string, title: string): SessionRuntimeState {
+  const existing = sessionStates.value[sessionId]
+  if (existing) {
+    existing.title = title
+    return existing
+  }
+
+  const created = createSessionState(title)
+  sessionStates.value[sessionId] = created
+  return created
+}
+
+function updateSessionSummary(sessionId: string, title: string) {
+  const current = sessionSummaries.value.filter((session) => session.id !== sessionId)
+  sessionSummaries.value = [
+    { id: sessionId, title },
+    ...current,
+  ]
+}
+
+function syncAuthPolling() {
+  if (authStatus.value.connected || (!authStatus.value.pending && !isConnecting.value)) {
+    if (authPollTimer !== null) {
+      window.clearInterval(authPollTimer)
+      authPollTimer = null
+    }
+    return
+  }
+
+  if (authPollTimer === null) {
+    authPollTimer = window.setInterval(async () => {
+      await loadAuthStatus()
+    }, 3000)
+  }
+}
+
+async function loadAuthStatus() {
+  try {
+    const status = await fetchOpenAiAuthStatus()
+    authStatus.value = {
+      state: status.state,
+      connected: status.connected,
+      pending: status.pending,
+      accountEmail: status.account_email,
+      accountId: status.account_id,
+      expiresAt: status.expires_at,
+      scopes: status.scopes,
+    }
+    if (status.connected) {
+      isConnecting.value = false
+      authError.value = null
+    }
+  } catch {
+    authError.value = 'ChatGPT connection status could not be loaded.'
+  } finally {
+    syncAuthPolling()
+  }
+}
+
+async function loadSessions() {
+  try {
+    const sessions = await fetchSessions()
+    sessionSummaries.value = sessions.map((session) => ({
+      id: session.id,
+      title: session.title,
+    }))
+
+    if (sessionSummaries.value.length === 0) {
+      const created = await createSession('ChatGPT analysis session')
+      sessionSummaries.value = [{ id: created.id, title: created.title }]
+      activeSessionId.value = created.id
+      ensureSessionState(created.id, created.title)
+      return
+    }
+
+    for (const session of sessionSummaries.value) {
+      if (!session.id) {
+        continue
+      }
+
+      ensureSessionState(session.id, session.title)
+    }
+
+    const firstSessionId = sessionSummaries.value[0]?.id
+    if (!activeSessionId.value || !sessionStates.value[activeSessionId.value]) {
+      activeSessionId.value = firstSessionId ?? null
+    }
+  } catch {
+    if (!activeSessionId.value) {
+      const fallback = 'local-session'
+      activeSessionId.value = fallback
+      sessionSummaries.value = [{ id: fallback, title: 'ChatGPT analysis session' }]
+      ensureSessionState(fallback, 'ChatGPT analysis session')
+    }
+  }
+}
+
+function getActiveSessionId(): string {
+  if (activeSessionId.value) {
+    return activeSessionId.value
+  }
+
+  const fallback = 'local-session'
+  activeSessionId.value = fallback
+  ensureSessionState(fallback, 'ChatGPT analysis session')
+  updateSessionSummary(fallback, 'ChatGPT analysis session')
+  return fallback
+}
+
+async function ensureActiveSession() {
+  const currentSessionId = getActiveSessionId()
+  const state = sessionStates.value[currentSessionId]
+  if (state) {
+    return currentSessionId
+  }
+
+  const created = await createSession('ChatGPT analysis session')
+  activeSessionId.value = created.id
+  sessionSummaries.value = [{ id: created.id, title: created.title }, ...sessionSummaries.value]
+  ensureSessionState(created.id, created.title)
+  return created.id
+}
+
+async function connectOpenAi() {
+  isConnecting.value = true
+  authError.value = null
+
+  try {
+    const authorization = await authorizeOpenAi()
+    const popup = window.open(authorization.authorization_url, '_blank', 'noopener,noreferrer')
+
+    if (!popup) {
+      window.location.assign(authorization.authorization_url)
+      return
+    }
+
+    authStatus.value = {
+      ...authStatus.value,
+      state: 'pending',
+      pending: true,
+      connected: false,
+    }
+  } catch {
+    isConnecting.value = false
+    authError.value = 'ChatGPT sign-in could not be started.'
+  } finally {
+    syncAuthPolling()
+  }
+}
+
+function selectSession(sessionId: string) {
+  activeSessionId.value = sessionId
+  const summary = sessionSummaries.value.find((session) => session.id === sessionId)
+  ensureSessionState(sessionId, summary?.title ?? 'ChatGPT analysis session')
+}
+
+async function handleSendMessage(message: string) {
+  chatError.value = null
+  uploadError.value = null
+  analyticsError.value = null
+
+  const sessionId = await ensureActiveSession()
+  const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+
+  sessionState.messages = [
+    ...sessionState.messages,
+    {
+      role: 'user',
+      text: message,
+    },
+  ]
+  isSending.value = true
+
+  try {
+    const response = await sendChatMessage({
+      sessionId,
+      message,
+      datasetIds: sessionState.datasets.map((dataset) => dataset.id),
+    })
+
+    sessionState.messages = [
+      ...sessionState.messages,
+      {
+        role: 'assistant',
+        author: 'ChatGPT Codex',
+        text: response.assistant_message,
+        bullets: response.follow_up_suggestions.map((text) => ({ text })),
+      },
+    ]
+    sessionState.analyticsPayload = response.analytics
+    updateSessionSummary(sessionId, sessionState.title)
+  } catch {
+    chatError.value = 'The message could not be sent. Check ChatGPT connection and backend status.'
+  } finally {
+    isSending.value = false
+  }
+}
+
+function openDatasetPicker() {
+  datasetPickerRef.value?.click()
+}
+
+function mapDatasetProfile(payload: {
+  row_count: number
+  column_count: number
+  columns: Array<{
+    name: string
+    dtype: string
+    null_ratio: number
+    sample_values: string[]
+  }>
+  suggested_prompts: string[]
+}): DatasetAsset['profile'] {
+  return {
+    rowCount: payload.row_count,
+    columnCount: payload.column_count,
+    columns: payload.columns.map((column) => ({
+      name: column.name,
+      dtype: column.dtype,
+      nullRatio: column.null_ratio,
+      sampleValues: column.sample_values,
+    })),
+    suggestedPrompts: payload.suggested_prompts,
+  }
+}
+
+async function handleDatasetFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+
+  if (!file) {
+    return
+  }
+
+  analyticsError.value = null
+  uploadError.value = null
+  isUploading.value = true
+
+  try {
+    const sessionId = await ensureActiveSession()
+    const detail = await uploadDataset(file)
+    const [preview, profile] = await Promise.all([
+      fetchDatasetPreview(detail.id),
+      fetchDatasetProfile(detail.id),
+    ])
+
+    const dataset: DatasetAsset = {
+      id: detail.id,
+      filename: detail.filename,
+      contentType: detail.content_type,
+      createdAt: detail.created_at,
+      preview: {
+        columns: preview.columns,
+        rows: preview.rows,
+      },
+      profile: mapDatasetProfile(profile.profile),
+    }
+
+    const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+    sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
+    updateSessionSummary(sessionId, sessionState.title)
+    activeSessionId.value = sessionId
+  } catch {
+    uploadError.value = 'Dataset upload failed. Please try again with a CSV or spreadsheet file.'
+  } finally {
+    isUploading.value = false
+  }
+}
+
+async function runAnalysis() {
+  analyticsError.value = null
+  const sessionId = await ensureActiveSession()
+  const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+  const primaryDataset = sessionState.datasets[0]
+
+  if (!primaryDataset) {
+    analyticsError.value = 'Upload a dataset first to run analysis.'
+    return
+  }
+
+  isRunningAnalysis.value = true
+
+  try {
+    const analysis = await createAnalysis({
+      sessionId,
+      datasetId: primaryDataset.id,
+      analysisType: 'dataset_profile',
+      prompt: `Generate a dashboard-ready profile for ${primaryDataset.filename}.`,
+    })
+
+    sessionState.analyticsPayload = analysis.analytics
+    sessionState.messages = [
+      ...sessionState.messages,
+      {
+        role: 'assistant',
+        author: 'ChatGPT Codex',
+        text:
+          analysis.analytics?.insights[0]?.body ??
+          'Analysis completed. The live analytics panel has been refreshed.',
+      },
+    ]
+    updateSessionSummary(sessionId, sessionState.title)
+  } catch {
+    analyticsError.value = 'Analysis could not be started.'
+  } finally {
+    isRunningAnalysis.value = false
+  }
+}
+
+const activeSessionState = computed(() => {
+  const sessionId = activeSessionId.value
+  if (!sessionId) {
+    return null
+  }
+  return sessionStates.value[sessionId] ?? null
+})
+
+const activeDataset = computed(() => activeSessionState.value?.datasets[0] ?? null)
+
+const recentSessions = computed<SessionItem[]>(() =>
+  sessionSummaries.value.map((session) => ({
+    id: session.id,
+    title: session.title,
+  })),
+)
+
+const conversation = computed<ConversationData>(() => ({
+  messages: activeSessionState.value?.messages ?? createWelcomeMessages('ChatGPT analysis session'),
+  thinkingLabel: isSending.value
+    ? 'Processing with ChatGPT...'
+    : isUploading.value
+      ? 'Uploading dataset...'
+      : isRunningAnalysis.value
+        ? 'Running analysis...'
+        : 'Ready for your next prompt',
+  isThinking: isSending.value || isUploading.value || isRunningAnalysis.value,
+}))
+
+const composer = computed<ComposerData>(() => {
+  const chips: ComposerChip[] = []
+
+  chips.push({
+    icon: authStatus.value.connected ? 'smart_toy' : 'lock',
+    label: authStatus.value.connected ? 'ChatGPT connected' : 'ChatGPT not connected',
+    tone: authStatus.value.connected ? 'primary' : 'neutral',
+  })
+
+  if (activeSessionState.value?.title) {
+    chips.push({
+      icon: 'forum',
+      label: activeSessionState.value.title,
+      tone: 'neutral',
+    })
+  }
+
+  if (activeDataset.value) {
+    chips.push({
+      icon: 'description',
+      label: activeDataset.value.filename,
+      tone: 'primary',
+    })
+  }
+
+  const extraDatasetCount = Math.max((activeSessionState.value?.datasets.length ?? 0) - 1, 0)
+  if (extraDatasetCount > 0) {
+    chips.push({
+      icon: 'dataset',
+      label: `+${extraDatasetCount} more`,
+      tone: 'neutral',
+    })
+  }
+
+  if (isUploading.value) {
+    chips.push({
+      icon: 'progress_activity',
+      label: 'Uploading',
+      tone: 'neutral',
+    })
+  }
+
+  return {
+    chips,
+    placeholder: authStatus.value.connected
+      ? activeDataset.value
+        ? `Ask about ${activeDataset.value.filename} or add another dataset...`
+        : 'Ask ChatGPT to analyze the selected dataset...'
+      : 'Connect ChatGPT to send live prompts...',
+  }
+})
+
+const analyticsPayload = computed(() => activeSessionState.value?.analyticsPayload ?? null)
 
 onMounted(async () => {
   const controller = new AbortController()
@@ -20,28 +528,68 @@ onMounted(async () => {
   } catch {
     connectionStatus.value = 'offline'
   }
+
+  await loadAuthStatus()
+  await loadSessions()
+})
+
+onUnmounted(() => {
+  if (authPollTimer !== null) {
+    window.clearInterval(authPollTimer)
+  }
 })
 </script>
 
 <template>
   <div class="portal-layout">
-    <PortalSidebar :sidebar="portalDashboard.sidebar" />
+    <PortalSidebar
+      :sidebar="{ ...shellSidebar, recentSessions }"
+      :active-session-id="activeSessionId"
+      @select-session="selectSession"
+    />
 
     <div class="portal-main-shell">
-      <PortalHeader :header="portalDashboard.header" :connection-status="connectionStatus" />
+      <PortalHeader
+        :header="shellHeader"
+        :connection-status="connectionStatus"
+        :auth-status="authStatus"
+        :is-connecting="isConnecting"
+        @connect-open-ai="connectOpenAi"
+      />
+
+      <p v-if="authError" class="auth-error">{{ authError }}</p>
 
       <div class="portal-main-grid">
         <PortalConversationPane
-          :conversation="portalDashboard.conversation"
-          :composer="portalDashboard.composer"
+          :conversation="conversation"
+          :composer="composer"
+          :send-disabled="!authStatus.connected || isSending || isRunningAnalysis"
+          :attach-disabled="isUploading || isRunningAnalysis"
+          :error-message="chatError || uploadError"
+          @attach="openDatasetPicker"
+          @send="handleSendMessage"
         />
-        <PortalAnalyticsPane :analytics="portalDashboard.analytics" />
+        <PortalAnalyticsPane
+          :analytics="shellAnalytics"
+          :analytics-payload="analyticsPayload"
+          :dataset-asset="activeDataset"
+          :is-loading="isSending || isUploading || isRunningAnalysis"
+          :error-message="analyticsError"
+        />
       </div>
     </div>
 
-    <button class="floating-action" type="button" aria-label="Create new analysis">
+    <button class="floating-action" type="button" aria-label="Run analysis" @click="runAnalysis">
       <span class="material-symbols-outlined">add</span>
     </button>
+
+    <input
+      ref="datasetPickerRef"
+      class="dataset-picker"
+      type="file"
+      accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      @change="handleDatasetFileChange"
+    />
   </div>
 </template>
 
@@ -72,6 +620,12 @@ onMounted(async () => {
   gap: 20px;
 }
 
+.auth-error {
+  margin: -8px 4px 0;
+  color: #9b3b3b;
+  font-size: 0.86rem;
+}
+
 .floating-action {
   position: fixed;
   right: 28px;
@@ -82,6 +636,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   border-radius: 20px;
+  border: 0;
   color: #fff;
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
   box-shadow: 0 18px 32px rgba(16, 56, 104, 0.24);
@@ -92,6 +647,14 @@ onMounted(async () => {
 .floating-action:hover {
   transform: translateY(-2px);
   box-shadow: 0 22px 40px rgba(16, 56, 104, 0.28);
+}
+
+.dataset-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (max-width: 1280px) {
