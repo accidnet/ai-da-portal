@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, status
+from fastapi import HTTPException
 
 from api.deps import get_session_service
 from domain.sessions.schemas import (
@@ -30,4 +31,10 @@ def list_sessions(
 def get_session(
     session_id: str, service: SessionService = Depends(get_session_service)
 ) -> SessionDetail:
-    return service.get(session_id)
+    try:
+        return service.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' was not found.",
+        ) from exc

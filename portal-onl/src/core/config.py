@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     llm_provider: str = "openai"
     llm_model: str = "gpt-4.1"
     openai_api_key: str | None = Field(default=None, repr=False)
+    openai_auth_client_id: str = "app_EMoamEEZ73f0CkXaXp7hrann"
+    openai_auth_issuer: str = "https://auth.openai.com"
+    openai_auth_scope: str = "openid profile email offline_access"
+    openai_auth_storage_path: str = "storage/openai_auth.json"
+    openai_auth_pending_ttl_seconds: int = 600
+    openai_codex_api_endpoint: str = "https://chatgpt.com/backend-api/codex/responses"
 
 
 @lru_cache

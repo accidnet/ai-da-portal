@@ -1,0 +1,96 @@
+from io import BytesIO
+from textwrap import dedent
+
+from fastapi.testclient import TestClient
+
+from main import app
+
+
+def _upload_sample_csv(client: TestClient) -> dict[str, object]:
+    csv_content = dedent(
+        """
+        date,channel,spend,new_users
+        2025-01-01,social,1500,120
+        2025-02-01,search,2100,148
+        2025-03-01,email,900,95
+        2025-04-01,social,1800,136
+        2025-05-01,search,2400,160
+        2025-06-01,email,1000,102
+        2025-07-01,social,2600,175
+        2025-08-01,search,2800,180
+        2025-09-01,email,1100,108
+        2025-10-01,social,3200,230
+        2025-11-01,search,2500,165
+        2025-12-01,email,1200,111
+        """
+    ).strip()
+
+    response = client.post(
+        "/api/v1/datasets/upload",
+        files={"file": ("marketing_metrics.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_uploaded_dataset_preview_profile_and_list() -> None:
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        listed = client.get("/api/v1/datasets")
+        assert listed.status_code == 200
+        assert any(item["id"] == dataset["id"] for item in listed.json())
+
+        preview = client.get(f"/api/v1/datasets/{dataset['id']}/preview")
+        assert preview.status_code == 200
+        preview_body = preview.json()
+        assert preview_body["dataset_id"] == dataset["id"]
+        assert preview_body["columns"] == ["date", "channel", "spend", "new_users"]
+        assert len(preview_body["rows"]) >= 3
+
+        profile = client.get(f"/api/v1/datasets/{dataset['id']}/profile")
+        assert profile.status_code == 200
+        profile_body = profile.json()
+        assert profile_body["profile"]["row_count"] == 12
+        assert profile_body["profile"]["column_count"] == 4
+        assert profile_body["profile"]["columns"][0]["dtype"] == "datetime"
+
+
+def test_analysis_and_chat_use_uploaded_dataset() -> None:
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        analysis = client.post(
+            "/api/v1/analyses",
+            json={
+                "session_id": "demo-session",
+                "dataset_id": dataset["id"],
+                "analysis_type": "correlation",
+                "prompt": "Show the relationship between spend and new users.",
+            },
+        )
+        assert analysis.status_code == 202
+        analysis_body = analysis.json()
+        assert analysis_body["dataset_id"] == dataset["id"]
+        assert analysis_body["analytics"]["summary_cards"]
+        assert analysis_body["analytics"]["charts"]
+        assert analysis_body["analytics"]["tables"]
+        assert analysis_body["analytics"]["insights"]
+
+        artifacts = client.get(f"/api/v1/analyses/{analysis_body['id']}/artifacts")
+        assert artifacts.status_code == 200
+        assert artifacts.json()["analysis_id"] == analysis_body["id"]
+
+        chat = client.post(
+            "/api/v1/chat/messages",
+            json={
+                "session_id": "demo-session",
+                "message": "Analyze the marketing dataset and tell me if spend correlates with new users.",
+                "dataset_ids": [dataset["id"]],
+            },
+        )
+        assert chat.status_code == 202
+        chat_body = chat.json()
+        assert chat_body["analytics"] is not None
+        assert chat_body["assistant_message"]
+        assert chat_body["analytics"]["summary_cards"]

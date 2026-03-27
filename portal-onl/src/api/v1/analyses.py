@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_analysis_service
 from domain.analyses.schemas import (
@@ -16,7 +16,13 @@ def create_analysis(
     payload: AnalysisRequest,
     service: AnalysisService = Depends(get_analysis_service),
 ) -> AnalysisDetail:
-    return service.create(payload)
+    try:
+        return service.create(payload)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/{analysis_id}", response_model=AnalysisDetail)
@@ -24,7 +30,13 @@ def get_analysis(
     analysis_id: str,
     service: AnalysisService = Depends(get_analysis_service),
 ) -> AnalysisDetail:
-    return service.get(analysis_id)
+    try:
+        return service.get(analysis_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' was not found.",
+        ) from exc
 
 
 @router.get("/{analysis_id}/artifacts", response_model=AnalysisArtifactsResponse)
@@ -32,4 +44,10 @@ def get_analysis_artifacts(
     analysis_id: str,
     service: AnalysisService = Depends(get_analysis_service),
 ) -> AnalysisArtifactsResponse:
-    return service.get_artifacts(analysis_id)
+    try:
+        return service.get_artifacts(analysis_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' was not found.",
+        ) from exc
