@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { BackendConnectionStatus, HeaderData } from '../types'
+import type { BackendConnectionStatus, HeaderData, OpenAiAuthStatus } from '../types'
 
 const props = defineProps<{
   header: HeaderData
   connectionStatus: BackendConnectionStatus
+  authStatus: OpenAiAuthStatus
+  isConnecting: boolean
+}>()
+
+const emit = defineEmits<{
+  connectOpenAi: []
 }>()
 
 const connectionLabel = computed(() => {
@@ -18,6 +24,32 @@ const connectionLabel = computed(() => {
   }
 
   return 'Checking backend'
+})
+
+const authLabel = computed(() => {
+  if (props.authStatus.connected) {
+    return props.authStatus.accountEmail
+      ? `ChatGPT connected: ${props.authStatus.accountEmail}`
+      : 'ChatGPT connected'
+  }
+
+  if (props.authStatus.pending || props.isConnecting) {
+    return 'Finish ChatGPT sign-in'
+  }
+
+  return 'Connect ChatGPT'
+})
+
+const authButtonLabel = computed(() => {
+  if (props.authStatus.connected) {
+    return 'Connected'
+  }
+
+  if (props.authStatus.pending || props.isConnecting) {
+    return 'Waiting...'
+  }
+
+  return 'Connect ChatGPT'
 })
 </script>
 
@@ -33,6 +65,20 @@ const connectionLabel = computed(() => {
         <span class="connection-pill__dot"></span>
         <strong>{{ connectionLabel }}</strong>
       </div>
+
+      <div class="auth-pill" :class="`auth-pill--${authStatus.state}`">
+        <span class="material-symbols-outlined">smart_toy</span>
+        <strong>{{ authLabel }}</strong>
+      </div>
+
+      <button
+        type="button"
+        class="connect-button"
+        :disabled="authStatus.connected || isConnecting"
+        @click="emit('connectOpenAi')"
+      >
+        {{ authButtonLabel }}
+      </button>
 
       <button v-for="action in header.actions" :key="action" type="button" class="action-button">
         <span class="material-symbols-outlined">{{ action }}</span>
@@ -130,6 +176,7 @@ const connectionLabel = computed(() => {
 }
 
 .action-button {
+  border: 0;
   width: 46px;
   height: 46px;
   display: inline-flex;
@@ -140,6 +187,53 @@ const connectionLabel = computed(() => {
   background: var(--color-surface-muted);
   cursor: pointer;
   transition: background-color 180ms ease, color 180ms ease;
+}
+
+.auth-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.auth-pill--disconnected {
+  color: #8a4a24;
+  background: rgba(205, 142, 79, 0.12);
+  border-color: rgba(205, 142, 79, 0.18);
+}
+
+.auth-pill--pending {
+  color: #8a6b2d;
+  background: rgba(212, 177, 81, 0.12);
+  border-color: rgba(212, 177, 81, 0.18);
+}
+
+.auth-pill--connected {
+  color: #1d6b45;
+  background: rgba(44, 139, 92, 0.12);
+  border-color: rgba(44, 139, 92, 0.16);
+}
+
+.connect-button {
+  border: 0;
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.connect-button:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 .action-button:hover {

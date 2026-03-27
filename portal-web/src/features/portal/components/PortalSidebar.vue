@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import type { SidebarData } from '../types'
 
-defineProps<{
+const props = defineProps<{
   sidebar: SidebarData
+  activeSessionId?: string | null
+}>()
+
+const emit = defineEmits<{
+  selectSession: [sessionId: string]
 }>()
 </script>
 
@@ -33,9 +38,16 @@ defineProps<{
 
     <div class="sessions-block">
       <p class="section-label">Recent Sessions</p>
-      <a v-for="session in sidebar.recentSessions" :key="session.title" href="#" class="session-item">
+      <button
+        v-for="session in sidebar.recentSessions"
+        :key="session.id ?? session.title"
+        type="button"
+        class="session-item"
+        :class="{ 'session-item--active': session.id && session.id === activeSessionId }"
+        @click="session.id && emit('selectSession', session.id)"
+      >
         {{ session.title }}
-      </a>
+      </button>
     </div>
 
     <nav class="nav-group nav-group--secondary" aria-label="Secondary navigation">
@@ -146,6 +158,11 @@ defineProps<{
 }
 
 .session-item {
+  width: 100%;
+  border: 0;
+  appearance: none;
+  font: inherit;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -153,6 +170,12 @@ defineProps<{
   border-radius: 14px;
   color: var(--color-text-muted);
   background: rgba(255, 255, 255, 0.48);
+}
+
+.session-item--active {
+  color: var(--color-primary-strong);
+  background: var(--color-surface-strong);
+  box-shadow: inset 0 0 0 1px rgba(24, 74, 140, 0.12);
 }
 
 .session-item:hover {

@@ -1,10 +1,42 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
+
 import type { ComposerData, ConversationData } from '../types'
 
-defineProps<{
+const props = defineProps<{
   conversation: ConversationData
   composer: ComposerData
+  sendDisabled?: boolean
+  attachDisabled?: boolean
+  errorMessage?: string | null
 }>()
+
+const emit = defineEmits<{
+  send: [message: string]
+  attach: []
+}>()
+
+const draft = ref('')
+
+const canSend = computed(
+  () => draft.value.trim().length > 0 && !props.sendDisabled,
+)
+
+function submit() {
+  const message = draft.value.trim()
+  if (!message || props.sendDisabled) {
+    return
+  }
+  emit('send', message)
+  draft.value = ''
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    submit()
+  }
+}
 </script>
 
 <template>
@@ -35,7 +67,7 @@ defineProps<{
         </div>
       </article>
 
-      <div class="thinking-row" aria-live="polite">
+      <div v-if="conversation.isThinking" class="thinking-row" aria-live="polite">
         <span></span>
         <span></span>
         <span></span>
@@ -56,12 +88,32 @@ defineProps<{
         </span>
       </div>
 
+      <p v-if="errorMessage" class="composer-error">{{ errorMessage }}</p>
+
       <div class="composer-box">
-        <button type="button" class="composer-icon-button" aria-label="Attach file">
+        <button
+          type="button"
+          class="composer-icon-button"
+          aria-label="Attach file"
+          :disabled="attachDisabled"
+          @click="emit('attach')"
+        >
           <span class="material-symbols-outlined">attach_file</span>
         </button>
-        <textarea rows="1" :placeholder="composer.placeholder"></textarea>
-        <button type="button" class="composer-send-button" aria-label="Send message">
+        <textarea
+          v-model="draft"
+          rows="1"
+          :placeholder="composer.placeholder"
+          :disabled="sendDisabled"
+          @keydown="onKeydown"
+        ></textarea>
+        <button
+          type="button"
+          class="composer-send-button"
+          aria-label="Send message"
+          :disabled="!canSend"
+          @click="submit"
+        >
           <span class="material-symbols-outlined">send</span>
         </button>
       </div>
@@ -216,6 +268,12 @@ defineProps<{
   background: rgba(242, 246, 250, 0.94);
 }
 
+.composer-error {
+  margin: 0 0 12px;
+  color: #9b3b3b;
+  font-size: 0.82rem;
+}
+
 .composer-chips {
   display: flex;
   flex-wrap: wrap;
@@ -263,16 +321,26 @@ defineProps<{
   align-items: center;
   justify-content: center;
   border-radius: 16px;
+  border: 0;
   cursor: pointer;
 }
 
 .composer-icon-button {
   color: var(--color-text-soft);
+  background: transparent;
 }
 
 .composer-send-button {
+  border: 0;
   color: #fff;
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
+}
+
+.composer-send-button:disabled,
+.composer-box textarea:disabled,
+.composer-icon-button:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .composer-box textarea {
