@@ -1,9 +1,24 @@
 <script setup lang="ts">
-import type { HeaderData } from '../types'
+import { computed } from 'vue'
 
-defineProps<{
+import type { BackendConnectionStatus, HeaderData } from '../types'
+
+const props = defineProps<{
   header: HeaderData
+  connectionStatus: BackendConnectionStatus
 }>()
+
+const connectionLabel = computed(() => {
+  if (props.connectionStatus === 'connected') {
+    return 'Backend connected'
+  }
+
+  if (props.connectionStatus === 'offline') {
+    return 'Backend offline'
+  }
+
+  return 'Checking backend'
+})
 </script>
 
 <template>
@@ -14,6 +29,11 @@ defineProps<{
     </label>
 
     <div class="header-actions">
+      <div class="connection-pill" :class="`connection-pill--${connectionStatus}`">
+        <span class="connection-pill__dot"></span>
+        <strong>{{ connectionLabel }}</strong>
+      </div>
+
       <button v-for="action in header.actions" :key="action" type="button" class="action-button">
         <span class="material-symbols-outlined">{{ action }}</span>
       </button>
@@ -66,7 +86,47 @@ defineProps<{
 
 .header-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.connection-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.connection-pill__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.connection-pill--checking {
+  color: #8a6b2d;
+  background: rgba(212, 177, 81, 0.12);
+  border-color: rgba(212, 177, 81, 0.18);
+}
+
+.connection-pill--connected {
+  color: #1d6b45;
+  background: rgba(44, 139, 92, 0.12);
+  border-color: rgba(44, 139, 92, 0.16);
+}
+
+.connection-pill--offline {
+  color: #9b3b3b;
+  background: rgba(184, 76, 76, 0.12);
+  border-color: rgba(184, 76, 76, 0.16);
 }
 
 .action-button {

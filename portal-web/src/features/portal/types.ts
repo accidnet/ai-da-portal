@@ -26,6 +26,8 @@ export interface HeaderData {
   actions: string[]
 }
 
+export type BackendConnectionStatus = 'checking' | 'connected' | 'offline'
+
 export interface MessageCodeBlock {
   language: string
   content: string

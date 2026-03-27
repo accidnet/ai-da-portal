@@ -1,9 +1,26 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
+
 import PortalAnalyticsPane from '../features/portal/components/PortalAnalyticsPane.vue'
 import PortalConversationPane from '../features/portal/components/PortalConversationPane.vue'
 import PortalHeader from '../features/portal/components/PortalHeader.vue'
 import PortalSidebar from '../features/portal/components/PortalSidebar.vue'
 import { portalDashboard } from '../features/portal/data/dashboard'
+import type { BackendConnectionStatus } from '../features/portal/types'
+import { fetchHealthcheck } from '../shared/api/portalApi'
+
+const connectionStatus = ref<BackendConnectionStatus>('checking')
+
+onMounted(async () => {
+  const controller = new AbortController()
+
+  try {
+    const health = await fetchHealthcheck(controller.signal)
+    connectionStatus.value = health.status === 'ok' ? 'connected' : 'offline'
+  } catch {
+    connectionStatus.value = 'offline'
+  }
+})
 </script>
 
 <template>
@@ -11,7 +28,7 @@ import { portalDashboard } from '../features/portal/data/dashboard'
     <PortalSidebar :sidebar="portalDashboard.sidebar" />
 
     <div class="portal-main-shell">
-      <PortalHeader :header="portalDashboard.header" />
+      <PortalHeader :header="portalDashboard.header" :connection-status="connectionStatus" />
 
       <div class="portal-main-grid">
         <PortalConversationPane

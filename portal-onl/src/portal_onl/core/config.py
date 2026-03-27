@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     port: int = 8000
     reload: bool = True
     log_level: str = "INFO"
+    cors_allowed_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ]
+    )
 
     database_url: str = "sqlite:///./portal_onl.db"
     storage_root: str = "storage"
