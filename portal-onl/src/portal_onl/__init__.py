@@ -1,2 +1,3 @@
-def main() -> None:
-    print("Hello from portal-onl!")
+from portal_onl.main import main
+
+__all__ = ["main"]
