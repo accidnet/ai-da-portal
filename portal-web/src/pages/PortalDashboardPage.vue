@@ -182,16 +182,10 @@ function createWelcomeMessages(): ChatMessage[] {
   ]
 }
 
-function normalizeAssistantMessage(message: string, followUpSuggestions: string[]): string {
-  const suggestions = followUpSuggestions.map((item) => item.trim()).filter(Boolean)
+function normalizeAssistantMessage(message: string): string {
   let normalizedMessage = message.trim()
 
   normalizedMessage = normalizedMessage.replace(/^\[(?:Pasted?|Past)\s*/i, '')
-
-  for (const suggestion of suggestions) {
-    const escapedSuggestion = suggestion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    normalizedMessage = normalizedMessage.replace(new RegExp(`(?:^|\\s|[-*]\\s*)${escapedSuggestion}`, 'g'), ' ')
-  }
 
   return normalizedMessage
     .split(/\r?\n/)
@@ -522,8 +516,7 @@ async function handleSendMessage(message: string) {
       {
         role: 'assistant',
         author: 'AI 데이터 분석가',
-        text: normalizeAssistantMessage(response.assistant_message, response.follow_up_suggestions),
-        bullets: response.follow_up_suggestions.map((text) => ({ text })),
+        text: normalizeAssistantMessage(response.assistant_message),
       },
     ]
     sessionState.analyticsPayload = response.analytics

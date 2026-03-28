@@ -59,7 +59,6 @@ export interface DatasetProfileResponse {
 export interface ChatResponse {
   session_id: string
   assistant_message: string
-  follow_up_suggestions: Array<string>
   status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
   analytics: {
     summary_cards: Array<{
