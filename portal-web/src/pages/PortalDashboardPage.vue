@@ -106,6 +106,7 @@ const analyticsError = ref<string | null>(null)
 const isSending = ref(false)
 const isUploading = ref(false)
 const isRunningAnalysis = ref(false)
+const searchQuery = ref('')
 const analyticsPaneWidth = ref(420)
 const isResizingAnalyticsPane = ref(false)
 const activeSessionId = ref<string | null>(null)
@@ -200,6 +201,10 @@ function updateSessionSummary(sessionId: string, title: string) {
     { id: sessionId, title },
     ...current,
   ]
+}
+
+function buildSessionTitle(): string {
+  return `Analysis Session ${sessionSummaries.value.length + 1}`
 }
 
 function syncAuthPolling() {
@@ -345,6 +350,22 @@ async function ensureActiveSession() {
   return created.id
 }
 
+async function createAndSelectSession() {
+  chatError.value = null
+  uploadError.value = null
+  analyticsError.value = null
+
+  try {
+    const created = await createSession(buildSessionTitle())
+    activeSessionId.value = created.id
+    ensureSessionState(created.id, created.title)
+    updateSessionSummary(created.id, created.title)
+    searchQuery.value = ''
+  } catch {
+    chatError.value = '새 분석 세션을 만들지 못했어요. 잠시 후 다시 시도해 주세요.'
+  }
+}
+
 async function connectOpenAi() {
   if (authPopup && !authPopup.closed) {
     authPopup.focus()
@@ -387,6 +408,16 @@ function selectSession(sessionId: string) {
   activeSessionId.value = sessionId
   const summary = sessionSummaries.value.find((session) => session.id === sessionId)
   ensureSessionState(sessionId, summary?.title ?? 'ChatGPT analysis session')
+}
+
+function handlePrimaryAction(label: string) {
+  if (label === 'New Analysis') {
+    void createAndSelectSession()
+  }
+}
+
+function handleSearchChange(value: string) {
+  searchQuery.value = value
 }
 
 async function handleSendMessage(message: string) {
@@ -627,12 +658,19 @@ const activeSessionState = computed(() => {
 
 const activeDataset = computed(() => activeSessionState.value?.datasets[0] ?? null)
 
-const recentSessions = computed<SessionItem[]>(() =>
-  sessionSummaries.value.map((session) => ({
+const recentSessions = computed<SessionItem[]>(() => {
+  const keyword = searchQuery.value.trim().toLowerCase()
+  const sessions = sessionSummaries.value.map((session) => ({
     id: session.id,
     title: session.title,
-  })),
-)
+  }))
+
+  if (!keyword) {
+    return sessions
+  }
+
+  return sessions.filter((session) => session.title.toLowerCase().includes(keyword))
+})
 
 const conversation = computed<ConversationData>(() => ({
   messages: activeSessionState.value?.messages ?? createWelcomeMessages('ChatGPT analysis session'),
@@ -737,16 +775,19 @@ onUnmounted(() => {
     <PortalSidebar
       :sidebar="{ ...shellSidebar, recentSessions }"
       :active-session-id="activeSessionId"
+      @primary-action="handlePrimaryAction"
       @select-session="selectSession"
     />
 
     <div class="portal-main-shell">
       <PortalHeader
         :header="shellHeader"
+        :search-query="searchQuery"
         :connection-status="connectionStatus"
         :auth-status="authStatus"
         :is-connecting="isConnecting"
         @connect-open-ai="connectOpenAi"
+        @search-change="handleSearchChange"
       />
 
       <p v-if="authError" class="auth-error">{{ authError }}</p>

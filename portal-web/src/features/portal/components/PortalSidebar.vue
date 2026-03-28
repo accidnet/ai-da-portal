@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectSession: [sessionId: string]
+  primaryAction: [label: string]
 }>()
 </script>
 
@@ -24,16 +25,17 @@ const emit = defineEmits<{
     </div>
 
     <nav class="nav-group" aria-label="Primary navigation">
-      <a
+      <button
         v-for="item in sidebar.primaryNav"
         :key="item.label"
-        href="#"
+        type="button"
         class="nav-item"
         :class="{ 'nav-item--active': item.active }"
+        @click="emit('primaryAction', item.label)"
       >
         <span class="material-symbols-outlined">{{ item.icon }}</span>
         <span>{{ item.label }}</span>
-      </a>
+      </button>
     </nav>
 
     <div class="sessions-block">
@@ -48,6 +50,7 @@ const emit = defineEmits<{
       >
         {{ session.title }}
       </button>
+      <p v-if="sidebar.recentSessions.length === 0" class="empty-state">No sessions match your search yet.</p>
     </div>
 
     <nav class="nav-group nav-group--secondary" aria-label="Secondary navigation">
@@ -120,12 +123,17 @@ const emit = defineEmits<{
 }
 
 .nav-item {
+  border: 0;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 13px 14px;
   border-radius: 16px;
+  font: inherit;
+  text-align: left;
   color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
   transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
 }
 
@@ -155,6 +163,14 @@ const emit = defineEmits<{
   letter-spacing: 0.16em;
   font-size: 0.7rem;
   font-weight: 700;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 0 14px;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .session-item {

@@ -5,6 +5,7 @@ import type { BackendConnectionStatus, HeaderData, OpenAiAuthStatus } from '../t
 
 const props = defineProps<{
   header: HeaderData
+  searchQuery?: string
   connectionStatus: BackendConnectionStatus
   authStatus: OpenAiAuthStatus
   isConnecting: boolean
@@ -12,6 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   connectOpenAi: []
+  searchChange: [value: string]
 }>()
 
 const connectionLabel = computed(() => {
@@ -57,7 +59,12 @@ const authButtonLabel = computed(() => {
   <header class="header-card">
     <label class="search-bar">
       <span class="material-symbols-outlined">search</span>
-      <input type="text" :placeholder="header.searchPlaceholder" />
+      <input
+        type="text"
+        :value="searchQuery ?? ''"
+        :placeholder="header.searchPlaceholder"
+        @input="emit('searchChange', ($event.target as HTMLInputElement).value)"
+      />
     </label>
 
     <div class="header-actions">
