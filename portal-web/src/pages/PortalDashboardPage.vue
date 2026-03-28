@@ -838,26 +838,47 @@ onUnmounted(() => {
   width: 14px;
   margin: 0 10px;
   padding: 0;
+  border: 0;
+  background: transparent;
   cursor: col-resize;
 }
 
 .pane-resizer span {
   position: absolute;
-  top: 20px;
-  bottom: 20px;
+  top: 50%;
   left: 50%;
-  width: 4px;
+  width: 3px;
+  height: 3px;
   border-radius: 999px;
-  transform: translateX(-50%);
-  background: linear-gradient(180deg, rgba(24, 74, 140, 0.08) 0%, rgba(24, 74, 140, 0.22) 100%);
-  transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  transform: translate(-50%, -50%);
+  background: rgba(24, 74, 140, 0.22);
+  box-shadow: 0 -7px 0 rgba(24, 74, 140, 0.22), 0 7px 0 rgba(24, 74, 140, 0.22);
+  transition: background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.pane-resizer::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 34px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  transition: background-color 180ms ease;
 }
 
 .pane-resizer:hover span,
 .portal-main-grid--resizing .pane-resizer span {
-  background: linear-gradient(180deg, rgba(24, 74, 140, 0.22) 0%, rgba(24, 74, 140, 0.42) 100%);
-  box-shadow: 0 10px 18px rgba(16, 56, 104, 0.16);
-  transform: translateX(-50%) scaleX(1.15);
+  background: rgba(24, 74, 140, 0.42);
+  box-shadow: 0 -7px 0 rgba(24, 74, 140, 0.42), 0 7px 0 rgba(24, 74, 140, 0.42);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.pane-resizer:hover::before,
+.portal-main-grid--resizing .pane-resizer::before {
+  background: rgba(24, 74, 140, 0.05);
 }
 
 .auth-error {
