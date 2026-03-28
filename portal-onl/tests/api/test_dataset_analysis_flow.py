@@ -27,7 +27,13 @@ def _upload_sample_csv(client: TestClient) -> dict[str, object]:
 
     response = client.post(
         "/api/v1/datasets/upload",
-        files={"file": ("marketing_metrics.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")},
+        files={
+            "file": (
+                "marketing_metrics.csv",
+                BytesIO(csv_content.encode("utf-8")),
+                "text/csv",
+            )
+        },
     )
     assert response.status_code == 201
     return response.json()
@@ -94,3 +100,22 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat_body["analytics"] is not None
         assert chat_body["assistant_message"]
         assert chat_body["analytics"]["summary_cards"]
+
+
+def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        chat = client.post(
+            "/api/v1/chat/messages",
+            json={
+                "session_id": "demo-session-ko",
+                "message": "이 데이터에서 spend와 new_users의 상관관계를 분석해줘.",
+                "dataset_ids": [dataset["id"]],
+            },
+        )
+        assert chat.status_code == 202
+        chat_body = chat.json()
+        assert chat_body["analytics"] is not None
+        assert chat_body["assistant_message"]
+        assert chat_body["analytics"]["charts"]

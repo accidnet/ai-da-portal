@@ -23,7 +23,9 @@ class MessageService:
         del agent_runtime
         route = route_message(payload.message, has_dataset=bool(payload.dataset_ids))
         analytics = self._build_analytics(route=route, payload=payload)
-        assistant_message = self._build_reply(route=route, payload=payload, analytics=analytics)
+        assistant_message = self._build_reply(
+            route=route, payload=payload, analytics=analytics
+        )
 
         return ChatResponse(
             session_id=payload.session_id,
@@ -33,7 +35,10 @@ class MessageService:
         )
 
     def _build_reply(
-        self, route: AgentRoute, payload: ChatRequest, analytics: AnalyticsPayload | None
+        self,
+        route: AgentRoute,
+        payload: ChatRequest,
+        analytics: AnalyticsPayload | None,
     ) -> str:
         llm_reply = self._llm_client.generate(
             system=self._system_prompt(route),
@@ -44,10 +49,12 @@ class MessageService:
             return llm_reply
 
         if analytics:
-            summary = analytics.summary_cards[0].value if analytics.summary_cards else "the uploaded dataset"
-            return (
-                f"I analyzed {summary} and prepared the dashboard output from the live dataset."
+            summary = (
+                analytics.summary_cards[0].value
+                if analytics.summary_cards
+                else "the uploaded dataset"
             )
+            return f"I analyzed {summary} and prepared the dashboard output from the live dataset."
         if route == "dataset_analysis":
             return "Uploaded data is the best starting point. I can summarize quality, surface trends, and prepare the first charts for the analytics pane."
         if route == "analysis_request":
@@ -100,15 +107,54 @@ class MessageService:
         lowered = message.lower()
         if route == "dataset_analysis":
             return "dataset_profile"
-        if "anomaly" in lowered or "outlier" in lowered:
+        if self._contains_any(
+            lowered,
+            "anomaly",
+            "outlier",
+            "이상치",
+            "이상",
+        ):
             return "anomaly_detection"
-        if "trend" in lowered or "monthly" in lowered or "time" in lowered:
+        if self._contains_any(
+            lowered,
+            "trend",
+            "monthly",
+            "time",
+            "forecast",
+            "추세",
+            "월별",
+            "시계열",
+            "예측",
+        ):
             return "trend"
-        if "correlation" in lowered or "correlat" in lowered:
+        if self._contains_any(
+            lowered,
+            "correlation",
+            "correlat",
+            "relationship",
+            "상관",
+            "관계",
+        ):
             return "correlation"
-        if "group" in lowered or "segment" in lowered or "break down" in lowered:
+        if self._contains_any(
+            lowered,
+            "group",
+            "segment",
+            "break down",
+            "breakdown",
+            "compare",
+            "by channel",
+            "그룹",
+            "세그먼트",
+            "비교",
+            "채널별",
+            "구분",
+        ):
             return "grouped_aggregation"
         return "descriptive_summary"
+
+    def _contains_any(self, message: str, *keywords: str) -> bool:
+        return any(keyword in message for keyword in keywords)
 
     def _system_prompt(self, route: AgentRoute) -> str:
         if route == "dataset_analysis":
