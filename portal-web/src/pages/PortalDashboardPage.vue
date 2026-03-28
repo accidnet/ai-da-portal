@@ -14,9 +14,11 @@ import type {
   ConversationData,
   DatasetAsset,
   HeaderData,
+  MessageAttachmentPreview,
   OpenAiAuthStatus,
   SessionItem,
   SidebarData,
+  WorkspacePayload,
 } from '../features/portal/types'
 import {
   authorizeOpenAi,
@@ -37,6 +39,7 @@ interface SessionRuntimeState {
   title: string
   messages: ChatMessage[]
   analyticsPayload: AnalyticsPayload | null
+  workspacePayload: WorkspacePayload | null
   datasets: DatasetAsset[]
 }
 
@@ -179,11 +182,32 @@ function createWelcomeMessages(title: string): ChatMessage[] {
   ]
 }
 
+function normalizeAssistantMessage(message: string, followUpSuggestions: string[]): string {
+  const suggestions = followUpSuggestions.map((item) => item.trim()).filter(Boolean)
+  let normalizedMessage = message.trim()
+
+  normalizedMessage = normalizedMessage.replace(/^\[(?:Pasted?|Past)\s*/i, '')
+
+  for (const suggestion of suggestions) {
+    const escapedSuggestion = suggestion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    normalizedMessage = normalizedMessage.replace(new RegExp(`(?:^|\\s|[-*]\\s*)${escapedSuggestion}`, 'g'), ' ')
+  }
+
+  return normalizedMessage
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 function createSessionState(title: string): SessionRuntimeState {
   return {
     title,
     messages: createWelcomeMessages(title),
     analyticsPayload: null,
+    workspacePayload: null,
     datasets: [],
   }
 }
@@ -434,13 +458,22 @@ async function handleSendMessage(message: string) {
   const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
   const attachedFile = pendingAttachment.value
   const userMessage = message || (attachedFile ? `${attachedFile.name} 파일을 업로드해서 분석해줘.` : '')
+  const userMessageEntry: ChatMessage = {
+    role: 'user',
+    text: userMessage,
+    attachmentPreview: attachedFile
+      ? {
+        filename: attachedFile.name,
+        meta: `${formatFileSize(attachedFile.size)} · 업로드 중`,
+        columns: [],
+        rows: [],
+      }
+      : undefined,
+  }
 
   sessionState.messages = [
     ...sessionState.messages,
-    {
-      role: 'user',
-      text: userMessage,
-    },
+    userMessageEntry,
   ]
   isSending.value = true
   isSendingInteraction.value = Boolean(attachedFile)
@@ -463,12 +496,25 @@ async function handleSendMessage(message: string) {
     const interactionResponse = attachedFile ? response as ChatInteractionResponse : null
 
     if (interactionResponse?.dataset) {
+      const interactionDataset = interactionResponse.dataset
       const dataset = createDatasetAsset(
-        interactionResponse.dataset.detail,
-        interactionResponse.dataset.preview,
-        interactionResponse.dataset.profile,
+        interactionDataset.detail,
+        interactionDataset.preview,
+        interactionDataset.profile,
       )
       sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
+      sessionState.messages = sessionState.messages.map((entry) => (
+        entry === userMessageEntry
+          ? {
+            ...entry,
+            attachmentPreview: createAttachmentPreview(
+              interactionDataset.detail.filename,
+              attachedFile?.size ?? 0,
+              interactionDataset.preview,
+            ),
+          }
+          : entry
+      ))
     }
 
     sessionState.messages = [
@@ -476,11 +522,12 @@ async function handleSendMessage(message: string) {
       {
         role: 'assistant',
         author: 'AI 데이터 분석가',
-        text: response.assistant_message,
+        text: normalizeAssistantMessage(response.assistant_message, response.follow_up_suggestions),
         bullets: response.follow_up_suggestions.map((text) => ({ text })),
       },
     ]
     sessionState.analyticsPayload = response.analytics
+    sessionState.workspacePayload = response.workspace
     updateSessionSummary(sessionId, sessionState.title)
   } catch (error) {
     chatError.value = error instanceof Error
@@ -515,6 +562,22 @@ function formatFileSize(size: number): string {
   }
 
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function createAttachmentPreview(
+  filename: string,
+  size: number,
+  preview: {
+    columns: string[]
+    rows: Array<Record<string, string | number | null>>
+  },
+): MessageAttachmentPreview {
+  return {
+    filename,
+    meta: `${formatFileSize(size)} · ${preview.rows.length} rows preview`,
+    columns: preview.columns,
+    rows: preview.rows,
+  }
 }
 
 function queueInteractionFile(file: File) {
@@ -636,6 +699,7 @@ async function processDatasetFile(file: File) {
     const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
     sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
     sessionState.analyticsPayload = null
+    sessionState.workspacePayload = null
     sessionState.messages = [
       ...sessionState.messages,
       {
@@ -682,6 +746,7 @@ async function runAnalysis() {
     })
 
     sessionState.analyticsPayload = analysis.analytics
+    sessionState.workspacePayload = analysis.workspace
     sessionState.messages = [
       ...sessionState.messages,
       {
@@ -810,6 +875,7 @@ const composer = computed<ComposerData>(() => {
 })
 
 const analyticsPayload = computed(() => activeSessionState.value?.analyticsPayload ?? null)
+const workspacePayload = computed(() => activeSessionState.value?.workspacePayload ?? null)
 
 watch(analyticsPaneWidth, (width) => {
   window.localStorage.setItem(ANALYTICS_PANE_WIDTH_STORAGE_KEY, String(clampAnalyticsPaneWidth(width)))
@@ -894,6 +960,7 @@ onUnmounted(() => {
         <PortalAnalyticsPane
           :analytics="shellAnalytics"
           :analytics-payload="analyticsPayload"
+          :workspace-payload="workspacePayload"
           :dataset-asset="activeDataset"
           :is-loading="isSending || isUploading || isRunningAnalysis"
           :error-message="analyticsError"

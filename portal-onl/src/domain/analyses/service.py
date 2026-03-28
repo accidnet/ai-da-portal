@@ -9,12 +9,19 @@ from domain.analyses.schemas import (
     AnalysisRequest,
 )
 from domain.datasets.service import DatasetService
+from domain.workspace.service import WorkspacePlanner
+from infrastructure.llm.client import LlmClient
 
 
 class AnalysisService:
-    def __init__(self, dataset_service: DatasetService | None = None) -> None:
+    def __init__(
+        self,
+        dataset_service: DatasetService | None = None,
+        llm_client: LlmClient | None = None,
+    ) -> None:
         self._dataset_service = dataset_service or DatasetService()
         self._analyses: dict[str, _AnalysisRecord] = {}
+        self._workspace_planner = WorkspacePlanner(llm_client=llm_client)
 
     def create(self, payload: AnalysisRequest) -> AnalysisDetail:
         dataset_id = payload.dataset_id or self._dataset_service.get_latest_dataset_id()
@@ -36,6 +43,12 @@ class AnalysisService:
             status="completed",
             created_at=datetime.now(UTC),
             analytics=analytics,
+            workspace=self._workspace_planner.plan(
+                prompt=payload.prompt,
+                analytics=analytics,
+                analysis_type=payload.analysis_type,
+                dataset_ids=[dataset_id],
+            ),
         )
         self._analyses[analysis_id] = _AnalysisRecord(
             detail=detail,
@@ -54,10 +67,15 @@ class AnalysisService:
             analysis_id=analysis_id,
             analytics=record.detail.analytics
             or build_analytics_from_dataframe(
-                dataframe=self._dataset_service.get_dataframe(record.detail.dataset_id or self._dataset_service.get_latest_dataset_id() or ""),
+                dataframe=self._dataset_service.get_dataframe(
+                    record.detail.dataset_id
+                    or self._dataset_service.get_latest_dataset_id()
+                    or ""
+                ),
                 analysis_type=record.detail.analysis_type,
                 prompt=None,
             ),
+            workspace=record.detail.workspace,
             notes=record.notes,
         )
 

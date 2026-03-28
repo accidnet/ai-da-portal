@@ -42,7 +42,9 @@ def get_dataset_service() -> DatasetService:
 
 @lru_cache
 def get_analysis_service() -> AnalysisService:
-    return AnalysisService(dataset_service=get_dataset_service())
+    return AnalysisService(
+        dataset_service=get_dataset_service(), llm_client=get_llm_client()
+    )
 
 
 @lru_cache

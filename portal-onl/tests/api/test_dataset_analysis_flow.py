@@ -52,6 +52,22 @@ class FakeLlmClient(LlmClient):
         del system, dataset_ids
         return f"GPT reply: {user_message[:80]}"
 
+    def generate_json(
+        self, system: str, user_message: str, dataset_ids: list[str] | None = None
+    ) -> dict[str, object]:
+        del system, user_message, dataset_ids
+        return {
+            "template_id": "chart_focus",
+            "title": "LLM Workspace",
+            "description": "Chosen by fake LLM planner",
+            "sections": [
+                {"kind": "chart", "chart_index": 0, "title": "Primary Chart"},
+                {"kind": "summary_cards", "max_items": 4, "title": "Key Metrics"},
+                {"kind": "table", "table_index": 0, "title": "Detail Table"},
+                {"kind": "insight", "insight_index": 0, "title": "Recommendation"},
+            ],
+        }
+
 
 def _override_message_service() -> MessageService:
     return MessageService(
@@ -105,6 +121,8 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert analysis_body["analytics"]["charts"]
         assert analysis_body["analytics"]["tables"]
         assert analysis_body["analytics"]["insights"]
+        assert analysis_body["workspace"] is not None
+        assert analysis_body["workspace"]["sections"]
 
         artifacts = client.get(f"/api/v1/analyses/{analysis_body['id']}/artifacts")
         assert artifacts.status_code == 200
@@ -121,6 +139,8 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat.status_code == 202
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
+        assert chat_body["workspace"] is not None
+        assert chat_body["workspace"]["template_id"] == "chart_focus"
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["summary_cards"]
     app.dependency_overrides.clear()
@@ -142,6 +162,7 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat.status_code == 202
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
+        assert chat_body["workspace"] is not None
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["charts"]
     app.dependency_overrides.clear()
@@ -187,6 +208,7 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         ]
         assert body["dataset"]["profile"]["profile"]["row_count"] == 3
         assert body["analytics"] is not None
+        assert body["workspace"] is not None
         assert body["analytics"]["summary_cards"]
         assert body["assistant_message"].startswith("GPT reply:")
 

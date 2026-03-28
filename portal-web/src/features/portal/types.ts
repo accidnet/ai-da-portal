@@ -49,12 +49,20 @@ export interface MessageListItem {
   text: string
 }
 
+export interface MessageAttachmentPreview {
+  filename: string
+  meta?: string
+  columns: string[]
+  rows: Record<string, string | number | null>[]
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   author?: string
   text: string
   codeBlock?: MessageCodeBlock
   bullets?: MessageListItem[]
+  attachmentPreview?: MessageAttachmentPreview
 }
 
 export interface ComposerChip {
@@ -188,6 +196,37 @@ export interface AnalyticsPayload {
     }>
     suggested_prompts: string[]
   } | null
+}
+
+export type WorkspaceTemplateId =
+  | 'overview'
+  | 'chart_focus'
+  | 'table_focus'
+  | 'dataset_profile'
+  | 'executive_summary'
+
+export type WorkspaceSectionKind =
+  | 'summary_cards'
+  | 'chart'
+  | 'table'
+  | 'insight'
+  | 'dataset_profile'
+
+export interface WorkspaceSectionPayload {
+  kind: WorkspaceSectionKind
+  title?: string | null
+  chart_index?: number | null
+  table_index?: number | null
+  insight_index?: number | null
+  max_items?: number | null
+  summary_card_labels?: string[]
+}
+
+export interface WorkspacePayload {
+  template_id: WorkspaceTemplateId
+  title: string
+  description?: string | null
+  sections: WorkspaceSectionPayload[]
 }
 
 export interface PortalDashboardData {
