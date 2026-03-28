@@ -5,6 +5,7 @@ from fastapi import UploadFile
 
 from agents.router import route_message
 from agents.state import AgentRoute
+from domain.analyses.schemas import AnalysisDetail
 from domain.analyses.schemas import AnalysisRequest
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
@@ -15,6 +16,8 @@ from domain.messages.schemas import (
     ChatResponse,
 )
 from domain.shared import AnalyticsPayload
+from domain.sessions.schemas import SessionWorkspace
+from domain.sessions.service import SessionService
 from infrastructure.llm.client import LlmClient, LlmClientError
 
 
@@ -27,21 +30,32 @@ class MessageService:
         llm_client: LlmClient,
         dataset_service: DatasetService,
         analysis_service: AnalysisService,
+        session_service: SessionService,
     ) -> None:
         self._llm_client = llm_client
         self._dataset_service = dataset_service
         self._analysis_service = analysis_service
+        self._session_service = session_service
 
     def handle_chat(self, payload: ChatRequest, agent_runtime: object) -> ChatResponse:
         del agent_runtime
-        route = route_message(payload.message, has_dataset=bool(payload.dataset_ids))
+        session_dataset_ids = self._session_service.get_dataset_ids(payload.session_id)
+        route = route_message(
+            payload.message,
+            has_dataset=bool(payload.dataset_ids or session_dataset_ids),
+        )
         logger.debug(
             "Handling chat session_id=%s route=%s dataset_ids=%s",
             payload.session_id,
             route,
             payload.dataset_ids,
         )
-        analytics = self._build_analytics(route=route, payload=payload)
+        analysis_detail = self._build_analysis(
+            route=route,
+            payload=payload,
+            session_dataset_ids=session_dataset_ids,
+        )
+        analytics = analysis_detail.analytics if analysis_detail is not None else None
         logger.debug(
             "Analytics prepared session_id=%s has_analytics=%s summary_cards=%s charts=%s tables=%s",
             payload.session_id,
@@ -76,6 +90,19 @@ class MessageService:
                 dataset_ids=payload.dataset_ids,
             )
 
+        snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
+        if analysis_detail is not None and analysis_detail.dataset_id is not None:
+            snapshot_dataset_ids = [analysis_detail.dataset_id, *snapshot_dataset_ids]
+
+        self._session_service.record_chat(
+            session_id=payload.session_id,
+            user_message=payload.message,
+            assistant_message=assistant_message,
+            dataset_ids=snapshot_dataset_ids,
+            analytics=analytics,
+            workspace=self._build_workspace(analysis_detail),
+        )
+
         return ChatResponse(
             session_id=payload.session_id,
             assistant_message=assistant_message,
@@ -96,7 +123,7 @@ class MessageService:
         interaction_dataset: ChatInteractionDataset | None = None
 
         if file is not None:
-            detail = await self._dataset_service.upload(file)
+            detail = await self._dataset_service.upload(file, session_id=session_id)
             preview = self._dataset_service.get_preview(detail.id)
             profile = self._dataset_service.get_profile(detail.id)
             interaction_dataset = ChatInteractionDataset(
@@ -158,10 +185,13 @@ class MessageService:
             "Request a chart-ready summary for the dashboard.",
         ]
 
-    def _build_analytics(
-        self, route: AgentRoute, payload: ChatRequest
-    ) -> AnalyticsPayload | None:
-        dataset_id = self._resolve_dataset_id(payload.dataset_ids)
+    def _build_analysis(
+        self,
+        route: AgentRoute,
+        payload: ChatRequest,
+        session_dataset_ids: list[str],
+    ) -> AnalysisDetail | None:
+        dataset_id = self._resolve_dataset_id(payload.dataset_ids, session_dataset_ids)
         if dataset_id is None:
             logger.debug(
                 "Skipping analytics creation session_id=%s no_dataset_resolved",
@@ -190,12 +220,33 @@ class MessageService:
             dataset_id,
             result.status,
         )
-        return result.analytics
+        return result
 
-    def _resolve_dataset_id(self, dataset_ids: list[str]) -> str | None:
+    def _resolve_dataset_id(
+        self, dataset_ids: list[str], session_dataset_ids: list[str]
+    ) -> str | None:
         if dataset_ids:
             return dataset_ids[0]
+        if session_dataset_ids:
+            return session_dataset_ids[0]
         return self._dataset_service.get_latest_dataset_id()
+
+    def _build_workspace(
+        self, analysis_detail: AnalysisDetail | None
+    ) -> SessionWorkspace | None:
+        if analysis_detail is None:
+            return None
+
+        return SessionWorkspace(
+            session_id=analysis_detail.session_id,
+            dataset_ids=[analysis_detail.dataset_id]
+            if analysis_detail.dataset_id
+            else [],
+            primary_dataset_id=analysis_detail.dataset_id,
+            analysis_id=analysis_detail.id,
+            analysis_type=analysis_detail.analysis_type,
+            updated_at=analysis_detail.created_at,
+        )
 
     def _route_to_analysis_type(self, route: AgentRoute, message: str) -> str:
         lowered = message.lower()

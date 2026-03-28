@@ -3,7 +3,12 @@ from textwrap import dedent
 
 from fastapi.testclient import TestClient
 
-from api.deps import get_analysis_service, get_dataset_service, get_message_service
+from api.deps import (
+    get_analysis_service,
+    get_dataset_service,
+    get_message_service,
+    get_session_service,
+)
 from domain.messages.service import MessageService
 from infrastructure.llm.client import LlmClient
 from main import app
@@ -58,6 +63,7 @@ def _override_message_service() -> MessageService:
         llm_client=FakeLlmClient(),
         dataset_service=get_dataset_service(),
         analysis_service=get_analysis_service(),
+        session_service=get_session_service(),
     )
 
 
@@ -82,6 +88,40 @@ def test_uploaded_dataset_preview_profile_and_list() -> None:
         assert profile_body["profile"]["row_count"] == 12
         assert profile_body["profile"]["column_count"] == 4
         assert profile_body["profile"]["columns"][0]["dtype"] == "datetime"
+
+
+def test_dataset_upload_accepts_optional_session_id_and_links_snapshot() -> None:
+    with TestClient(app) as client:
+        csv_content = dedent(
+            """
+            date,channel,spend,new_users
+            2025-01-01,social,1500,120
+            2025-02-01,search,2100,148
+            """
+        ).strip()
+
+        response = client.post(
+            "/api/v1/datasets/upload",
+            data={"session_id": "upload-session"},
+            files={
+                "file": (
+                    "linked_metrics.csv",
+                    BytesIO(csv_content.encode("utf-8")),
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 201
+        dataset = response.json()
+
+        snapshot = client.get("/api/v1/sessions/upload-session/snapshot")
+        assert snapshot.status_code == 200
+        snapshot_body = snapshot.json()
+        assert snapshot_body["dataset_ids"] == [dataset["id"]]
+        assert (
+            snapshot_body["datasets"][0]["detail"]["filename"] == "linked_metrics.csv"
+        )
+        assert snapshot_body["workspace"]["primary_dataset_id"] == dataset["id"]
 
 
 def test_analysis_and_chat_use_uploaded_dataset() -> None:
@@ -189,5 +229,66 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         assert body["analytics"] is not None
         assert body["analytics"]["summary_cards"]
         assert body["assistant_message"].startswith("GPT reply:")
+
+        snapshot = client.get("/api/v1/sessions/interaction-session/snapshot")
+        assert snapshot.status_code == 200
+        snapshot_body = snapshot.json()
+        assert snapshot_body["dataset_ids"] == [body["dataset"]["detail"]["id"]]
+        assert (
+            snapshot_body["datasets"][0]["detail"]["id"]
+            == body["dataset"]["detail"]["id"]
+        )
+
+    app.dependency_overrides.clear()
+
+
+def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        analysis = client.post(
+            "/api/v1/analyses",
+            json={
+                "session_id": "snapshot-session",
+                "dataset_id": dataset["id"],
+                "analysis_type": "trend",
+                "prompt": "월별 spend 추세를 요약해줘.",
+            },
+        )
+        assert analysis.status_code == 202
+        analysis_body = analysis.json()
+
+        chat = client.post(
+            "/api/v1/chat/messages",
+            json={
+                "session_id": "snapshot-session",
+                "message": "이 세션의 최신 분석 결과를 짧게 설명해줘.",
+                "dataset_ids": [dataset["id"]],
+            },
+        )
+        assert chat.status_code == 202
+
+        snapshot = client.get("/api/v1/sessions/snapshot-session/snapshot")
+        assert snapshot.status_code == 200
+        snapshot_body = snapshot.json()
+
+        assert snapshot_body["session"]["id"] == "snapshot-session"
+        assert snapshot_body["dataset_ids"] == [dataset["id"]]
+        assert len(snapshot_body["messages"]) == 2
+        assert snapshot_body["messages"][0]["role"] == "user"
+        assert snapshot_body["messages"][1]["role"] == "assistant"
+        assert snapshot_body["datasets"][0]["detail"]["id"] == dataset["id"]
+        assert snapshot_body["datasets"][0]["preview"]["columns"] == [
+            "date",
+            "channel",
+            "spend",
+            "new_users",
+        ]
+        assert snapshot_body["datasets"][0]["profile"]["profile"]["row_count"] == 12
+        assert snapshot_body["analytics"] is not None
+        assert snapshot_body["workspace"]["analysis_id"] is not None
+        assert snapshot_body["workspace"]["analysis_id"] != analysis_body["id"]
+        assert snapshot_body["workspace"]["primary_dataset_id"] == dataset["id"]
 
     app.dependency_overrides.clear()

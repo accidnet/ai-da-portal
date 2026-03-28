@@ -14,14 +14,18 @@ from domain.datasets.schemas import (
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
+from domain.sessions.service import SessionService
 from infrastructure.storage.files import save_upload_file
 
 
 class DatasetService:
-    def __init__(self) -> None:
+    def __init__(self, session_service: SessionService | None = None) -> None:
         self._datasets: dict[str, _DatasetRecord] = {}
+        self._session_service = session_service
 
-    async def upload(self, file: UploadFile) -> DatasetDetail:
+    async def upload(
+        self, file: UploadFile, session_id: str | None = None
+    ) -> DatasetDetail:
         settings = get_settings()
         dataset_id = str(uuid4())
         suffix = Path(file.filename or "dataset.csv").suffix
@@ -37,6 +41,13 @@ class DatasetService:
             created_at=datetime.now(UTC),
         )
         self._datasets[dataset_id] = _DatasetRecord(detail=detail, dataframe=dataframe)
+
+        if session_id is not None and self._session_service is not None:
+            self._session_service.attach_dataset(
+                session_id,
+                dataset_id,
+                title=file.filename or "Uploaded dataset",
+            )
 
         return detail
 
@@ -68,7 +79,9 @@ class DatasetService:
     def get_latest_dataset_id(self) -> str | None:
         if not self._datasets:
             return None
-        return max(self._datasets.values(), key=lambda record: record.detail.created_at).detail.id
+        return max(
+            self._datasets.values(), key=lambda record: record.detail.created_at
+        ).detail.id
 
     def _get_record(self, dataset_id: str) -> "_DatasetRecord":
         record = self._datasets.get(dataset_id)
