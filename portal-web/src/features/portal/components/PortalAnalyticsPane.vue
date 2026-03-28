@@ -322,7 +322,11 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   gap: 18px;
   align-content: start;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 22px 18px 22px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: rgba(244, 247, 251, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .analytics-header {
@@ -721,6 +725,10 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   .metric-grid,
   .dataset-stats {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analytics-shell {
+    padding: 18px;
   }
 
   .insight-card {

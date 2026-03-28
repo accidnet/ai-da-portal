@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import PortalAnalyticsPane from '../features/portal/components/PortalAnalyticsPane.vue'
 import PortalConversationPane from '../features/portal/components/PortalConversationPane.vue'
@@ -46,6 +46,7 @@ interface OpenAiPopupMessage {
 }
 
 const OPENAI_AUTH_POPUP_SOURCE = 'portal-openai-auth'
+const ANALYTICS_PANE_WIDTH_STORAGE_KEY = 'portal.analyticsPaneWidth'
 
 const shellSidebar: SidebarData = {
   productName: 'Data Analysis AI',
@@ -105,12 +106,57 @@ const analyticsError = ref<string | null>(null)
 const isSending = ref(false)
 const isUploading = ref(false)
 const isRunningAnalysis = ref(false)
+const analyticsPaneWidth = ref(420)
+const isResizingAnalyticsPane = ref(false)
 const activeSessionId = ref<string | null>(null)
 const sessionSummaries = ref<SessionItem[]>([])
 const sessionStates = ref<Record<string, SessionRuntimeState>>({})
 const datasetPickerRef = ref<HTMLInputElement | null>(null)
 let authPollTimer: number | null = null
 let authPopup: Window | null = null
+
+function clampAnalyticsPaneWidth(width: number): number {
+  return Math.min(Math.max(width, 320), 720)
+}
+
+function handleAnalyticsPaneResize(event: PointerEvent) {
+  if (!isResizingAnalyticsPane.value || window.innerWidth <= 1280) {
+    return
+  }
+
+  analyticsPaneWidth.value = clampAnalyticsPaneWidth(window.innerWidth - event.clientX - 48)
+}
+
+function stopAnalyticsPaneResize() {
+  isResizingAnalyticsPane.value = false
+  window.removeEventListener('pointermove', handleAnalyticsPaneResize)
+  window.removeEventListener('pointerup', stopAnalyticsPaneResize)
+}
+
+function startAnalyticsPaneResize(event: PointerEvent) {
+  if (window.innerWidth <= 1280) {
+    return
+  }
+
+  event.preventDefault()
+  isResizingAnalyticsPane.value = true
+  window.addEventListener('pointermove', handleAnalyticsPaneResize)
+  window.addEventListener('pointerup', stopAnalyticsPaneResize)
+}
+
+function restoreAnalyticsPaneWidth() {
+  const storedWidth = window.localStorage.getItem(ANALYTICS_PANE_WIDTH_STORAGE_KEY)
+  if (!storedWidth) {
+    return
+  }
+
+  const parsedWidth = Number(storedWidth)
+  if (!Number.isFinite(parsedWidth)) {
+    return
+  }
+
+  analyticsPaneWidth.value = clampAnalyticsPaneWidth(parsedWidth)
+}
 
 function createWelcomeMessages(title: string): ChatMessage[] {
   return [
@@ -654,8 +700,13 @@ const composer = computed<ComposerData>(() => {
 
 const analyticsPayload = computed(() => activeSessionState.value?.analyticsPayload ?? null)
 
+watch(analyticsPaneWidth, (width) => {
+  window.localStorage.setItem(ANALYTICS_PANE_WIDTH_STORAGE_KEY, String(clampAnalyticsPaneWidth(width)))
+})
+
 onMounted(async () => {
   const controller = new AbortController()
+  restoreAnalyticsPaneWidth()
   window.addEventListener('message', handleOpenAiAuthMessage)
   window.addEventListener('focus', handleWindowFocus)
 
@@ -674,6 +725,7 @@ onUnmounted(() => {
   if (authPollTimer !== null) {
     window.clearInterval(authPollTimer)
   }
+  stopAnalyticsPaneResize()
   window.removeEventListener('message', handleOpenAiAuthMessage)
   window.removeEventListener('focus', handleWindowFocus)
   authPopup = null
@@ -699,7 +751,11 @@ onUnmounted(() => {
 
       <p v-if="authError" class="auth-error">{{ authError }}</p>
 
-      <div class="portal-main-grid">
+      <div
+        class="portal-main-grid"
+        :class="{ 'portal-main-grid--resizing': isResizingAnalyticsPane }"
+        :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
+      >
         <PortalConversationPane
           :conversation="conversation"
           :composer="composer"
@@ -710,6 +766,14 @@ onUnmounted(() => {
           @drop-file="processDatasetFile"
           @send="handleSendMessage"
         />
+        <button
+          class="pane-resizer"
+          type="button"
+          aria-label="분석 패널 너비 조절"
+          @pointerdown="startAnalyticsPaneResize"
+        >
+          <span></span>
+        </button>
         <PortalAnalyticsPane
           :analytics="shellAnalytics"
           :analytics-payload="analyticsPayload"
@@ -759,8 +823,41 @@ onUnmounted(() => {
 .portal-main-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 14px minmax(320px, var(--analytics-pane-width, 420px));
+  gap: 0;
+  align-items: stretch;
+}
+
+.portal-main-grid--resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.pane-resizer {
+  position: relative;
+  width: 14px;
+  margin: 0 10px;
+  padding: 0;
+  cursor: col-resize;
+}
+
+.pane-resizer span {
+  position: absolute;
+  top: 20px;
+  bottom: 20px;
+  left: 50%;
+  width: 4px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(24, 74, 140, 0.08) 0%, rgba(24, 74, 140, 0.22) 100%);
+  transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.pane-resizer:hover span,
+.portal-main-grid--resizing .pane-resizer span {
+  background: linear-gradient(180deg, rgba(24, 74, 140, 0.22) 0%, rgba(24, 74, 140, 0.42) 100%);
+  box-shadow: 0 10px 18px rgba(16, 56, 104, 0.16);
+  transform: translateX(-50%) scaleX(1.15);
 }
 
 .auth-error {
@@ -807,6 +904,11 @@ onUnmounted(() => {
 
   .portal-main-grid {
     grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .pane-resizer {
+    display: none;
   }
 }
 
