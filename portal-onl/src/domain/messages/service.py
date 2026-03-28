@@ -1,14 +1,21 @@
 import json
 import logging
 
+from fastapi import UploadFile
+
 from agents.router import route_message
 from agents.state import AgentRoute
 from domain.analyses.schemas import AnalysisRequest
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
-from domain.messages.schemas import ChatRequest, ChatResponse
+from domain.messages.schemas import (
+    ChatInteractionDataset,
+    ChatInteractionResponse,
+    ChatRequest,
+    ChatResponse,
+)
 from domain.shared import AnalyticsPayload
-from infrastructure.llm.client import LlmClient
+from infrastructure.llm.client import LlmClient, LlmClientError
 
 
 logger = logging.getLogger(__name__)
@@ -43,24 +50,73 @@ class MessageService:
             len(analytics.charts) if analytics else 0,
             len(analytics.tables) if analytics else 0,
         )
-        assistant_message = self._llm_client.generate(
-            system=self._system_prompt(route),
-            user_message=self._compose_user_message(
-                payload=payload, analytics=analytics
-            ),
-            dataset_ids=payload.dataset_ids,
-        )
-        logger.debug(
-            "LLM reply generated session_id=%s reply_len=%s",
-            payload.session_id,
-            len(assistant_message),
-        )
+        try:
+            assistant_message = self._llm_client.generate(
+                system=self._system_prompt(route),
+                user_message=self._compose_user_message(
+                    payload=payload, analytics=analytics
+                ),
+                dataset_ids=payload.dataset_ids,
+            )
+            logger.debug(
+                "LLM reply generated session_id=%s reply_len=%s",
+                payload.session_id,
+                len(assistant_message),
+            )
+        except LlmClientError as exc:
+            logger.warning(
+                "LLM reply failed, using fallback session_id=%s route=%s detail=%s",
+                payload.session_id,
+                route,
+                exc,
+            )
+            assistant_message = self._fallback_assistant_message(
+                route=route,
+                analytics=analytics,
+                dataset_ids=payload.dataset_ids,
+            )
 
         return ChatResponse(
             session_id=payload.session_id,
             assistant_message=assistant_message,
             follow_up_suggestions=self._suggestions(route),
             analytics=analytics,
+        )
+
+    async def handle_chat_interaction(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        dataset_ids: list[str],
+        file: UploadFile | None,
+        agent_runtime: object,
+    ) -> ChatInteractionResponse:
+        resolved_dataset_ids = list(dataset_ids)
+        interaction_dataset: ChatInteractionDataset | None = None
+
+        if file is not None:
+            detail = await self._dataset_service.upload(file)
+            preview = self._dataset_service.get_preview(detail.id)
+            profile = self._dataset_service.get_profile(detail.id)
+            interaction_dataset = ChatInteractionDataset(
+                detail=detail,
+                preview=preview,
+                profile=profile,
+            )
+            resolved_dataset_ids = [detail.id, *resolved_dataset_ids]
+
+        response = self.handle_chat(
+            ChatRequest(
+                session_id=session_id,
+                message=message,
+                dataset_ids=resolved_dataset_ids,
+            ),
+            agent_runtime=agent_runtime,
+        )
+
+        return ChatInteractionResponse(
+            **response.model_dump(), dataset=interaction_dataset
         )
 
     def _compose_user_message(
@@ -209,3 +265,22 @@ class MessageService:
             "You are a concise AI assistant inside a data portal. "
             "Answer clearly and suggest the next useful dataset or analytics action when relevant."
         )
+
+    def _fallback_assistant_message(
+        self,
+        *,
+        route: AgentRoute,
+        analytics: AnalyticsPayload | None,
+        dataset_ids: list[str],
+    ) -> str:
+        if analytics is not None and analytics.insights:
+            lead = analytics.insights[0].body
+            return f"백엔드 분석은 완료됐어요. {lead}"
+
+        if dataset_ids and route == "dataset_analysis":
+            return "파일을 받아서 기본 프로파일링을 완료했어요. 오른쪽 Workspace에서 데이터 개요를 확인해보세요."
+
+        if route == "analysis_request":
+            return "요청한 분석을 실행했어요. 오른쪽 Workspace에 결과 카드와 표를 반영했습니다."
+
+        return "요청을 처리했어요. 추가로 궁금한 점이나 더 보고 싶은 분석이 있으면 이어서 입력해 주세요."

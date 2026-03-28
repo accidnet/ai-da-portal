@@ -9,24 +9,27 @@ const props = defineProps<{
   sendDisabled?: boolean
   attachDisabled?: boolean
   errorMessage?: string | null
+  attachedFileName?: string | null
+  attachedFileMeta?: string | null
 }>()
 
 const emit = defineEmits<{
   send: [message: string]
   attach: []
   dropFile: [file: File]
+  removeAttachment: []
 }>()
 
 const draft = ref('')
 const isDragActive = ref(false)
 
 const canSend = computed(
-  () => draft.value.trim().length > 0 && !props.sendDisabled,
+  () => (draft.value.trim().length > 0 || Boolean(props.attachedFileName)) && !props.sendDisabled,
 )
 
 function submit() {
   const message = draft.value.trim()
-  if (!message || props.sendDisabled) {
+  if ((!message && !props.attachedFileName) || props.sendDisabled) {
     return
   }
   emit('send', message)
@@ -129,7 +132,7 @@ function handleDrop(event: DragEvent) {
         <div class="drop-overlay__card">
           <span class="material-symbols-outlined">upload_file</span>
           <strong>CSV 파일을 여기에 놓으세요</strong>
-          <p>드롭하면 바로 업로드와 미리보기를 시작합니다.</p>
+          <p>드롭한 파일은 입력창에 첨부되고 전송 시 함께 분석됩니다.</p>
         </div>
       </div>
     </div>
@@ -148,6 +151,16 @@ function handleDrop(event: DragEvent) {
       </div>
 
       <p v-if="errorMessage" class="composer-error">{{ errorMessage }}</p>
+
+      <div v-if="attachedFileName" class="composer-attachment">
+        <div>
+          <strong>{{ attachedFileName }}</strong>
+          <span>{{ attachedFileMeta ?? '메시지와 함께 전송 예정' }}</span>
+        </div>
+        <button type="button" :disabled="attachDisabled" @click="emit('removeAttachment')">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
 
       <div class="composer-box">
         <button
@@ -386,6 +399,47 @@ function handleDrop(event: DragEvent) {
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.composer-attachment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(24, 74, 140, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.composer-attachment strong,
+.composer-attachment span {
+  display: block;
+}
+
+.composer-attachment strong {
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
+.composer-attachment span {
+  margin-top: 4px;
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+}
+
+.composer-attachment button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 12px;
+  color: var(--color-text-soft);
+  background: rgba(24, 74, 140, 0.08);
+  cursor: pointer;
 }
 
 .composer-chip {

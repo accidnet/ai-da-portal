@@ -98,6 +98,14 @@ export interface ChatResponse {
   } | null
 }
 
+export interface ChatInteractionResponse extends ChatResponse {
+  dataset: {
+    detail: DatasetDetailResponse
+    preview: DatasetPreviewResponse
+    profile: DatasetProfileResponse
+  } | null
+}
+
 export interface AnalysisResponse {
   id: string
   session_id: string
@@ -232,6 +240,40 @@ export async function sendChatMessage(
   }
 
   return (await response.json()) as ChatResponse
+}
+
+export async function sendChatInteraction(
+  payload: { sessionId: string; message: string; datasetIds?: string[]; file?: File | null },
+  signal?: AbortSignal,
+): Promise<ChatInteractionResponse> {
+  const formData = new FormData()
+  formData.append('session_id', payload.sessionId)
+  formData.append('message', payload.message)
+  formData.append('dataset_ids_json', JSON.stringify(payload.datasetIds ?? []))
+
+  if (payload.file) {
+    formData.append('file', payload.file)
+  }
+
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/interactions`, {
+    method: 'POST',
+    body: formData,
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Chat interaction failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as ChatInteractionResponse
 }
 
 export async function uploadDataset(file: File, signal?: AbortSignal): Promise<DatasetDetailResponse> {

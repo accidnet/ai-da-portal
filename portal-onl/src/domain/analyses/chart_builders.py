@@ -4,6 +4,7 @@ from itertools import combinations
 
 import pandas as pd
 
+from domain.datasets.profiling import build_profile_from_dataframe
 from domain.shared import (
     AnalyticsPayload,
     ChartPayload,
@@ -25,18 +26,28 @@ def build_analytics_from_dataframe(
         insights=[
             _build_insight(dataframe, analysis_type, prompt),
         ],
-        dataset_profile=None,
+        dataset_profile=build_profile_from_dataframe(dataframe),
     )
 
 
 def _build_summary_cards(dataframe: pd.DataFrame) -> list[SummaryCard]:
     numeric_columns = [
-        column for column in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[column])
+        column
+        for column in dataframe.columns
+        if pd.api.types.is_numeric_dtype(dataframe[column])
     ]
     missing_cells = int(dataframe.isna().sum().sum())
     return [
-        SummaryCard(label="Rows", value=f"{len(dataframe):,}", detail="Loaded from the uploaded file"),
-        SummaryCard(label="Columns", value=str(len(dataframe.columns)), detail="Detected in dataframe"),
+        SummaryCard(
+            label="Rows",
+            value=f"{len(dataframe):,}",
+            detail="Loaded from the uploaded file",
+        ),
+        SummaryCard(
+            label="Columns",
+            value=str(len(dataframe.columns)),
+            detail="Detected in dataframe",
+        ),
         SummaryCard(
             label="Numeric Columns",
             value=str(len(numeric_columns)),
@@ -53,7 +64,9 @@ def _build_summary_cards(dataframe: pd.DataFrame) -> list[SummaryCard]:
 
 def _build_chart(dataframe: pd.DataFrame, analysis_type: str) -> ChartPayload:
     numeric_columns = [
-        column for column in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[column])
+        column
+        for column in dataframe.columns
+        if pd.api.types.is_numeric_dtype(dataframe[column])
     ]
     datetime_columns = [
         column
@@ -65,7 +78,11 @@ def _build_chart(dataframe: pd.DataFrame, analysis_type: str) -> ChartPayload:
             type="bar",
             title="No numeric columns available",
             x=[str(index) for index in range(min(len(dataframe), 5))],
-            series=[ChartSeries(name="records", data=[1 for _ in range(min(len(dataframe), 5))])],
+            series=[
+                ChartSeries(
+                    name="records", data=[1 for _ in range(min(len(dataframe), 5))]
+                )
+            ],
         )
 
     primary_column = numeric_columns[0]
@@ -90,7 +107,9 @@ def _build_chart(dataframe: pd.DataFrame, analysis_type: str) -> ChartPayload:
             ]
         else:
             x_labels = [str(index) for index in dataframe.index[:12]]
-        series_data = [float(value) for value in dataframe[primary_column].head(12).fillna(0)]
+        series_data = [
+            float(value) for value in dataframe[primary_column].head(12).fillna(0)
+        ]
         return ChartPayload(
             type="line",
             title=f"{primary_column.title()} Trend",
@@ -103,16 +122,24 @@ def _build_chart(dataframe: pd.DataFrame, analysis_type: str) -> ChartPayload:
         type="bar",
         title=f"{primary_column.title()} Distribution",
         x=[str(value) for value in grouped.index],
-        series=[ChartSeries(name=primary_column, data=[float(value) for value in grouped.fillna(0)])],
+        series=[
+            ChartSeries(
+                name=primary_column, data=[float(value) for value in grouped.fillna(0)]
+            )
+        ],
     )
 
 
 def _build_table(dataframe: pd.DataFrame, analysis_type: str) -> TablePayload:
     numeric_columns = [
-        column for column in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[column])
+        column
+        for column in dataframe.columns
+        if pd.api.types.is_numeric_dtype(dataframe[column])
     ]
     categorical_columns = [
-        column for column in dataframe.columns if not pd.api.types.is_numeric_dtype(dataframe[column])
+        column
+        for column in dataframe.columns
+        if not pd.api.types.is_numeric_dtype(dataframe[column])
     ]
 
     if analysis_type == "anomaly_detection" and numeric_columns:
@@ -170,7 +197,10 @@ def _build_table(dataframe: pd.DataFrame, analysis_type: str) -> TablePayload:
 
     return TablePayload(
         title="Preview Table",
-        columns=[TableColumn(key=str(column), label=str(column)) for column in dataframe.columns[:5]],
+        columns=[
+            TableColumn(key=str(column), label=str(column))
+            for column in dataframe.columns[:5]
+        ],
         rows=[
             {str(column): _to_serializable(value) for column, value in row.items()}
             for row in dataframe.head(10).to_dict(orient="records")
@@ -182,10 +212,14 @@ def _build_insight(
     dataframe: pd.DataFrame, analysis_type: str, prompt: str | None
 ) -> InsightPayload:
     numeric_columns = [
-        column for column in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[column])
+        column
+        for column in dataframe.columns
+        if pd.api.types.is_numeric_dtype(dataframe[column])
     ]
     categorical_columns = [
-        column for column in dataframe.columns if not pd.api.types.is_numeric_dtype(dataframe[column])
+        column
+        for column in dataframe.columns
+        if not pd.api.types.is_numeric_dtype(dataframe[column])
     ]
     missing_cells = int(dataframe.isna().sum().sum())
 

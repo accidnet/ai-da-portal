@@ -20,6 +20,7 @@ import type {
 } from '../features/portal/types'
 import {
   authorizeOpenAi,
+  type ChatInteractionResponse,
   createAnalysis,
   createSession,
   fetchDatasetPreview,
@@ -27,6 +28,7 @@ import {
   fetchHealthcheck,
   fetchOpenAiAuthStatus,
   fetchSessions,
+  sendChatInteraction,
   sendChatMessage,
   uploadDataset,
 } from '../shared/api/portalApi'
@@ -106,6 +108,7 @@ const analyticsError = ref<string | null>(null)
 const isSending = ref(false)
 const isUploading = ref(false)
 const isRunningAnalysis = ref(false)
+const isSendingInteraction = ref(false)
 const searchQuery = ref('')
 const analyticsPaneWidth = ref(420)
 const isResizingAnalyticsPane = ref(false)
@@ -113,6 +116,8 @@ const activeSessionId = ref<string | null>(null)
 const sessionSummaries = ref<SessionItem[]>([])
 const sessionStates = ref<Record<string, SessionRuntimeState>>({})
 const datasetPickerRef = ref<HTMLInputElement | null>(null)
+const interactionPickerRef = ref<HTMLInputElement | null>(null)
+const pendingAttachment = ref<File | null>(null)
 let authPollTimer: number | null = null
 let authPopup: Window | null = null
 
@@ -427,22 +432,44 @@ async function handleSendMessage(message: string) {
 
   const sessionId = await ensureActiveSession()
   const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+  const attachedFile = pendingAttachment.value
+  const userMessage = message || (attachedFile ? `${attachedFile.name} 파일을 업로드해서 분석해줘.` : '')
 
   sessionState.messages = [
     ...sessionState.messages,
     {
       role: 'user',
-      text: message,
+      text: userMessage,
     },
   ]
   isSending.value = true
+  isSendingInteraction.value = Boolean(attachedFile)
+  pendingAttachment.value = null
 
   try {
-    const response = await sendChatMessage({
-      sessionId,
-      message,
-      datasetIds: sessionState.datasets.map((dataset) => dataset.id),
-    })
+    const response = attachedFile
+      ? await sendChatInteraction({
+        sessionId,
+        message: userMessage,
+        datasetIds: sessionState.datasets.map((dataset) => dataset.id),
+        file: attachedFile,
+      })
+      : await sendChatMessage({
+        sessionId,
+        message: userMessage,
+        datasetIds: sessionState.datasets.map((dataset) => dataset.id),
+      })
+
+    const interactionResponse = attachedFile ? response as ChatInteractionResponse : null
+
+    if (interactionResponse?.dataset) {
+      const dataset = createDatasetAsset(
+        interactionResponse.dataset.detail,
+        interactionResponse.dataset.preview,
+        interactionResponse.dataset.profile,
+      )
+      sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
+    }
 
     sessionState.messages = [
       ...sessionState.messages,
@@ -459,13 +486,57 @@ async function handleSendMessage(message: string) {
     chatError.value = error instanceof Error
       ? error.message
       : 'The message could not be sent. Check ChatGPT connection and backend status.'
+    pendingAttachment.value = attachedFile
   } finally {
     isSending.value = false
+    isSendingInteraction.value = false
   }
 }
 
 function openDatasetPicker() {
   datasetPickerRef.value?.click()
+}
+
+function openInteractionPicker() {
+  interactionPickerRef.value?.click()
+}
+
+function clearPendingAttachment() {
+  pendingAttachment.value = null
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024) {
+    return `${size} B`
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function queueInteractionFile(file: File) {
+  if (!file.name.toLowerCase().endsWith('.csv') && !file.type.includes('csv') && !file.type.startsWith('text/') && !file.name.toLowerCase().endsWith('.tsv') && !file.name.toLowerCase().endsWith('.xls') && !file.name.toLowerCase().endsWith('.xlsx') && !file.name.toLowerCase().endsWith('.json')) {
+    uploadError.value = 'CSV 또는 스프레드시트 파일만 업로드할 수 있어요.'
+    return
+  }
+
+  uploadError.value = null
+  pendingAttachment.value = file
+}
+
+function handleInteractionFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+
+  if (!file) {
+    return
+  }
+
+  queueInteractionFile(file)
 }
 
 function mapDatasetProfile(payload: {
@@ -677,7 +748,9 @@ const recentSessions = computed<SessionItem[]>(() => {
 const conversation = computed<ConversationData>(() => ({
   messages: activeSessionState.value?.messages ?? createWelcomeMessages('ChatGPT analysis session'),
   thinkingLabel: isSending.value
-    ? 'Processing with ChatGPT...'
+    ? isSendingInteraction.value
+      ? 'Uploading file and analyzing data...'
+      : 'Processing with ChatGPT...'
     : isUploading.value
       ? 'Uploading dataset...'
       : isRunningAnalysis.value
@@ -690,8 +763,8 @@ const composer = computed<ComposerData>(() => {
   const chips: ComposerChip[] = []
 
   chips.push({
-    icon: authStatus.value.connected ? 'smart_toy' : 'lock',
-    label: authStatus.value.connected ? 'ChatGPT connected' : 'ChatGPT not connected',
+    icon: authStatus.value.connected ? 'smart_toy' : 'analytics',
+    label: authStatus.value.connected ? 'ChatGPT connected' : 'Backend analysis mode',
     tone: authStatus.value.connected ? 'primary' : 'neutral',
   })
 
@@ -730,11 +803,9 @@ const composer = computed<ComposerData>(() => {
 
   return {
     chips,
-    placeholder: authStatus.value.connected
-      ? activeDataset.value
-        ? `${activeDataset.value.filename} 데이터에 대해 질문하거나 다른 파일을 추가해보세요...`
-        : '선택한 데이터를 어떻게 분석할지 입력해보세요...'
-      : 'ChatGPT를 연결한 뒤 분석 요청을 입력해보세요...',
+    placeholder: activeDataset.value
+      ? `${activeDataset.value.filename} 데이터에 대해 질문하거나 다른 파일을 추가해보세요...`
+      : '분석 요청을 입력하고 CSV 같은 파일을 함께 첨부해보세요...',
   }
 })
 
@@ -799,14 +870,17 @@ onUnmounted(() => {
         :class="{ 'portal-main-grid--resizing': isResizingAnalyticsPane }"
         :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
       >
-        <PortalConversationPane
+      <PortalConversationPane
           :conversation="conversation"
           :composer="composer"
-          :send-disabled="!authStatus.connected || isSending || isRunningAnalysis"
+          :send-disabled="isSending || isRunningAnalysis"
           :attach-disabled="isUploading || isRunningAnalysis"
           :error-message="chatError || uploadError"
-          @attach="openDatasetPicker"
-          @drop-file="processDatasetFile"
+          :attached-file-name="pendingAttachment?.name ?? null"
+          :attached-file-meta="pendingAttachment ? `${formatFileSize(pendingAttachment.size)} · 메시지와 함께 전송` : null"
+          @attach="openInteractionPicker"
+          @drop-file="queueInteractionFile"
+          @remove-attachment="clearPendingAttachment"
           @send="handleSendMessage"
         />
         <button
@@ -832,6 +906,14 @@ onUnmounted(() => {
     <button class="floating-action" type="button" aria-label="Run analysis" @click="runAnalysis">
       <span class="material-symbols-outlined">add</span>
     </button>
+
+    <input
+      ref="interactionPickerRef"
+      class="dataset-picker"
+      type="file"
+      accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      @change="handleInteractionFileChange"
+    />
 
     <input
       ref="datasetPickerRef"

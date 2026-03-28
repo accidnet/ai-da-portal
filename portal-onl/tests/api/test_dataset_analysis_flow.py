@@ -145,3 +145,49 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["charts"]
     app.dependency_overrides.clear()
+
+
+def test_chat_interaction_accepts_file_and_message_together() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
+    csv_content = dedent(
+        """
+        date,channel,spend,new_users
+        2025-01-01,social,1500,120
+        2025-02-01,search,2100,148
+        2025-03-01,email,900,95
+        """
+    ).strip()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/chat/interactions",
+            data={
+                "session_id": "interaction-session",
+                "message": "이 파일을 업로드하고 바로 분석해줘.",
+                "dataset_ids_json": "[]",
+            },
+            files={
+                "file": (
+                    "marketing_metrics.csv",
+                    BytesIO(csv_content.encode("utf-8")),
+                    "text/csv",
+                )
+            },
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["dataset"] is not None
+        assert body["dataset"]["detail"]["filename"] == "marketing_metrics.csv"
+        assert body["dataset"]["preview"]["columns"] == [
+            "date",
+            "channel",
+            "spend",
+            "new_users",
+        ]
+        assert body["dataset"]["profile"]["profile"]["row_count"] == 3
+        assert body["analytics"] is not None
+        assert body["analytics"]["summary_cards"]
+        assert body["assistant_message"].startswith("GPT reply:")
+
+    app.dependency_overrides.clear()
