@@ -204,6 +204,10 @@ export type WorkspaceTemplateId =
   | 'table_focus'
   | 'dataset_profile'
   | 'executive_summary'
+  | 'correlation_focus'
+  | 'trend_story'
+  | 'anomaly_watch'
+  | 'comparison_board'
 
 export type WorkspaceSectionKind =
   | 'summary_cards'

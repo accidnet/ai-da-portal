@@ -13,6 +13,10 @@ WorkspaceTemplateId = Literal[
     "table_focus",
     "dataset_profile",
     "executive_summary",
+    "correlation_focus",
+    "trend_story",
+    "anomaly_watch",
+    "comparison_board",
 ]
 WorkspaceSectionKind = Literal[
     "summary_cards",

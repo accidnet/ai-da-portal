@@ -55,10 +55,27 @@ class FakeLlmClient(LlmClient):
     def generate_json(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
     ) -> dict[str, object]:
-        del system, user_message, dataset_ids
+        del system, dataset_ids
+        lowered = user_message.lower()
+
+        template_id = "chart_focus"
+        title = "LLM Workspace"
+        if "correlation" in lowered or "상관" in lowered:
+            template_id = "correlation_focus"
+            title = "Correlation Workspace"
+        elif "trend" in lowered or "추세" in lowered:
+            template_id = "trend_story"
+            title = "Trend Workspace"
+        elif "anomaly" in lowered or "이상치" in lowered:
+            template_id = "anomaly_watch"
+            title = "Anomaly Workspace"
+        elif "group" in lowered or "compare" in lowered or "채널별" in lowered:
+            template_id = "comparison_board"
+            title = "Comparison Workspace"
+
         return {
-            "template_id": "chart_focus",
-            "title": "LLM Workspace",
+            "template_id": template_id,
+            "title": title,
             "description": "Chosen by fake LLM planner",
             "sections": [
                 {"kind": "chart", "chart_index": 0, "title": "Primary Chart"},
@@ -122,6 +139,7 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert analysis_body["analytics"]["tables"]
         assert analysis_body["analytics"]["insights"]
         assert analysis_body["workspace"] is not None
+        assert analysis_body["workspace"]["template_id"] == "correlation_focus"
         assert analysis_body["workspace"]["sections"]
 
         artifacts = client.get(f"/api/v1/analyses/{analysis_body['id']}/artifacts")
@@ -140,7 +158,7 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
         assert chat_body["workspace"] is not None
-        assert chat_body["workspace"]["template_id"] == "chart_focus"
+        assert chat_body["workspace"]["template_id"] == "correlation_focus"
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["summary_cards"]
     app.dependency_overrides.clear()
@@ -165,6 +183,38 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat_body["workspace"] is not None
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["charts"]
+    app.dependency_overrides.clear()
+
+
+def test_analysis_workspace_supports_trend_and_anomaly_templates() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        trend = client.post(
+            "/api/v1/analyses",
+            json={
+                "session_id": "trend-session",
+                "dataset_id": dataset["id"],
+                "analysis_type": "trend",
+                "prompt": "Show the monthly trend for spend.",
+            },
+        )
+        assert trend.status_code == 202
+        assert trend.json()["workspace"]["template_id"] == "trend_story"
+
+        anomaly = client.post(
+            "/api/v1/analyses",
+            json={
+                "session_id": "anomaly-session",
+                "dataset_id": dataset["id"],
+                "analysis_type": "anomaly_detection",
+                "prompt": "Detect anomaly rows in spend.",
+            },
+        )
+        assert anomaly.status_code == 202
+        assert anomaly.json()["workspace"]["template_id"] == "anomaly_watch"
+
     app.dependency_overrides.clear()
 
 

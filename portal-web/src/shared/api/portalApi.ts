@@ -97,7 +97,16 @@ export interface ChatResponse {
     } | null
   } | null
   workspace: {
-    template_id: 'overview' | 'chart_focus' | 'table_focus' | 'dataset_profile' | 'executive_summary'
+    template_id:
+      | 'overview'
+      | 'chart_focus'
+      | 'table_focus'
+      | 'dataset_profile'
+      | 'executive_summary'
+      | 'correlation_focus'
+      | 'trend_story'
+      | 'anomaly_watch'
+      | 'comparison_board'
     title: string
     description?: string | null
     sections: Array<{
