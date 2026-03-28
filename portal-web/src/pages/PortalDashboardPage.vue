@@ -864,7 +864,7 @@ onUnmounted(() => {
 .portal-main-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 14px minmax(320px, var(--analytics-pane-width, 420px));
+  grid-template-columns: minmax(0, 1fr) 20px minmax(320px, var(--analytics-pane-width, 420px));
   gap: 0;
   align-items: stretch;
 }
@@ -876,8 +876,8 @@ onUnmounted(() => {
 
 .pane-resizer {
   position: relative;
-  width: 14px;
-  margin: 0 10px;
+  width: 20px;
+  margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -902,7 +902,7 @@ onUnmounted(() => {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 14px;
+  width: 20px;
   height: 34px;
   border-radius: 999px;
   transform: translate(-50%, -50%);
