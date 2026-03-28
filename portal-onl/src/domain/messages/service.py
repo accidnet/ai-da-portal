@@ -1,4 +1,5 @@
 import json
+import logging
 
 from agents.router import route_message
 from agents.state import AgentRoute
@@ -8,6 +9,9 @@ from domain.datasets.service import DatasetService
 from domain.messages.schemas import ChatRequest, ChatResponse
 from domain.shared import AnalyticsPayload
 from infrastructure.llm.client import LlmClient
+
+
+logger = logging.getLogger(__name__)
 
 
 class MessageService:
@@ -24,13 +28,32 @@ class MessageService:
     def handle_chat(self, payload: ChatRequest, agent_runtime: object) -> ChatResponse:
         del agent_runtime
         route = route_message(payload.message, has_dataset=bool(payload.dataset_ids))
+        logger.debug(
+            "Handling chat session_id=%s route=%s dataset_ids=%s",
+            payload.session_id,
+            route,
+            payload.dataset_ids,
+        )
         analytics = self._build_analytics(route=route, payload=payload)
+        logger.debug(
+            "Analytics prepared session_id=%s has_analytics=%s summary_cards=%s charts=%s tables=%s",
+            payload.session_id,
+            analytics is not None,
+            len(analytics.summary_cards) if analytics else 0,
+            len(analytics.charts) if analytics else 0,
+            len(analytics.tables) if analytics else 0,
+        )
         assistant_message = self._llm_client.generate(
             system=self._system_prompt(route),
             user_message=self._compose_user_message(
                 payload=payload, analytics=analytics
             ),
             dataset_ids=payload.dataset_ids,
+        )
+        logger.debug(
+            "LLM reply generated session_id=%s reply_len=%s",
+            payload.session_id,
+            len(assistant_message),
         )
 
         return ChatResponse(
@@ -84,9 +107,19 @@ class MessageService:
     ) -> AnalyticsPayload | None:
         dataset_id = self._resolve_dataset_id(payload.dataset_ids)
         if dataset_id is None:
+            logger.debug(
+                "Skipping analytics creation session_id=%s no_dataset_resolved",
+                payload.session_id,
+            )
             return None
 
         analysis_type = self._route_to_analysis_type(route, payload.message)
+        logger.debug(
+            "Creating analytics session_id=%s dataset_id=%s analysis_type=%s",
+            payload.session_id,
+            dataset_id,
+            analysis_type,
+        )
         result = self._analysis_service.create(
             AnalysisRequest(
                 session_id=payload.session_id,
@@ -94,6 +127,12 @@ class MessageService:
                 analysis_type=analysis_type,
                 prompt=payload.message,
             )
+        )
+        logger.debug(
+            "Analytics created session_id=%s dataset_id=%s status=%s",
+            payload.session_id,
+            dataset_id,
+            result.status,
         )
         return result.analytics
 

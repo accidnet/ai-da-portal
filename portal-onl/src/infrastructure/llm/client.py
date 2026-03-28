@@ -64,7 +64,7 @@ class LlmClient:
 
     def _generate_with_api_key(self, prompt: StructuredPrompt) -> str:
         headers = {
-            "Accept": "application/json",
+            "Accept": "text/event-stream",
             "Authorization": f"Bearer {self._settings.openai_api_key}",
             "Content-Type": "application/json",
         }
@@ -86,7 +86,7 @@ class LlmClient:
         self, *, access_token: str, account_id: str | None
     ) -> dict[str, str]:
         headers = {
-            "Accept": "application/json",
+            "Accept": "text/event-stream",
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
@@ -166,12 +166,39 @@ class LlmClient:
         logger.debug(
             "Parsing non-event-stream response body excerpt=%r", raw_text[:300]
         )
-        if raw_text.lstrip().startswith("data:"):
-            logger.debug("Detected SSE payload without text/event-stream header")
+        if not raw_text.strip():
+            logger.error(
+                "Empty LLM response body status=%s content-type=%s headers=%s",
+                response.status_code,
+                content_type,
+                dict(response.headers),
+            )
+            raise LlmClientError(
+                "OpenAI returned an empty response body. "
+                f"content-type={content_type or 'unknown'}"
+            )
+        if self._looks_like_sse(raw_text):
+            logger.debug("Detected SSE-style payload without text/event-stream header")
             return self._extract_stream_output_text(raw_text)
 
-        data = json.loads(raw_text)
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Failed to decode non-SSE LLM response as JSON content-type=%s body_excerpt=%r",
+                content_type,
+                raw_text[:500],
+            )
+            raise exc
         return self._extract_output_text(data)
+
+    def _looks_like_sse(self, raw_text: str) -> bool:
+        lines = [line.strip() for line in raw_text.splitlines()[:12] if line.strip()]
+        if not lines:
+            return False
+
+        sse_prefixes = ("data:", "event:", "id:", ":")
+        return any(line.startswith(sse_prefixes) for line in lines)
 
     def _extract_stream_output_from_lines(self, lines: object) -> str | None:
         deltas: list[str] = []

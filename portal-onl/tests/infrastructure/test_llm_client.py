@@ -164,3 +164,26 @@ def test_llm_client_parses_sse_even_without_event_stream_header() -> None:
     reply = client.generate(system="system", user_message="user prompt")
 
     assert reply == "Hello again"
+
+
+def test_llm_client_detects_sse_when_event_line_comes_first() -> None:
+    stream_text = "\n".join(
+        [
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"Hello via event"}',
+            "",
+        ]
+    )
+    http_client = RecordingHttpClient(
+        response_text=stream_text,
+        content_type="text/plain",
+    )
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        http_client=http_client,
+    )
+
+    reply = client.generate(system="system", user_message="user prompt")
+
+    assert reply == "Hello via event"

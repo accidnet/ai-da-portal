@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_agent_runtime, get_message_service
@@ -6,6 +8,7 @@ from domain.messages.service import MessageService
 from infrastructure.llm.client import LlmClientError
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -17,8 +20,19 @@ def send_message(
     agent_runtime: object = Depends(get_agent_runtime),
 ) -> ChatResponse:
     try:
+        logger.debug(
+            "Chat request received session_id=%s message_len=%s dataset_count=%s",
+            payload.session_id,
+            len(payload.message),
+            len(payload.dataset_ids),
+        )
         return service.handle_chat(payload=payload, agent_runtime=agent_runtime)
     except LlmClientError as exc:
+        logger.exception(
+            "Chat request failed session_id=%s dataset_count=%s",
+            payload.session_id,
+            len(payload.dataset_ids),
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
