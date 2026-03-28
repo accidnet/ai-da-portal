@@ -2,6 +2,7 @@ import type {
   AnalyticsPayload,
   ChatMessage,
   DatasetAsset,
+  WorkspacePayload,
 } from '../types'
 import type {
   DatasetProfileResponse,
@@ -14,6 +15,7 @@ export interface SessionRuntimeState {
   title: string
   messages: ChatMessage[]
   analyticsPayload: AnalyticsPayload | null
+  workspacePayload: WorkspacePayload | null
   datasets: DatasetAsset[]
 }
 
@@ -98,6 +100,7 @@ export function mapSnapshotToSessionState(
     title,
     messages: messages.length > 0 ? messages : createWelcomeMessages(title),
     analyticsPayload: snapshot.analytics,
+    workspacePayload: snapshot.workspace,
     datasets,
   }
 }

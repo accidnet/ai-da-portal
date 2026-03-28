@@ -1,8 +1,4 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "permission": {
-    "external_directory": {
-      "~/projects/ai-da-portal-workspace/*": "allow"
-    }
-  }
+  "permission": "allow"
 }

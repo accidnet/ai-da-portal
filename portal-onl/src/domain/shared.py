@@ -7,6 +7,24 @@ ReasoningStatus = Literal[
     "queued", "profiling", "running_analysis", "completed", "failed"
 ]
 ChartType = Literal["line", "bar", "scatter", "table", "metric"]
+WorkspaceTemplateId = Literal[
+    "overview",
+    "chart_focus",
+    "table_focus",
+    "dataset_profile",
+    "executive_summary",
+    "correlation_focus",
+    "trend_story",
+    "anomaly_watch",
+    "comparison_board",
+]
+WorkspaceSectionKind = Literal[
+    "summary_cards",
+    "chart",
+    "table",
+    "insight",
+    "dataset_profile",
+]
 
 
 class SummaryCard(BaseModel):
@@ -65,3 +83,20 @@ class AnalyticsPayload(BaseModel):
     tables: list[TablePayload] = Field(default_factory=list)
     insights: list[InsightPayload] = Field(default_factory=list)
     dataset_profile: DatasetProfilePayload | None = None
+
+
+class WorkspaceSectionPayload(BaseModel):
+    kind: WorkspaceSectionKind
+    title: str | None = None
+    chart_index: int | None = None
+    table_index: int | None = None
+    insight_index: int | None = None
+    max_items: int | None = None
+    summary_card_labels: list[str] = Field(default_factory=list)
+
+
+class WorkspacePayload(BaseModel):
+    template_id: WorkspaceTemplateId
+    title: str
+    description: str | None = None
+    sections: list[WorkspaceSectionPayload] = Field(default_factory=list)

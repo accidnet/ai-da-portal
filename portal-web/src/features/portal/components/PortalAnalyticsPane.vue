@@ -2,15 +2,22 @@
 import { computed } from 'vue'
 
 import type {
+  AnalyticsChartPayload,
   AnalyticsData,
+  AnalyticsInsight,
   AnalyticsPayload,
+  AnalyticsSummaryCard,
+  AnalyticsTablePayload,
   DatasetAsset,
   DatasetPreview,
+  WorkspacePayload,
+  WorkspaceSectionPayload,
 } from '../types'
 
 const props = defineProps<{
   analytics: AnalyticsData
   analyticsPayload?: AnalyticsPayload | null
+  workspacePayload?: WorkspacePayload | null
   datasetAsset?: DatasetAsset | null
   isLoading?: boolean
   errorMessage?: string | null
@@ -21,73 +28,40 @@ const emit = defineEmits<{
   insightAction: []
 }>()
 
-const backendChart = computed(() => props.analyticsPayload?.charts[0] ?? null)
 const backendSummaryCards = computed(() => props.analyticsPayload?.summary_cards ?? [])
+const backendCharts = computed(() => props.analyticsPayload?.charts ?? [])
 const backendTables = computed(() => props.analyticsPayload?.tables ?? [])
 const backendInsights = computed(() => props.analyticsPayload?.insights ?? [])
 const backendDatasetProfile = computed(
   () => props.datasetAsset?.profile ?? normalizeDatasetProfile(props.analyticsPayload?.dataset_profile),
 )
 const backendDatasetPreview = computed(() => props.datasetAsset?.preview ?? null)
-
-const displayChartPoints = computed(() => {
-  const chart = backendChart.value
-  if (chart && chart.x.length > 0 && chart.series.length > 0) {
-    const series = chart.series[0]
-    return chart.x.map((label, index) => ({
-      label,
-      value: normalizePoint(series.data[index]),
-    }))
-  }
-
-  return props.analytics.chartPoints.map((point) => ({
-    label: point.label,
-    value: point.spend,
-  }))
-})
-
-const hasChartData = computed(() => displayChartPoints.value.some((point) => point.value > 0))
-const chartPath = computed(() => {
-  const points = displayChartPoints.value
-
-  if (points.length === 0) {
-    return ''
-  }
-
-  const maxValue = Math.max(...points.map((point) => point.value), 1)
-
-  if (points.length === 1) {
-    return 'M 0 50 L 100 50'
-  }
-
-  return points
-    .map((point, index) => {
-      const x = (index / (points.length - 1)) * 100
-      const y = 100 - (point.value / maxValue) * 100
-      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
-    })
-    .join(' ')
-})
-const hasBackendTable = computed(() => backendTables.value.length > 0)
-const backendTable = computed(() => backendTables.value[0] ?? null)
-const displayInsight = computed(() => backendInsights.value[0] ?? null)
 const hasDatasetPreview = computed(() => (backendDatasetPreview.value?.rows?.length ?? 0) > 0)
-const hasWorkspaceData = computed(() => (
-  Boolean(backendChart.value)
-  || backendSummaryCards.value.length > 0
-  || hasBackendTable.value
-  || Boolean(backendDatasetProfile.value)
-  || hasDatasetPreview.value
-  || Boolean(displayInsight.value)
-))
-const chartTitle = computed(() => backendChart.value?.title ?? props.analytics.chartTitle)
-const chartChange = computed(() => {
-  if (backendChart.value?.series[0]?.data.length) {
-    return '실시간 백엔드 결과'
+
+const fallbackWorkspace = computed<WorkspacePayload | null>(() => {
+  if (!props.analyticsPayload) {
+    return null
   }
 
-  return props.analytics.chartChange
+  return {
+    template_id: 'overview',
+    title: props.analytics.title,
+    description: '기본 analytics payload 기반 작업공간',
+    sections: [
+      { kind: 'summary_cards', title: '핵심 지표', max_items: 4 },
+      { kind: 'chart', title: '주요 차트', chart_index: 0 },
+      { kind: 'table', title: '상세 표', table_index: 0 },
+      { kind: 'insight', title: '인사이트', insight_index: 0 },
+      { kind: 'dataset_profile', title: '데이터 스냅샷' },
+    ],
+  }
 })
+
+const workspacePayload = computed(() => props.workspacePayload ?? fallbackWorkspace.value)
+const workspaceSections = computed(() => workspacePayload.value?.sections ?? [])
+const hasWorkspaceData = computed(() => workspaceSections.value.some(hasSectionContent))
+const workspaceTitle = computed(() => workspacePayload.value?.title ?? props.analytics.title)
+const workspaceDescription = computed(() => workspacePayload.value?.description ?? null)
 
 function normalizePoint(value: number | string | null | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -124,14 +98,102 @@ function normalizeDatasetProfile(
 function previewRows(preview: DatasetPreview | null): Array<Record<string, string | number | null>> {
   return preview?.rows ?? []
 }
+
+function hasSectionContent(section: WorkspaceSectionPayload): boolean {
+  if (section.kind === 'summary_cards') {
+    return summaryCardsForSection(section).length > 0
+  }
+  if (section.kind === 'chart') {
+    return Boolean(chartForSection(section))
+  }
+  if (section.kind === 'table') {
+    return Boolean(tableForSection(section))
+  }
+  if (section.kind === 'insight') {
+    return Boolean(insightForSection(section))
+  }
+  return Boolean(backendDatasetProfile.value || hasDatasetPreview.value)
+}
+
+function summaryCardsForSection(section: WorkspaceSectionPayload): AnalyticsSummaryCard[] {
+  const cards = backendSummaryCards.value
+  const labels = section.summary_card_labels?.filter(Boolean) ?? []
+  const filtered = labels.length
+    ? cards.filter((card) => labels.includes(card.label))
+    : cards
+
+  return filtered.slice(0, section.max_items ?? filtered.length)
+}
+
+function chartForSection(section: WorkspaceSectionPayload): AnalyticsChartPayload | null {
+  return backendCharts.value[section.chart_index ?? 0] ?? null
+}
+
+function tableForSection(section: WorkspaceSectionPayload): AnalyticsTablePayload | null {
+  return backendTables.value[section.table_index ?? 0] ?? null
+}
+
+function insightForSection(section: WorkspaceSectionPayload): AnalyticsInsight | null {
+  return backendInsights.value[section.insight_index ?? 0] ?? null
+}
+
+function chartPoints(chart: AnalyticsChartPayload | null) {
+  if (chart && chart.x.length > 0 && chart.series.length > 0) {
+    const series = chart.series[0]
+    return chart.x.map((label, index) => ({
+      label,
+      value: normalizePoint(series.data[index]),
+    }))
+  }
+
+  return props.analytics.chartPoints.map((point) => ({
+    label: point.label,
+    value: point.spend,
+  }))
+}
+
+function hasChartData(chart: AnalyticsChartPayload | null): boolean {
+  return chartPoints(chart).some((point) => point.value > 0)
+}
+
+function chartPath(chart: AnalyticsChartPayload | null): string {
+  const points = chartPoints(chart)
+
+  if (points.length === 0) {
+    return ''
+  }
+
+  const maxValue = Math.max(...points.map((point) => point.value), 1)
+
+  if (points.length === 1) {
+    return 'M 0 50 L 100 50'
+  }
+
+  return points
+    .map((point, index) => {
+      const x = (index / (points.length - 1)) * 100
+      const y = 100 - (point.value / maxValue) * 100
+      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+    })
+    .join(' ')
+}
+
+function chartBadge(chart: AnalyticsChartPayload | null): string {
+  if (chart?.series[0]?.data.length) {
+    return '실시간 백엔드 결과'
+  }
+
+  return props.analytics.chartChange
+}
 </script>
 
 <template>
-  <aside class="analytics-shell">
+  <aside class="analytics-shell" :class="workspacePayload ? `analytics-shell--${workspacePayload.template_id}` : null">
     <header class="analytics-header">
       <div>
         <p>작업공간</p>
-        <h2>{{ analytics.title }}</h2>
+        <h2>{{ workspaceTitle }}</h2>
+        <small v-if="workspaceDescription" class="workspace-description">{{ workspaceDescription }}</small>
       </div>
 
       <div class="analytics-actions">
@@ -147,145 +209,161 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
     <p v-if="errorMessage" class="analytics-alert">{{ errorMessage }}</p>
     <p v-else-if="isLoading" class="analytics-alert analytics-alert--loading">실시간 분석 결과를 업데이트하고 있어요...</p>
 
-    <section v-if="backendChart" class="panel-card chart-card">
-      <div class="chart-headline">
-        <div>
-          <p>추이</p>
-          <h3>{{ chartTitle }}</h3>
-        </div>
-        <span>{{ chartChange }}</span>
-      </div>
-
-      <div class="chart-body">
-        <div v-if="hasChartData" class="chart-bars">
-          <div v-for="point in displayChartPoints" :key="point.label" class="bar-item">
-            <div class="bar-fill" :style="{ height: `${Math.min(point.value, 100)}%` }"></div>
-            <small>{{ point.label }}</small>
-          </div>
-        </div>
-
-        <svg v-if="hasChartData" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          <path :d="chartPath"></path>
-        </svg>
-
-        <p v-else class="chart-empty">아직 차트 데이터가 없어요. 프롬프트를 보내거나 분석을 실행해 주세요.</p>
-      </div>
-    </section>
-
-    <section v-if="backendSummaryCards.length" class="metric-grid">
-      <article
-        v-for="card in backendSummaryCards"
-        :key="card.label"
-        class="panel-card metric-card"
+    <template v-for="(section, sectionIndex) in workspaceSections" :key="`${section.kind}-${sectionIndex}`">
+      <section
+        v-if="section.kind === 'chart' && chartForSection(section)"
+        class="panel-card chart-card"
       >
-        <p>{{ card.label }}</p>
-        <strong :class="`metric-value--${card.tone ?? 'primary'}`">{{ card.value }}</strong>
-        <span>{{ card.detail }}</span>
-        <div class="meter-track">
-          <div class="meter-fill" :class="`meter-fill--${card.tone ?? 'primary'}`"></div>
+        <div class="chart-headline">
+          <div>
+            <p>{{ section.title ?? '차트' }}</p>
+            <h3>{{ chartForSection(section)?.title }}</h3>
+          </div>
+          <span>{{ chartBadge(chartForSection(section)) }}</span>
         </div>
-      </article>
-    </section>
 
-    <section v-if="hasBackendTable" class="panel-card table-card">
-      <header>
-        <p>분석 결과</p>
-        <h3>{{ backendTable?.title }}</h3>
-      </header>
+        <div class="chart-body">
+          <div v-if="hasChartData(chartForSection(section))" class="chart-bars">
+            <div v-for="point in chartPoints(chartForSection(section))" :key="point.label" class="bar-item">
+              <div class="bar-fill" :style="{ height: `${Math.min(point.value, 100)}%` }"></div>
+              <small>{{ point.label }}</small>
+            </div>
+          </div>
 
-      <table>
-        <thead>
-          <tr>
-            <template v-if="backendTable">
-              <th v-for="column in backendTable.columns" :key="column.key">{{ column.label }}</th>
-            </template>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-if="backendTable">
-            <tr v-for="(row, rowIndex) in backendTable.rows" :key="rowIndex">
-              <td v-for="column in backendTable.columns" :key="column.key">
-                {{ row[column.key] }}
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </section>
+          <svg v-if="hasChartData(chartForSection(section))" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <path :d="chartPath(chartForSection(section))"></path>
+          </svg>
 
-    <section v-if="backendDatasetProfile || hasDatasetPreview" class="panel-card dataset-card">
-      <header class="dataset-card__header">
-        <div>
-          <p>데이터 스냅샷</p>
-          <h3>{{ datasetAsset?.filename ?? '선택된 데이터셋이 없어요' }}</h3>
+          <p v-else class="chart-empty">아직 차트 데이터가 없어요. 프롬프트를 보내거나 분석을 실행해 주세요.</p>
         </div>
-        <span v-if="backendDatasetProfile">
-          {{ backendDatasetProfile.rowCount }}행
-        </span>
-      </header>
+      </section>
 
-      <div v-if="backendDatasetProfile" class="dataset-stats">
-        <article class="dataset-stat">
-          <p>행 수</p>
-          <strong>{{ backendDatasetProfile.rowCount }}</strong>
-        </article>
-        <article class="dataset-stat">
-          <p>열 수</p>
-          <strong>{{ backendDatasetProfile.columnCount }}</strong>
-        </article>
-      </div>
+      <section
+        v-else-if="section.kind === 'summary_cards' && summaryCardsForSection(section).length"
+        class="workspace-section"
+      >
+        <header v-if="section.title" class="workspace-section__header">
+          <p>{{ section.title }}</p>
+        </header>
+        <div class="metric-grid">
+          <article
+            v-for="card in summaryCardsForSection(section)"
+            :key="card.label"
+            class="panel-card metric-card"
+          >
+            <p>{{ card.label }}</p>
+            <strong :class="`metric-value--${card.tone ?? 'primary'}`">{{ card.value }}</strong>
+            <span>{{ card.detail }}</span>
+            <div class="meter-track">
+              <div class="meter-fill" :class="`meter-fill--${card.tone ?? 'primary'}`"></div>
+            </div>
+          </article>
+        </div>
+      </section>
 
-      <div v-if="backendDatasetProfile" class="dataset-columns">
-        <article v-for="column in backendDatasetProfile.columns" :key="column.name" class="dataset-column">
-          <strong>{{ column.name }}</strong>
-          <span>{{ column.dtype }} · 결측 {{ Math.round(column.nullRatio * 100) }}%</span>
-          <small v-if="column.sampleValues.length">예시값: {{ column.sampleValues.join(', ') }}</small>
-        </article>
-      </div>
+      <section
+        v-else-if="section.kind === 'table' && tableForSection(section)"
+        class="panel-card table-card"
+      >
+        <header>
+          <p>{{ section.title ?? '분석 결과' }}</p>
+          <h3>{{ tableForSection(section)?.title }}</h3>
+        </header>
 
-      <div v-if="hasDatasetPreview && backendDatasetPreview" class="dataset-preview">
         <table>
           <thead>
             <tr>
-              <th v-for="column in backendDatasetPreview.columns" :key="column">{{ column }}</th>
+              <th v-for="column in tableForSection(section)?.columns ?? []" :key="column.key">{{ column.label }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(row, rowIndex) in previewRows(backendDatasetPreview)" :key="rowIndex">
-              <td v-for="column in backendDatasetPreview.columns" :key="column">
-                {{ row[column] }}
+            <tr v-for="(row, rowIndex) in tableForSection(section)?.rows ?? []" :key="rowIndex">
+              <td v-for="column in tableForSection(section)?.columns ?? []" :key="column.key">
+                {{ row[column.key] }}
               </td>
             </tr>
           </tbody>
         </table>
-      </div>
+      </section>
 
-      <div v-if="backendDatasetProfile?.suggestedPrompts.length" class="prompt-list">
-        <p>추천 프롬프트</p>
-        <button
-          v-for="prompt in backendDatasetProfile.suggestedPrompts"
-          :key="prompt"
-          type="button"
-          :disabled="isLoading"
-          @click="emit('promptClick', prompt)"
-        >
-          {{ prompt }}
-        </button>
-      </div>
-    </section>
+      <section
+        v-else-if="section.kind === 'dataset_profile' && (backendDatasetProfile || hasDatasetPreview)"
+        class="panel-card dataset-card"
+      >
+        <header class="dataset-card__header">
+          <div>
+            <p>{{ section.title ?? '데이터 스냅샷' }}</p>
+            <h3>{{ datasetAsset?.filename ?? '선택된 데이터셋이 없어요' }}</h3>
+          </div>
+          <span v-if="backendDatasetProfile">{{ backendDatasetProfile.rowCount }}행</span>
+        </header>
 
-    <section v-if="displayInsight" class="insight-card">
-      <div class="insight-icon">
-        <span class="material-symbols-outlined">lightbulb</span>
-      </div>
-      <div>
-        <p>{{ displayInsight.title }}</p>
-        <h3>{{ displayInsight.body }}</h3>
-        <button type="button" :disabled="isLoading" @click="emit('insightAction')">
-          {{ displayInsight.action_label ?? analytics.insight.actionLabel }}
-        </button>
-      </div>
-    </section>
+        <div v-if="backendDatasetProfile" class="dataset-stats">
+          <article class="dataset-stat">
+            <p>행 수</p>
+            <strong>{{ backendDatasetProfile.rowCount }}</strong>
+          </article>
+          <article class="dataset-stat">
+            <p>열 수</p>
+            <strong>{{ backendDatasetProfile.columnCount }}</strong>
+          </article>
+        </div>
+
+        <div v-if="backendDatasetProfile" class="dataset-columns">
+          <article v-for="column in backendDatasetProfile.columns" :key="column.name" class="dataset-column">
+            <strong>{{ column.name }}</strong>
+            <span>{{ column.dtype }} · 결측 {{ Math.round(column.nullRatio * 100) }}%</span>
+            <small v-if="column.sampleValues.length">예시값: {{ column.sampleValues.join(', ') }}</small>
+          </article>
+        </div>
+
+        <div v-if="hasDatasetPreview && backendDatasetPreview" class="dataset-preview">
+          <table>
+            <thead>
+              <tr>
+                <th v-for="column in backendDatasetPreview.columns" :key="column">{{ column }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, rowIndex) in previewRows(backendDatasetPreview)" :key="rowIndex">
+                <td v-for="column in backendDatasetPreview.columns" :key="column">
+                  {{ row[column] }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="backendDatasetProfile?.suggestedPrompts.length" class="prompt-list">
+          <p>추천 프롬프트</p>
+          <button
+            v-for="prompt in backendDatasetProfile.suggestedPrompts"
+            :key="prompt"
+            type="button"
+            :disabled="isLoading"
+            @click="emit('promptClick', prompt)"
+          >
+            {{ prompt }}
+          </button>
+        </div>
+      </section>
+
+      <section
+        v-else-if="section.kind === 'insight' && insightForSection(section)"
+        class="insight-card"
+      >
+        <div class="insight-icon">
+          <span class="material-symbols-outlined">lightbulb</span>
+        </div>
+        <div>
+          <p>{{ section.title ?? insightForSection(section)?.title }}</p>
+          <h3>{{ insightForSection(section)?.body }}</h3>
+          <button type="button" :disabled="isLoading" @click="emit('insightAction')">
+            {{ insightForSection(section)?.action_label ?? analytics.insight.actionLabel }}
+          </button>
+        </div>
+      </section>
+    </template>
 
     <section v-if="!hasWorkspaceData && !isLoading && !errorMessage" class="analytics-empty-state">
       <span class="material-symbols-outlined">analytics</span>
@@ -346,6 +424,14 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
 
 .analytics-header h2 {
   font-size: 1.05rem;
+}
+
+.workspace-description {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .analytics-actions {
@@ -430,7 +516,8 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   gap: 14px;
 }
 
-.chart-headline span {
+.chart-headline span,
+.dataset-card__header span {
   padding: 8px 10px;
   border-radius: 999px;
   color: var(--color-primary-strong);
@@ -506,6 +593,20 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   gap: 18px;
 }
 
+.workspace-section {
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-section__header p {
+  margin: 0 2px;
+  color: var(--color-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
 .metric-card {
   padding: 18px;
 }
@@ -567,7 +668,6 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
 .dataset-preview td {
   padding: 14px 0;
   border-bottom: 1px solid var(--color-border);
-  font-size: 0.86rem;
 }
 
 .table-card th,
@@ -586,34 +686,11 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   text-align: right;
 }
 
-.trend-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.trend-pill--up {
-  color: var(--color-success);
-}
-
-.trend-pill--flat {
-  color: var(--color-text-soft);
-}
-
 .dataset-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-}
-
-.dataset-card__header span {
-  padding: 8px 10px;
-  border-radius: 999px;
-  color: var(--color-primary-strong);
-  background: var(--color-primary-soft);
-  font-weight: 700;
-  font-size: 0.8rem;
 }
 
 .dataset-stats {

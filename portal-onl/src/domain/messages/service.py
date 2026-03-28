@@ -15,6 +15,7 @@ from domain.messages.schemas import (
     ChatResponse,
 )
 from domain.shared import AnalyticsPayload
+from domain.workspace.service import WorkspacePlanner
 from infrastructure.llm.client import LlmClient, LlmClientError
 
 
@@ -31,6 +32,7 @@ class MessageService:
         self._llm_client = llm_client
         self._dataset_service = dataset_service
         self._analysis_service = analysis_service
+        self._workspace_planner = WorkspacePlanner(llm_client=llm_client)
 
     def handle_chat(self, payload: ChatRequest, agent_runtime: object) -> ChatResponse:
         del agent_runtime
@@ -42,13 +44,23 @@ class MessageService:
             payload.dataset_ids,
         )
         analytics = self._build_analytics(route=route, payload=payload)
+        workspace = self._workspace_planner.plan(
+            prompt=payload.message,
+            analytics=analytics,
+            route=route,
+            analysis_type=self._route_to_analysis_type(route, payload.message)
+            if analytics is not None
+            else None,
+            dataset_ids=payload.dataset_ids,
+        )
         logger.debug(
-            "Analytics prepared session_id=%s has_analytics=%s summary_cards=%s charts=%s tables=%s",
+            "Analytics prepared session_id=%s has_analytics=%s summary_cards=%s charts=%s tables=%s workspace=%s",
             payload.session_id,
             analytics is not None,
             len(analytics.summary_cards) if analytics else 0,
             len(analytics.charts) if analytics else 0,
             len(analytics.tables) if analytics else 0,
+            workspace.template_id if workspace else None,
         )
         try:
             assistant_message = self._llm_client.generate(
@@ -81,6 +93,7 @@ class MessageService:
             assistant_message=assistant_message,
             follow_up_suggestions=self._suggestions(route),
             analytics=analytics,
+            workspace=workspace,
         )
 
     async def handle_chat_interaction(
