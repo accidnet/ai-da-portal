@@ -167,16 +167,16 @@ function restoreAnalyticsPaneWidth() {
   analyticsPaneWidth.value = clampAnalyticsPaneWidth(parsedWidth)
 }
 
-function createWelcomeMessages(title: string): ChatMessage[] {
+function createWelcomeMessages(): ChatMessage[] {
   return [
     {
       role: 'assistant',
       author: 'AI 데이터 분석가',
-      text: `${title} 세션입니다. 데이터셋을 업로드하거나 프롬프트를 보내면 바로 분석을 시작할 수 있어요.`,
+      text: `데이터셋을 업로드하면 바로 분석을 시작할 수 있어요.`,
       bullets: [
         { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
         { text: '추세, 상관관계, 이상치 분석 요청하기' },
-        { text: '대시보드 카드용 요약 분석 실행하기' },
+        { text: '간단한 그래프 시각화하기' },
       ],
     },
   ]
@@ -205,7 +205,7 @@ function normalizeAssistantMessage(message: string, followUpSuggestions: string[
 function createSessionState(title: string): SessionRuntimeState {
   return {
     title,
-    messages: createWelcomeMessages(title),
+    messages: createWelcomeMessages(),
     analyticsPayload: null,
     workspacePayload: null,
     datasets: [],
@@ -811,7 +811,7 @@ const recentSessions = computed<SessionItem[]>(() => {
 })
 
 const conversation = computed<ConversationData>(() => ({
-  messages: activeSessionState.value?.messages ?? createWelcomeMessages('ChatGPT analysis session'),
+  messages: activeSessionState.value?.messages ?? createWelcomeMessages(),
   thinkingLabel: isSending.value
     ? isSendingInteraction.value
       ? 'Uploading file and analyzing data...'

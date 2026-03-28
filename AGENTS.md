@@ -1,5 +1,7 @@
 # AGENTS.md
 
+- 기본적으로 언어는 한국어를 사용합니다.
+
 ## 저장소 개요
 
 - `portal-web`: Vue 3 + TypeScript + Vite 기반 프론트엔드
