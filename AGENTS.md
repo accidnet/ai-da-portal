@@ -18,6 +18,8 @@
 
 ## 하위 에이전트 역할
 
+- 항상 먼저 git config에 본인의 이름을 설정하고, email은 이름@agents.local로 설정한다.
+
 ### `portal-web` 담당 에이전트
 
 - Vue 3, TypeScript, Vite 기반 프론트엔드 변경을 담당한다.
