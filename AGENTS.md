@@ -1,5 +1,7 @@
 # AGENTS.md
 
+- language : korean
+
 ## 저장소 개요
 
 - `portal-web`: Vue 3 + TypeScript + Vite 기반 프론트엔드
