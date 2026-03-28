@@ -109,6 +109,7 @@ const isSending = ref(false)
 const isUploading = ref(false)
 const isRunningAnalysis = ref(false)
 const isSendingInteraction = ref(false)
+const isAnalyticsFullscreen = ref(false)
 const searchQuery = ref('')
 const analyticsPaneWidth = ref(420)
 const isResizingAnalyticsPane = ref(false)
@@ -119,6 +120,7 @@ const hydratedSessionIds = ref<Record<string, boolean>>({})
 const datasetPickerRef = ref<HTMLInputElement | null>(null)
 const interactionPickerRef = ref<HTMLInputElement | null>(null)
 const pendingAttachment = ref<File | null>(null)
+const exportMessage = ref<string | null>(null)
 let authPollTimer: number | null = null
 let authPopup: Window | null = null
 let latestSnapshotRequestId = 0
@@ -166,14 +168,12 @@ function restoreAnalyticsPaneWidth() {
   analyticsPaneWidth.value = clampAnalyticsPaneWidth(parsedWidth)
 }
 
-function createWelcomeMessages(title?: string): ChatMessage[] {
+function createWelcomeMessages(): ChatMessage[] {
   return [
     {
       role: 'assistant',
       author: 'AI 데이터 분석가',
-      text: title
-        ? `${title} 세션입니다. 데이터셋을 업로드하거나 프롬프트를 보내면 바로 분석을 시작할 수 있어요.`
-        : '데이터셋을 업로드하면 바로 분석을 시작할 수 있어요.',
+      text: '데이터셋을 업로드하면 바로 분석을 시작할 수 있어요.',
       bullets: [
         { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
         { text: '추세, 상관관계, 이상치 분석 요청하기' },
@@ -200,7 +200,7 @@ function normalizeAssistantMessage(message: string): string {
 function createSessionState(title: string): SessionRuntimeState {
   return {
     title,
-    messages: createWelcomeMessages(title),
+    messages: createWelcomeMessages(),
     analyticsPayload: null,
     workspacePayload: null,
     datasets: [],
@@ -483,10 +483,131 @@ function handleSearchChange(value: string) {
   searchQuery.value = value
 }
 
+function toggleAnalyticsFullscreen() {
+  isAnalyticsFullscreen.value = !isAnalyticsFullscreen.value
+}
+
+function sanitizeFileNameSegment(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'analysis-report'
+}
+
+function buildReportContent() {
+  const sessionState = activeSessionState.value
+  const dataset = activeDataset.value
+  const analytics = analyticsPayload.value
+  const workspace = workspacePayload.value
+  const lines: string[] = []
+
+  lines.push(`# ${workspace?.title ?? sessionState?.title ?? DEFAULT_SESSION_TITLE}`)
+
+  if (workspace?.description) {
+    lines.push('', workspace.description)
+  }
+
+  if (dataset) {
+    lines.push('', '## 데이터셋')
+    lines.push(`- 파일명: ${dataset.filename}`)
+    lines.push(`- 생성 시각: ${dataset.createdAt}`)
+    if (dataset.profile) {
+      lines.push(`- 행/열: ${dataset.profile.rowCount}행 / ${dataset.profile.columnCount}열`)
+    }
+  }
+
+  if (analytics?.summary_cards?.length) {
+    lines.push('', '## 핵심 지표')
+    for (const card of analytics.summary_cards) {
+      lines.push(`- ${card.label}: ${card.value}${card.detail ? ` (${card.detail})` : ''}`)
+    }
+  }
+
+  if (analytics?.insights?.length) {
+    lines.push('', '## 인사이트')
+    for (const insight of analytics.insights) {
+      lines.push(`### ${insight.title}`)
+      lines.push(insight.body)
+      if (insight.action_label) {
+        lines.push(`- 제안 액션: ${insight.action_label}`)
+      }
+      lines.push('')
+    }
+    while (lines.at(-1) === '') {
+      lines.pop()
+    }
+  }
+
+  if (analytics?.charts?.length) {
+    lines.push('', '## 차트')
+    for (const chart of analytics.charts) {
+      lines.push(`### ${chart.title}`)
+      for (const series of chart.series) {
+        lines.push(`- ${series.name}: ${series.data.map((value, index) => `${chart.x[index] ?? index}=${value ?? '-'}`).join(', ')}`)
+      }
+    }
+  }
+
+  if (analytics?.tables?.length) {
+    lines.push('', '## 표')
+    for (const table of analytics.tables) {
+      lines.push(`### ${table.title}`)
+      lines.push(table.columns.map((column) => column.label).join(' | '))
+      lines.push(table.columns.map(() => '---').join(' | '))
+      for (const row of table.rows) {
+        lines.push(table.columns.map((column) => String(row[column.key] ?? '-')).join(' | '))
+      }
+      lines.push('')
+    }
+    while (lines.at(-1) === '') {
+      lines.pop()
+    }
+  }
+
+  if (dataset?.profile?.columns?.length) {
+    lines.push('', '## 컬럼 프로파일')
+    for (const column of dataset.profile.columns) {
+      const samples = column.sampleValues.length ? ` / 예시: ${column.sampleValues.join(', ')}` : ''
+      lines.push(`- ${column.name}: ${column.dtype} / 결측 ${Math.round(column.nullRatio * 100)}%${samples}`)
+    }
+  }
+
+  if (sessionState?.messages?.length) {
+    lines.push('', '## 최근 대화')
+    for (const message of sessionState.messages.slice(-6)) {
+      const speaker = message.role === 'assistant' ? (message.author ?? 'AI 데이터 분석가') : '사용자'
+      lines.push(`- ${speaker}: ${message.text}`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function exportAnalyticsReport() {
+  const content = buildReportContent().trim()
+  if (!content) {
+    return
+  }
+
+  const fileName = `${sanitizeFileNameSegment(activeSessionState.value?.title ?? DEFAULT_SESSION_TITLE)}.md`
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  window.URL.revokeObjectURL(url)
+  exportMessage.value = `${fileName} 리포트를 다운로드했어요.`
+}
+
 async function handleSendMessage(message: string) {
   chatError.value = null
   uploadError.value = null
   analyticsError.value = null
+  exportMessage.value = null
 
   const sessionId = await ensureActiveSession()
   const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
@@ -651,6 +772,7 @@ async function processDatasetFile(file: File) {
 
   analyticsError.value = null
   uploadError.value = null
+  exportMessage.value = null
   isUploading.value = true
 
   try {
@@ -693,6 +815,7 @@ async function processDatasetFile(file: File) {
 
 async function runAnalysis() {
   analyticsError.value = null
+  exportMessage.value = null
   const sessionId = await ensureActiveSession()
   const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
   const primaryDataset = sessionState.datasets[0]
@@ -778,7 +901,7 @@ const recentSessions = computed<SessionItem[]>(() => {
 })
 
 const conversation = computed<ConversationData>(() => ({
-  messages: activeSessionState.value?.messages ?? createWelcomeMessages(DEFAULT_SESSION_TITLE),
+  messages: activeSessionState.value?.messages ?? createWelcomeMessages(),
   thinkingLabel: isSending.value
     ? isSendingInteraction.value
       ? '파일을 업로드하고 데이터를 분석하고 있어요...'
@@ -843,9 +966,21 @@ const composer = computed<ComposerData>(() => {
 
 const analyticsPayload = computed(() => activeSessionState.value?.analyticsPayload ?? null)
 const workspacePayload = computed(() => activeSessionState.value?.workspacePayload ?? null)
+const canExportReport = computed(() => Boolean(
+  activeDataset.value
+  || analyticsPayload.value?.summary_cards?.length
+  || analyticsPayload.value?.charts?.length
+  || analyticsPayload.value?.tables?.length
+  || analyticsPayload.value?.insights?.length
+  || activeSessionState.value?.messages?.length,
+))
 
 watch(analyticsPaneWidth, (width) => {
   window.localStorage.setItem(ANALYTICS_PANE_WIDTH_STORAGE_KEY, String(clampAnalyticsPaneWidth(width)))
+})
+
+watch(activeSessionId, () => {
+  exportMessage.value = null
 })
 
 onMounted(async () => {
@@ -897,10 +1032,14 @@ onUnmounted(() => {
       />
 
       <p v-if="authError" class="auth-error">{{ authError }}</p>
+      <p v-if="exportMessage" class="export-message">{{ exportMessage }}</p>
 
       <div
         class="portal-main-grid"
-        :class="{ 'portal-main-grid--resizing': isResizingAnalyticsPane }"
+        :class="{
+          'portal-main-grid--resizing': isResizingAnalyticsPane,
+          'portal-main-grid--analytics-fullscreen': isAnalyticsFullscreen,
+        }"
         :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
       >
         <PortalConversationPane
@@ -931,15 +1070,15 @@ onUnmounted(() => {
           :dataset-asset="activeDataset"
           :is-loading="isSending || isUploading || isRunningAnalysis"
           :error-message="analyticsError"
+          :is-fullscreen="isAnalyticsFullscreen"
+          :export-disabled="!canExportReport"
           @prompt-click="handleSuggestedPrompt"
           @insight-action="handleInsightAction"
+          @toggle-fullscreen="toggleAnalyticsFullscreen"
+          @export-report="exportAnalyticsReport"
         />
       </div>
     </div>
-
-    <button class="floating-action" type="button" aria-label="분석 실행" @click="runAnalysis">
-      <span class="material-symbols-outlined">add</span>
-    </button>
 
     <input
       ref="interactionPickerRef"
@@ -1046,27 +1185,19 @@ onUnmounted(() => {
   font-size: 0.86rem;
 }
 
-.floating-action {
-  position: fixed;
-  right: 28px;
-  bottom: 28px;
-  width: 60px;
-  height: 60px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 20px;
-  border: 0;
-  color: #fff;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
-  box-shadow: 0 18px 32px rgba(16, 56, 104, 0.24);
-  cursor: pointer;
-  transition: transform 180ms ease, box-shadow 180ms ease;
+.export-message {
+  margin: -10px 4px 0;
+  color: #1d6b45;
+  font-size: 0.86rem;
 }
 
-.floating-action:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 22px 40px rgba(16, 56, 104, 0.28);
+.portal-main-grid--analytics-fullscreen {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.portal-main-grid--analytics-fullscreen :deep(.conversation-shell),
+.portal-main-grid--analytics-fullscreen .pane-resizer {
+  display: none;
 }
 
 .dataset-picker {
@@ -1098,12 +1229,5 @@ onUnmounted(() => {
     padding: 16px;
   }
 
-  .floating-action {
-    right: 18px;
-    bottom: 18px;
-    width: 54px;
-    height: 54px;
-    border-radius: 18px;
-  }
 }
 </style>
