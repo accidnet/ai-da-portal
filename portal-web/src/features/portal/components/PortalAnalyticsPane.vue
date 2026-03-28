@@ -71,6 +71,15 @@ const chartPath = computed(() => {
 const hasBackendTable = computed(() => backendTables.value.length > 0)
 const backendTable = computed(() => backendTables.value[0] ?? null)
 const displayInsight = computed(() => backendInsights.value[0] ?? null)
+const hasDatasetPreview = computed(() => (backendDatasetPreview.value?.rows?.length ?? 0) > 0)
+const hasWorkspaceData = computed(() => (
+  Boolean(backendChart.value)
+  || backendSummaryCards.value.length > 0
+  || hasBackendTable.value
+  || Boolean(backendDatasetProfile.value)
+  || hasDatasetPreview.value
+  || Boolean(displayInsight.value)
+))
 const chartTitle = computed(() => backendChart.value?.title ?? props.analytics.chartTitle)
 const chartChange = computed(() => {
   if (backendChart.value?.series[0]?.data.length) {
@@ -138,7 +147,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
     <p v-if="errorMessage" class="analytics-alert">{{ errorMessage }}</p>
     <p v-else-if="isLoading" class="analytics-alert analytics-alert--loading">Updating live analytics...</p>
 
-    <section class="panel-card chart-card">
+    <section v-if="backendChart" class="panel-card chart-card">
       <div class="chart-headline">
         <div>
           <p>Growth Trend</p>
@@ -163,20 +172,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
       </div>
     </section>
 
-    <section class="metric-grid">
-      <article
-        v-for="metric in analytics.metrics"
-        :key="metric.label"
-        class="panel-card metric-card"
-      >
-        <p>{{ metric.label }}</p>
-        <strong :class="`metric-value--${metric.tone ?? 'primary'}`">{{ metric.value }}</strong>
-        <span>{{ metric.meta }}</span>
-        <div class="meter-track">
-          <div class="meter-fill" :class="`meter-fill--${metric.tone ?? 'primary'}`"></div>
-        </div>
-      </article>
-
+    <section v-if="backendSummaryCards.length" class="metric-grid">
       <article
         v-for="card in backendSummaryCards"
         :key="card.label"
@@ -191,43 +187,25 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
       </article>
     </section>
 
-    <section class="panel-card table-card">
+    <section v-if="hasBackendTable" class="panel-card table-card">
       <header>
         <p>Performance</p>
-        <h3>{{ hasBackendTable ? backendTable?.title : 'Key Metric Breakdown' }}</h3>
+        <h3>{{ backendTable?.title }}</h3>
       </header>
 
       <table>
         <thead>
           <tr>
-            <template v-if="hasBackendTable && backendTable">
+            <template v-if="backendTable">
               <th v-for="column in backendTable.columns" :key="column.key">{{ column.label }}</th>
-            </template>
-            <template v-else>
-              <th>Channel</th>
-              <th>ROI</th>
-              <th>Trend</th>
             </template>
           </tr>
         </thead>
         <tbody>
-          <template v-if="hasBackendTable && backendTable">
+          <template v-if="backendTable">
             <tr v-for="(row, rowIndex) in backendTable.rows" :key="rowIndex">
               <td v-for="column in backendTable.columns" :key="column.key">
                 {{ row[column.key] }}
-              </td>
-            </tr>
-          </template>
-          <template v-else>
-            <tr v-for="row in analytics.tableRows" :key="row.channel">
-              <td>{{ row.channel }}</td>
-              <td>{{ row.roi }}</td>
-              <td>
-                <span :class="['trend-pill', `trend-pill--${row.trend}`]">
-                  <span class="material-symbols-outlined">
-                    {{ row.trend === 'up' ? 'trending_up' : 'trending_flat' }}
-                  </span>
-                </span>
               </td>
             </tr>
           </template>
@@ -235,7 +213,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
       </table>
     </section>
 
-    <section class="panel-card dataset-card">
+    <section v-if="backendDatasetProfile || hasDatasetPreview" class="panel-card dataset-card">
       <header class="dataset-card__header">
         <div>
           <p>Data Snapshot</p>
@@ -265,7 +243,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
         </article>
       </div>
 
-      <div v-if="backendDatasetPreview?.rows.length" class="dataset-preview">
+      <div v-if="hasDatasetPreview && backendDatasetPreview" class="dataset-preview">
         <table>
           <thead>
             <tr>
@@ -294,23 +272,25 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
           {{ prompt }}
         </button>
       </div>
-
-      <p v-if="!backendDatasetProfile" class="chart-empty">
-        Upload a dataset to see a live profile and preview here.
-      </p>
     </section>
 
-    <section class="insight-card">
+    <section v-if="displayInsight" class="insight-card">
       <div class="insight-icon">
         <span class="material-symbols-outlined">lightbulb</span>
       </div>
       <div>
-        <p>{{ displayInsight?.title ?? analytics.insight.title }}</p>
-        <h3>{{ displayInsight?.body ?? analytics.insight.body }}</h3>
+        <p>{{ displayInsight.title }}</p>
+        <h3>{{ displayInsight.body }}</h3>
         <button type="button" :disabled="isLoading" @click="emit('insightAction')">
-          {{ displayInsight?.action_label ?? analytics.insight.actionLabel }}
+          {{ displayInsight.action_label ?? analytics.insight.actionLabel }}
         </button>
       </div>
+    </section>
+
+    <section v-if="!hasWorkspaceData && !isLoading && !errorMessage" class="analytics-empty-state">
+      <span class="material-symbols-outlined">analytics</span>
+      <strong>아직 표시할 분석 데이터가 없어요</strong>
+      <p>CSV를 업로드하거나 분석을 실행하면 이 영역에 차트와 카드가 나타납니다.</p>
     </section>
   </aside>
 </template>
@@ -399,6 +379,33 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   color: #1f5ca8;
   background: rgba(31, 92, 168, 0.12);
   border-color: rgba(31, 92, 168, 0.16);
+}
+
+.analytics-empty-state {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 220px;
+  padding: 28px;
+  border: 1px dashed rgba(24, 74, 140, 0.18);
+  border-radius: 24px;
+  color: var(--color-text-muted);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.analytics-empty-state .material-symbols-outlined {
+  font-size: 2rem;
+  color: var(--color-primary);
+}
+
+.analytics-empty-state strong,
+.analytics-empty-state p {
+  margin: 0;
+}
+
+.analytics-empty-state strong {
+  color: var(--color-text);
 }
 
 .panel-card,
