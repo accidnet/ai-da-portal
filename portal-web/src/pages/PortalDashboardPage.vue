@@ -12,6 +12,7 @@ import type {
   ComposerChip,
   ComposerData,
   ConversationData,
+  DatasetProfile,
   DatasetAsset,
   HeaderData,
   OpenAiAuthStatus,
@@ -37,6 +38,15 @@ interface SessionRuntimeState {
   analyticsPayload: AnalyticsPayload | null
   datasets: DatasetAsset[]
 }
+
+interface OpenAiPopupMessage {
+  source?: string
+  status?: 'success' | 'error'
+  error?: string
+  account_email?: string
+}
+
+const OPENAI_AUTH_POPUP_SOURCE = 'portal-openai-auth'
 
 const shellSidebar: SidebarData = {
   productName: 'Data Analysis AI',
@@ -101,17 +111,210 @@ const sessionSummaries = ref<SessionItem[]>([])
 const sessionStates = ref<Record<string, SessionRuntimeState>>({})
 const datasetPickerRef = ref<HTMLInputElement | null>(null)
 let authPollTimer: number | null = null
+let authPopup: Window | null = null
+
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]
+
+    if (character === '"') {
+      const nextCharacter = line[index + 1]
+      if (inQuotes && nextCharacter === '"') {
+        current += '"'
+        index += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (character === ',' && !inQuotes) {
+      cells.push(current.trim())
+      current = ''
+      continue
+    }
+
+    current += character
+  }
+
+  cells.push(current.trim())
+  return cells
+}
+
+function parseCsvContent(content: string): Array<Record<string, string | number | null>> {
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+  if (!normalized) {
+    return []
+  }
+
+  const lines = normalized.split('\n').filter((line) => line.trim().length > 0)
+  if (lines.length < 2) {
+    return []
+  }
+
+  const headers = parseCsvLine(lines[0]).map((header, index) => header || `column_${index + 1}`)
+
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line)
+    return headers.reduce<Record<string, string | number | null>>((row, header, index) => {
+      const rawValue = values[index] ?? ''
+      const value = rawValue.trim()
+      if (value.length === 0) {
+        row[header] = null
+        return row
+      }
+
+      const numericValue = Number(value)
+      row[header] = Number.isFinite(numericValue) && /^-?\d+(\.\d+)?$/.test(value)
+        ? numericValue
+        : value
+      return row
+    }, {})
+  })
+}
+
+function buildLocalDatasetProfile(rows: Array<Record<string, string | number | null>>): DatasetProfile {
+  const columns = Object.keys(rows[0] ?? {})
+
+  return {
+    rowCount: rows.length,
+    columnCount: columns.length,
+    columns: columns.map((name) => {
+      const values = rows.map((row) => row[name])
+      const nonNullValues = values.filter((value) => value !== null)
+      const sampleValues = nonNullValues.slice(0, 3).map((value) => String(value))
+      const numericCount = nonNullValues.filter((value) => typeof value === 'number').length
+
+      return {
+        name,
+        dtype:
+          nonNullValues.length === 0
+            ? 'unknown'
+            : numericCount === nonNullValues.length
+              ? 'number'
+              : 'string',
+        nullRatio: values.length === 0 ? 0 : (values.length - nonNullValues.length) / values.length,
+        sampleValues,
+      }
+    }),
+    suggestedPrompts: [
+      '이 CSV의 핵심 추세를 요약해줘',
+      '수치형 컬럼 기준으로 이상치를 찾아줘',
+      '의미 있는 시각화 그래프 3가지를 추천해줘',
+    ],
+  }
+}
+
+function buildLocalAnalyticsPayload(
+  rows: Array<Record<string, string | number | null>>,
+  filename: string,
+): AnalyticsPayload | null {
+  if (rows.length === 0) {
+    return null
+  }
+
+  const columns = Object.keys(rows[0] ?? {})
+  const labelColumn = columns[0]
+  const numericColumns = columns.filter((column) => rows.some((row) => typeof row[column] === 'number'))
+  const primaryNumericColumn = numericColumns[0]
+
+  const chart = primaryNumericColumn
+    ? {
+        type: 'bar' as const,
+        title: `${primaryNumericColumn} trend`,
+        x: rows.slice(0, 12).map((row, index) => String(row[labelColumn] ?? `${index + 1}`)),
+        series: [
+          {
+            name: primaryNumericColumn,
+            data: rows.slice(0, 12).map((row) => {
+              const value = row[primaryNumericColumn]
+              return typeof value === 'number' ? value : 0
+            }),
+          },
+        ],
+      }
+    : null
+
+  const summaryCards = numericColumns.slice(0, 3).map((column, index) => {
+    const values = rows
+      .map((row) => row[column])
+      .filter((value): value is number => typeof value === 'number')
+    const total = values.reduce((sum, value) => sum + value, 0)
+    const average = values.length > 0 ? total / values.length : 0
+
+    return {
+      label: index === 0 ? `${column} avg` : `${column} total`,
+      value: index === 0 ? average.toFixed(2) : total.toFixed(2),
+      detail: `${values.length} numeric rows`,
+      tone: 'primary' as const,
+    }
+  })
+
+  return {
+    summary_cards: [
+      {
+        label: 'Rows',
+        value: String(rows.length),
+        detail: filename,
+        tone: 'primary',
+      },
+      {
+        label: 'Columns',
+        value: String(columns.length),
+        detail: 'Detected from CSV header',
+        tone: 'neutral',
+      },
+      ...summaryCards,
+    ],
+    charts: chart ? [chart] : [],
+    tables: [
+      {
+        title: 'CSV preview',
+        columns: columns.map((column) => ({ key: column, label: column })),
+        rows: rows.slice(0, 5),
+      },
+    ],
+    insights: [
+      {
+        title: 'Local CSV ready',
+        body: primaryNumericColumn
+          ? `${filename} has ${rows.length} rows and ${columns.length} columns. '${primaryNumericColumn}' was selected as the primary numeric field for the preview chart.`
+          : `${filename} has ${rows.length} rows and ${columns.length} columns. Upload completed and a table preview is ready.`,
+        action_label: 'Run Analysis',
+      },
+    ],
+    dataset_profile: {
+      row_count: rows.length,
+      column_count: columns.length,
+      columns: buildLocalDatasetProfile(rows).columns.map((column) => ({
+        name: column.name,
+        dtype: column.dtype,
+        null_ratio: column.nullRatio,
+        sample_values: column.sampleValues,
+      })),
+      suggested_prompts: [
+        '이 데이터에서 중요한 KPI를 뽑아줘',
+        '가장 적합한 그래프 유형을 추천해줘',
+        '컬럼 간 관계를 설명해줘',
+      ],
+    },
+  }
+}
 
 function createWelcomeMessages(title: string): ChatMessage[] {
   return [
     {
       role: 'assistant',
       author: 'ChatGPT Codex',
-      text: `You're in ${title}. Upload a dataset or send a prompt to start the live workflow.`,
+      text: `${title} 세션입니다. 데이터셋을 업로드하거나 프롬프트를 보내면 바로 분석을 시작할 수 있어요.`,
       bullets: [
-        { text: 'Attach a CSV or spreadsheet' },
-        { text: 'Ask for a trend, correlation, or anomaly view' },
-        { text: 'Run analysis to populate the dashboard cards' },
+        { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
+        { text: '추세, 상관관계, 이상치 분석 요청하기' },
+        { text: '대시보드 카드용 요약 분석 실행하기' },
       ],
     },
   ]
@@ -174,15 +377,55 @@ async function loadAuthStatus() {
       expiresAt: status.expires_at,
       scopes: status.scopes,
     }
+    isConnecting.value = status.pending
     if (status.connected) {
-      isConnecting.value = false
       authError.value = null
+      authPopup = null
+    } else if (!status.pending) {
+      authPopup = null
     }
   } catch {
     authError.value = 'ChatGPT connection status could not be loaded.'
   } finally {
     syncAuthPolling()
   }
+}
+
+async function handleOpenAiAuthMessage(event: MessageEvent<OpenAiPopupMessage>) {
+  if (!authPopup || event.source !== authPopup) {
+    return
+  }
+
+  if (event.data?.source !== OPENAI_AUTH_POPUP_SOURCE) {
+    return
+  }
+
+  authPopup = null
+
+  if (event.data.status === 'error') {
+    isConnecting.value = false
+    authError.value = event.data.error ?? 'ChatGPT sign-in did not complete.'
+    await loadAuthStatus()
+    return
+  }
+
+  authError.value = null
+  await loadAuthStatus()
+}
+
+function handleWindowFocus() {
+  if (authStatus.value.pending || isConnecting.value) {
+    void loadAuthStatus()
+  }
+}
+
+function buildPopupFeatures() {
+  const width = 560
+  const height = 720
+  const left = Math.max(window.screenX + Math.round((window.outerWidth - width) / 2), 0)
+  const top = Math.max(window.screenY + Math.round((window.outerHeight - height) / 2), 0)
+
+  return `popup=yes,width=${width},height=${height},left=${left},top=${top}`
 }
 
 async function loadSessions() {
@@ -250,17 +493,28 @@ async function ensureActiveSession() {
 }
 
 async function connectOpenAi() {
+  if (authPopup && !authPopup.closed) {
+    authPopup.focus()
+    return
+  }
+
   isConnecting.value = true
   authError.value = null
 
   try {
     const authorization = await authorizeOpenAi()
-    const popup = window.open(authorization.authorization_url, '_blank', 'noopener,noreferrer')
+    const popup = window.open(
+      authorization.authorization_url,
+      'portal-openai-auth',
+      buildPopupFeatures(),
+    )
 
     if (!popup) {
       window.location.assign(authorization.authorization_url)
       return
     }
+
+    authPopup = popup
 
     authStatus.value = {
       ...authStatus.value,
@@ -361,11 +615,63 @@ async function handleDatasetFileChange(event: Event) {
     return
   }
 
+  await processDatasetFile(file)
+}
+
+async function processDatasetFile(file: File) {
+  if (!file.name.toLowerCase().endsWith('.csv') && !file.type.includes('csv') && !file.type.startsWith('text/') && !file.name.toLowerCase().endsWith('.tsv') && !file.name.toLowerCase().endsWith('.xls') && !file.name.toLowerCase().endsWith('.xlsx') && !file.name.toLowerCase().endsWith('.json')) {
+    uploadError.value = 'CSV 또는 스프레드시트 파일만 업로드할 수 있어요.'
+    return
+  }
+
   analyticsError.value = null
   uploadError.value = null
   isUploading.value = true
 
   try {
+    if (file.name.toLowerCase().endsWith('.csv') || file.type.includes('csv') || file.type.startsWith('text/')) {
+      const sessionId = getActiveSessionId()
+      const content = await file.text()
+      const parsedRows = parseCsvContent(content)
+
+      if (parsedRows.length === 0) {
+        throw new Error('empty-csv')
+      }
+
+      const profile = buildLocalDatasetProfile(parsedRows)
+      const dataset: DatasetAsset = {
+        id: `local-${Date.now()}`,
+        filename: file.name,
+        contentType: file.type || 'text/csv',
+        createdAt: new Date().toISOString(),
+        preview: {
+          columns: Object.keys(parsedRows[0] ?? {}),
+          rows: parsedRows.slice(0, 5),
+        },
+        profile,
+      }
+
+      const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+      sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
+      sessionState.analyticsPayload = buildLocalAnalyticsPayload(parsedRows, file.name)
+      sessionState.messages = [
+        ...sessionState.messages,
+        {
+          role: 'assistant',
+          author: 'ChatGPT Codex',
+          text: `${file.name} CSV 업로드를 완료했어요. 프론트엔드에서 미리보기와 기본 요약을 생성했습니다.`,
+          bullets: [
+            { text: `${profile.rowCount} rows / ${profile.columnCount} columns detected` },
+            { text: '상단 차트와 우측 데이터 스냅샷이 즉시 갱신됨' },
+            { text: '추가 분석은 프롬프트 입력 또는 Run Analysis로 진행 가능' },
+          ],
+        },
+      ]
+      updateSessionSummary(sessionId, sessionState.title)
+      activeSessionId.value = sessionId
+      return
+    }
+
     const sessionId = await ensureActiveSession()
     const detail = await uploadDataset(file)
     const [preview, profile] = await Promise.all([
@@ -511,9 +817,9 @@ const composer = computed<ComposerData>(() => {
     chips,
     placeholder: authStatus.value.connected
       ? activeDataset.value
-        ? `Ask about ${activeDataset.value.filename} or add another dataset...`
-        : 'Ask ChatGPT to analyze the selected dataset...'
-      : 'Connect ChatGPT to send live prompts...',
+        ? `${activeDataset.value.filename} 데이터에 대해 질문하거나 다른 파일을 추가해보세요...`
+        : '선택한 데이터를 어떻게 분석할지 입력해보세요...'
+      : 'ChatGPT를 연결한 뒤 분석 요청을 입력해보세요...',
   }
 })
 
@@ -521,6 +827,8 @@ const analyticsPayload = computed(() => activeSessionState.value?.analyticsPaylo
 
 onMounted(async () => {
   const controller = new AbortController()
+  window.addEventListener('message', handleOpenAiAuthMessage)
+  window.addEventListener('focus', handleWindowFocus)
 
   try {
     const health = await fetchHealthcheck(controller.signal)
@@ -537,6 +845,9 @@ onUnmounted(() => {
   if (authPollTimer !== null) {
     window.clearInterval(authPollTimer)
   }
+  window.removeEventListener('message', handleOpenAiAuthMessage)
+  window.removeEventListener('focus', handleWindowFocus)
+  authPopup = null
 })
 </script>
 
@@ -567,6 +878,7 @@ onUnmounted(() => {
           :attach-disabled="isUploading || isRunningAnalysis"
           :error-message="chatError || uploadError"
           @attach="openDatasetPicker"
+          @drop-file="processDatasetFile"
           @send="handleSendMessage"
         />
         <PortalAnalyticsPane

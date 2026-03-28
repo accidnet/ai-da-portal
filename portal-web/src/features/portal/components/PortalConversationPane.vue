@@ -14,9 +14,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   send: [message: string]
   attach: []
+  dropFile: [file: File]
 }>()
 
 const draft = ref('')
+const isDragActive = ref(false)
 
 const canSend = computed(
   () => draft.value.trim().length > 0 && !props.sendDisabled,
@@ -37,10 +39,59 @@ function onKeydown(event: KeyboardEvent) {
     submit()
   }
 }
+
+function handleDragEnter() {
+  if (props.attachDisabled) {
+    return
+  }
+
+  isDragActive.value = true
+}
+
+function handleDragOver(event: DragEvent) {
+  if (props.attachDisabled) {
+    return
+  }
+
+  event.preventDefault()
+  isDragActive.value = true
+}
+
+function handleDragLeave(event: DragEvent) {
+  const nextTarget = event.relatedTarget as Node | null
+  if (nextTarget && event.currentTarget instanceof HTMLElement && event.currentTarget.contains(nextTarget)) {
+    return
+  }
+
+  isDragActive.value = false
+}
+
+function handleDrop(event: DragEvent) {
+  if (props.attachDisabled) {
+    return
+  }
+
+  event.preventDefault()
+  isDragActive.value = false
+  const file = event.dataTransfer?.files?.[0]
+
+  if (!file) {
+    return
+  }
+
+  emit('dropFile', file)
+}
 </script>
 
 <template>
-  <section class="conversation-shell">
+  <section
+    class="conversation-shell"
+    :class="{ 'conversation-shell--drag-active': isDragActive }"
+    @dragenter="handleDragEnter"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
+  >
     <div class="conversation-scroll">
       <article
         v-for="(message, index) in conversation.messages"
@@ -72,6 +123,14 @@ function onKeydown(event: KeyboardEvent) {
         <span></span>
         <span></span>
         <strong>{{ conversation.thinkingLabel }}</strong>
+      </div>
+
+      <div v-if="isDragActive" class="drop-overlay" aria-hidden="true">
+        <div class="drop-overlay__card">
+          <span class="material-symbols-outlined">upload_file</span>
+          <strong>CSV 파일을 여기에 놓으세요</strong>
+          <p>드롭하면 바로 업로드와 미리보기를 시작합니다.</p>
+        </div>
       </div>
     </div>
 
@@ -123,6 +182,7 @@ function onKeydown(event: KeyboardEvent) {
 
 <style scoped>
 .conversation-shell {
+  position: relative;
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -130,14 +190,58 @@ function onKeydown(event: KeyboardEvent) {
   border-radius: var(--radius-lg);
   background: rgba(244, 247, 251, 0.78);
   overflow: hidden;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.conversation-shell--drag-active {
+  border-color: rgba(24, 74, 140, 0.36);
+  box-shadow: 0 0 0 4px rgba(24, 74, 140, 0.08);
+  transform: translateY(-1px);
 }
 
 .conversation-scroll {
+  position: relative;
   min-height: 0;
   padding: 28px;
   overflow-y: auto;
   display: grid;
   gap: 24px;
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background: rgba(235, 243, 253, 0.88);
+  border: 2px dashed rgba(24, 74, 140, 0.28);
+  backdrop-filter: blur(4px);
+}
+
+.drop-overlay__card {
+  padding: 22px 24px;
+  border-radius: 22px;
+  text-align: center;
+  color: var(--color-primary-strong);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 16px 34px rgba(16, 56, 104, 0.12);
+}
+
+.drop-overlay__card .material-symbols-outlined {
+  font-size: 2rem;
+}
+
+.drop-overlay__card strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 1rem;
+}
+
+.drop-overlay__card p {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
 }
 
 .message-row {
@@ -328,6 +432,14 @@ function onKeydown(event: KeyboardEvent) {
 .composer-icon-button {
   color: var(--color-text-soft);
   background: transparent;
+  transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
+}
+
+.composer-icon-button:hover:not(:disabled) {
+  color: var(--color-primary-strong);
+  background: rgba(24, 74, 140, 0.08);
+  box-shadow: 0 8px 18px rgba(16, 56, 104, 0.14);
+  transform: translateY(-1px);
 }
 
 .composer-send-button {
