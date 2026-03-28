@@ -17,7 +17,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: str
     assistant_message: str
-    follow_up_suggestions: list[str] = Field(default_factory=list)
     status: ReasoningStatus = "completed"
     analytics: AnalyticsPayload | None = None
     workspace: WorkspacePayload | None = None

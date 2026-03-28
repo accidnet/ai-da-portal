@@ -91,7 +91,6 @@ class MessageService:
         return ChatResponse(
             session_id=payload.session_id,
             assistant_message=assistant_message,
-            follow_up_suggestions=self._suggestions(route),
             analytics=analytics,
             workspace=workspace,
         )
@@ -151,25 +150,6 @@ class MessageService:
         )
 
         return "\n\n".join(sections)
-
-    def _suggestions(self, route: AgentRoute) -> list[str]:
-        if route == "dataset_analysis":
-            return [
-                "Show missing values and column types first.",
-                "Recommend three analyses based on this dataset.",
-                "Create an initial trend chart for the main numeric metric.",
-            ]
-        if route == "analysis_request":
-            return [
-                "Compare key metrics by month.",
-                "Detect anomalies in the target column.",
-                "Build a correlation view for numeric columns.",
-            ]
-        return [
-            "Upload a CSV and profile it automatically.",
-            "Ask for a trend or correlation analysis.",
-            "Request a chart-ready summary for the dashboard.",
-        ]
 
     def _build_analytics(
         self, route: AgentRoute, payload: ChatRequest
