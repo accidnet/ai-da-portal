@@ -37,13 +37,15 @@ def get_llm_client() -> LlmClient:
 
 @lru_cache
 def get_dataset_service() -> DatasetService:
-    return DatasetService()
+    return DatasetService(session_service=get_session_service())
 
 
 @lru_cache
 def get_analysis_service() -> AnalysisService:
     return AnalysisService(
-        dataset_service=get_dataset_service(), llm_client=get_llm_client()
+        dataset_service=get_dataset_service(),
+        llm_client=get_llm_client(),
+        session_service=get_session_service(),
     )
 
 
@@ -53,6 +55,7 @@ def get_message_service() -> MessageService:
         llm_client=get_llm_client(),
         dataset_service=get_dataset_service(),
         analysis_service=get_analysis_service(),
+        session_service=get_session_service(),
     )
 
 

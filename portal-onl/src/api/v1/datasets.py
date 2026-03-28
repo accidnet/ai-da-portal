@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from api.deps import get_dataset_service
 from domain.datasets.schemas import (
@@ -23,9 +23,10 @@ def list_datasets(
 )
 async def upload_dataset(
     file: UploadFile = File(...),
+    session_id: str | None = Form(default=None),
     service: DatasetService = Depends(get_dataset_service),
 ) -> DatasetDetail:
-    return await service.upload(file)
+    return await service.upload(file, session_id=session_id)
 
 
 @router.get("/{dataset_id}", response_model=DatasetDetail)

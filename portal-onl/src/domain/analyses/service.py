@@ -9,6 +9,7 @@ from domain.analyses.schemas import (
     AnalysisRequest,
 )
 from domain.datasets.service import DatasetService
+from domain.sessions.service import SessionService
 from domain.workspace.service import WorkspacePlanner
 from infrastructure.llm.client import LlmClient
 
@@ -18,8 +19,10 @@ class AnalysisService:
         self,
         dataset_service: DatasetService | None = None,
         llm_client: LlmClient | None = None,
+        session_service: SessionService | None = None,
     ) -> None:
         self._dataset_service = dataset_service or DatasetService()
+        self._session_service = session_service or SessionService()
         self._analyses: dict[str, _AnalysisRecord] = {}
         self._workspace_planner = WorkspacePlanner(llm_client=llm_client)
 
@@ -55,6 +58,12 @@ class AnalysisService:
             notes=[
                 f"Built from dataset {dataset_id} with {len(dataframe):,} rows and {len(dataframe.columns)} columns."
             ],
+        )
+        self._session_service.record_analysis(
+            session_id=payload.session_id,
+            dataset_id=dataset_id,
+            analytics=analytics,
+            workspace=detail.workspace,
         )
         return detail
 
