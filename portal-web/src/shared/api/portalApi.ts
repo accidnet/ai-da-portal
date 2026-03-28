@@ -56,6 +56,37 @@ export interface DatasetProfileResponse {
   }
 }
 
+export interface SessionSnapshotMessageResponse {
+  role: 'user' | 'assistant'
+  author?: string | null
+  text?: string | null
+  content?: string | null
+  bullets?: Array<{ text?: string | null } | string> | null
+  code_block?: {
+    language?: string | null
+    content?: string | null
+  } | null
+}
+
+export interface SessionSnapshotDatasetResponse {
+  detail: DatasetDetailResponse
+  preview: DatasetPreviewResponse
+  profile: DatasetProfileResponse
+}
+
+export interface SessionSnapshotWorkspaceResponse {
+  title?: string | null
+}
+
+export interface SessionSnapshotResponse {
+  session: SessionDetailResponse
+  messages: SessionSnapshotMessageResponse[]
+  dataset_ids: string[]
+  datasets: SessionSnapshotDatasetResponse[]
+  analytics: ChatResponse['analytics'] | null
+  workspace: SessionSnapshotWorkspaceResponse | null
+}
+
 export interface ChatResponse {
   session_id: string
   assistant_message: string
@@ -209,6 +240,33 @@ export async function fetchSessions(signal?: AbortSignal): Promise<SessionSummar
   return (await response.json()) as SessionSummaryResponse[]
 }
 
+export async function fetchSessionSnapshot(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SessionSnapshotResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions/${sessionId}/snapshot`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Session snapshot failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as SessionSnapshotResponse
+}
+
 export async function sendChatMessage(
   payload: { sessionId: string; message: string; datasetIds?: string[] },
   signal?: AbortSignal,
@@ -276,9 +334,17 @@ export async function sendChatInteraction(
   return (await response.json()) as ChatInteractionResponse
 }
 
-export async function uploadDataset(file: File, signal?: AbortSignal): Promise<DatasetDetailResponse> {
+export async function uploadDataset(
+  file: File,
+  sessionId?: string | null,
+  signal?: AbortSignal,
+): Promise<DatasetDetailResponse> {
   const formData = new FormData()
   formData.append('file', file)
+
+  if (sessionId) {
+    formData.append('session_id', sessionId)
+  }
 
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets/upload`, {
     method: 'POST',

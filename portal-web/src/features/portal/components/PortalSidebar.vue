@@ -24,7 +24,7 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <nav class="nav-group" aria-label="Primary navigation">
+    <nav class="nav-group" aria-label="주요 탐색">
       <button
         v-for="item in sidebar.primaryNav"
         :key="item.label"
@@ -39,7 +39,7 @@ const emit = defineEmits<{
     </nav>
 
     <div class="sessions-block">
-      <p class="section-label">Recent Sessions</p>
+      <p class="section-label">최근 세션</p>
       <button
         v-for="session in sidebar.recentSessions"
         :key="session.id ?? session.title"
@@ -50,10 +50,10 @@ const emit = defineEmits<{
       >
         {{ session.title }}
       </button>
-      <p v-if="sidebar.recentSessions.length === 0" class="empty-state">No sessions match your search yet.</p>
+      <p v-if="sidebar.recentSessions.length === 0" class="empty-state">검색 결과와 일치하는 세션이 아직 없어요.</p>
     </div>
 
-    <nav class="nav-group nav-group--secondary" aria-label="Secondary navigation">
+    <nav class="nav-group nav-group--secondary" aria-label="보조 탐색">
       <a v-for="item in sidebar.secondaryNav" :key="item.label" href="#" class="nav-item nav-item--secondary">
         <span class="material-symbols-outlined">{{ item.icon }}</span>
         <span>{{ item.label }}</span>

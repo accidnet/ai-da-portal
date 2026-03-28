@@ -166,7 +166,7 @@ function handleDrop(event: DragEvent) {
         <button
           type="button"
           class="composer-icon-button"
-          aria-label="Attach file"
+          aria-label="파일 첨부"
           :disabled="attachDisabled"
           @click="emit('attach')"
         >
@@ -182,7 +182,7 @@ function handleDrop(event: DragEvent) {
         <button
           type="button"
           class="composer-send-button"
-          aria-label="Send message"
+          aria-label="메시지 전송"
           :disabled="!canSend"
           @click="submit"
         >

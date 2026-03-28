@@ -83,7 +83,7 @@ const hasWorkspaceData = computed(() => (
 const chartTitle = computed(() => backendChart.value?.title ?? props.analytics.chartTitle)
 const chartChange = computed(() => {
   if (backendChart.value?.series[0]?.data.length) {
-    return 'Live backend payload'
+    return '실시간 백엔드 결과'
   }
 
   return props.analytics.chartChange
@@ -130,27 +130,27 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   <aside class="analytics-shell">
     <header class="analytics-header">
       <div>
-        <p>Workspace</p>
+        <p>작업공간</p>
         <h2>{{ analytics.title }}</h2>
       </div>
 
       <div class="analytics-actions">
-        <button type="button" aria-label="Fullscreen view">
+        <button type="button" aria-label="전체 화면 보기">
           <span class="material-symbols-outlined">fullscreen</span>
         </button>
-        <button type="button" aria-label="Download report">
+        <button type="button" aria-label="리포트 다운로드">
           <span class="material-symbols-outlined">download</span>
         </button>
       </div>
     </header>
 
     <p v-if="errorMessage" class="analytics-alert">{{ errorMessage }}</p>
-    <p v-else-if="isLoading" class="analytics-alert analytics-alert--loading">Updating live analytics...</p>
+    <p v-else-if="isLoading" class="analytics-alert analytics-alert--loading">실시간 분석 결과를 업데이트하고 있어요...</p>
 
     <section v-if="backendChart" class="panel-card chart-card">
       <div class="chart-headline">
         <div>
-          <p>Growth Trend</p>
+          <p>추이</p>
           <h3>{{ chartTitle }}</h3>
         </div>
         <span>{{ chartChange }}</span>
@@ -168,7 +168,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
           <path :d="chartPath"></path>
         </svg>
 
-        <p v-else class="chart-empty">No chart data available yet. Send a prompt or run an analysis.</p>
+        <p v-else class="chart-empty">아직 차트 데이터가 없어요. 프롬프트를 보내거나 분석을 실행해 주세요.</p>
       </div>
     </section>
 
@@ -189,7 +189,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
 
     <section v-if="hasBackendTable" class="panel-card table-card">
       <header>
-        <p>Performance</p>
+        <p>분석 결과</p>
         <h3>{{ backendTable?.title }}</h3>
       </header>
 
@@ -216,21 +216,21 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
     <section v-if="backendDatasetProfile || hasDatasetPreview" class="panel-card dataset-card">
       <header class="dataset-card__header">
         <div>
-          <p>Data Snapshot</p>
-          <h3>{{ datasetAsset?.filename ?? 'No dataset selected' }}</h3>
+          <p>데이터 스냅샷</p>
+          <h3>{{ datasetAsset?.filename ?? '선택된 데이터셋이 없어요' }}</h3>
         </div>
         <span v-if="backendDatasetProfile">
-          {{ backendDatasetProfile.rowCount }} rows
+          {{ backendDatasetProfile.rowCount }}행
         </span>
       </header>
 
       <div v-if="backendDatasetProfile" class="dataset-stats">
         <article class="dataset-stat">
-          <p>Rows</p>
+          <p>행 수</p>
           <strong>{{ backendDatasetProfile.rowCount }}</strong>
         </article>
         <article class="dataset-stat">
-          <p>Columns</p>
+          <p>열 수</p>
           <strong>{{ backendDatasetProfile.columnCount }}</strong>
         </article>
       </div>
@@ -238,8 +238,8 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
       <div v-if="backendDatasetProfile" class="dataset-columns">
         <article v-for="column in backendDatasetProfile.columns" :key="column.name" class="dataset-column">
           <strong>{{ column.name }}</strong>
-          <span>{{ column.dtype }} · null {{ Math.round(column.nullRatio * 100) }}%</span>
-          <small v-if="column.sampleValues.length">Samples: {{ column.sampleValues.join(', ') }}</small>
+          <span>{{ column.dtype }} · 결측 {{ Math.round(column.nullRatio * 100) }}%</span>
+          <small v-if="column.sampleValues.length">예시값: {{ column.sampleValues.join(', ') }}</small>
         </article>
       </div>
 
@@ -261,7 +261,7 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
       </div>
 
       <div v-if="backendDatasetProfile?.suggestedPrompts.length" class="prompt-list">
-        <p>Suggested prompts</p>
+        <p>추천 프롬프트</p>
         <button
           v-for="prompt in backendDatasetProfile.suggestedPrompts"
           :key="prompt"
