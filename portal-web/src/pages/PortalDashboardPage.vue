@@ -163,7 +163,7 @@ function createWelcomeMessages(title: string): ChatMessage[] {
   return [
     {
       role: 'assistant',
-      author: 'ChatGPT Codex',
+      author: 'AI 데이터 분석가',
       text: `${title} 세션입니다. 데이터셋을 업로드하거나 프롬프트를 보내면 바로 분석을 시작할 수 있어요.`,
       bullets: [
         { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
@@ -448,7 +448,7 @@ async function handleSendMessage(message: string) {
       ...sessionState.messages,
       {
         role: 'assistant',
-        author: 'ChatGPT Codex',
+        author: 'AI 데이터 분석가',
         text: response.assistant_message,
         bullets: response.follow_up_suggestions.map((text) => ({ text })),
       },
@@ -569,7 +569,7 @@ async function processDatasetFile(file: File) {
       ...sessionState.messages,
       {
         role: 'assistant',
-        author: 'ChatGPT Codex',
+        author: 'AI 데이터 분석가',
         text: `${dataset.filename} 업로드를 완료했어요. 이제 같은 데이터셋 ID로 채팅과 분석을 이어서 실행할 수 있어요.`,
         bullets: [
           {
@@ -615,7 +615,7 @@ async function runAnalysis() {
       ...sessionState.messages,
       {
         role: 'assistant',
-        author: 'ChatGPT Codex',
+        author: 'AI 데이터 분석가',
         text:
           analysis.analytics?.insights[0]?.body ??
           'Analysis completed. The live analytics panel has been refreshed.',
