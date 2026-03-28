@@ -15,15 +15,6 @@ export const portalDashboard: PortalDashboardData = {
       { title: 'User Growth Correlation' },
       { title: 'Inventory Anomaly Detection' },
     ],
-    secondaryNav: [
-      { label: 'Settings', icon: 'settings' },
-      { label: 'Help', icon: 'help' },
-    ],
-    profile: {
-      name: 'Alex Architect',
-      plan: 'Pro Plan',
-      initials: 'AA',
-    },
   },
   header: {
     searchPlaceholder: 'Search analysis, datasets, or prompts...',

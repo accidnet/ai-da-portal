@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 import type { ComposerData, ConversationData } from '../types'
 
@@ -22,6 +22,7 @@ const emit = defineEmits<{
 
 const draft = ref('')
 const isDragActive = ref(false)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 const canSend = computed(
   () => (draft.value.trim().length > 0 || Boolean(props.attachedFileName)) && !props.sendDisabled,
@@ -111,6 +112,7 @@ function submit() {
   }
   emit('send', message)
   draft.value = ''
+  nextTick(syncTextareaHeight)
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -161,6 +163,33 @@ function handleDrop(event: DragEvent) {
 
   emit('dropFile', file)
 }
+
+function syncTextareaHeight() {
+  const textarea = textareaRef.value
+  if (!textarea) return
+
+  textarea.style.height = 'auto'
+  const lineHeight = 24
+  const maxHeight = lineHeight * 5
+  const nextHeight = Math.min(textarea.scrollHeight, maxHeight)
+  textarea.style.height = `${nextHeight}px`
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+}
+
+watch(draft, () => {
+  nextTick(syncTextareaHeight)
+})
+
+watch(
+  () => props.attachedFileName,
+  () => {
+    nextTick(syncTextareaHeight)
+  },
+)
+
+onMounted(() => {
+  syncTextareaHeight()
+})
 </script>
 
 <template>
@@ -245,12 +274,12 @@ function handleDrop(event: DragEvent) {
     </div>
 
     <footer class="composer-shell">
-      <div class="composer-chips">
+      <div class="composer-meta-list">
         <span
           v-for="chip in composer.chips"
           :key="chip.label"
-          class="composer-chip"
-          :class="`composer-chip--${chip.tone ?? 'neutral'}`"
+          class="composer-meta"
+          :class="`composer-meta--${chip.tone ?? 'neutral'}`"
         >
           <span class="material-symbols-outlined">{{ chip.icon }}</span>
           {{ chip.label }}
@@ -260,7 +289,10 @@ function handleDrop(event: DragEvent) {
       <p v-if="errorMessage" class="composer-error">{{ errorMessage }}</p>
 
       <div v-if="attachedFileName" class="composer-attachment">
-        <div>
+        <div class="composer-attachment__file-icon">
+          <span class="material-symbols-outlined">description</span>
+        </div>
+        <div class="composer-attachment__content">
           <strong>{{ attachedFileName }}</strong>
           <span>{{ attachedFileMeta ?? '메시지와 함께 전송 예정' }}</span>
         </div>
@@ -280,10 +312,12 @@ function handleDrop(event: DragEvent) {
           <span class="material-symbols-outlined">attach_file</span>
         </button>
         <textarea
+          ref="textareaRef"
           v-model="draft"
           rows="1"
           :placeholder="composer.placeholder"
           :disabled="sendDisabled"
+          @input="syncTextareaHeight"
           @keydown="onKeydown"
         ></textarea>
         <button
@@ -384,7 +418,7 @@ function handleDrop(event: DragEvent) {
 .message-card--user {
   align-self: flex-start;
   color: #fff;
-  background: linear-gradient(135deg, var(--color-primary) 0%, #245fa7 100%);
+  background: var(--color-primary);
   border-top-right-radius: 8px;
 }
 
@@ -611,7 +645,7 @@ function handleDrop(event: DragEvent) {
   font-size: 0.82rem;
 }
 
-.composer-chips {
+.composer-meta-list {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -621,13 +655,29 @@ function handleDrop(event: DragEvent) {
 .composer-attachment {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
   padding: 12px 14px;
   border: 1px solid rgba(24, 74, 140, 0.12);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.composer-attachment__file-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  color: var(--color-primary-strong);
+  background: var(--color-surface-muted);
+}
+
+.composer-attachment__content {
+  min-width: 0;
+  flex: 1;
 }
 
 .composer-attachment strong,
@@ -638,6 +688,9 @@ function handleDrop(event: DragEvent) {
 .composer-attachment strong {
   color: var(--color-text);
   font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-attachment span {
@@ -659,24 +712,32 @@ function handleDrop(event: DragEvent) {
   cursor: pointer;
 }
 
-.composer-chip {
+.composer-meta {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
+  padding: 0;
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
-.composer-chip--primary {
+.composer-meta::after {
+  content: '•';
+  margin-left: 2px;
+  color: rgba(22, 32, 43, 0.32);
+}
+
+.composer-meta:last-child::after {
+  display: none;
+}
+
+.composer-meta--primary {
   color: var(--color-primary-strong);
-  background: var(--color-secondary-soft);
 }
 
-.composer-chip--neutral {
+.composer-meta--neutral {
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.72);
 }
 
 .composer-box {
@@ -719,7 +780,7 @@ function handleDrop(event: DragEvent) {
 .composer-send-button {
   border: 0;
   color: #fff;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
+  background: var(--color-primary);
 }
 
 .composer-send-button:disabled,
@@ -731,12 +792,13 @@ function handleDrop(event: DragEvent) {
 
 .composer-box textarea {
   min-height: 44px;
-  max-height: 140px;
+  max-height: 120px;
   padding-top: 10px;
   border: 0;
-  resize: vertical;
+  resize: none;
   background: transparent;
   color: var(--color-text);
+  line-height: 24px;
 }
 
 .composer-box textarea:focus {

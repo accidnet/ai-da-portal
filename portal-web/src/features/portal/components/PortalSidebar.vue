@@ -1,16 +1,48 @@
 <script setup lang="ts">
-import type { PortalScreen, SidebarData } from '../types'
+import { computed } from 'vue'
+
+import type { BackendConnectionStatus, OpenAiAuthStatus, PortalScreen, SidebarData } from '../types'
 
 const props = defineProps<{
   sidebar: SidebarData
   activeSessionId?: string | null
   activeScreen: PortalScreen
+  connectionStatus: BackendConnectionStatus
+  authStatus: OpenAiAuthStatus
+  isConnecting?: boolean
 }>()
 
 const emit = defineEmits<{
   selectSession: [sessionId: string]
   primaryAction: [screen: PortalScreen]
+  createSession: []
+  connectOpenAi: []
+  openHelp: []
 }>()
+
+const statusItems = computed(() => {
+  const backendLabel = props.connectionStatus === 'connected'
+    ? '백엔드 연결됨'
+    : props.connectionStatus === 'offline'
+      ? '백엔드 연결 끊김'
+      : '백엔드 확인 중'
+
+  const authLabel = props.authStatus.connected
+    ? 'ChatGPT 연결됨'
+    : props.authStatus.pending || props.isConnecting
+      ? 'ChatGPT 연결 대기 중'
+      : 'ChatGPT 미연결'
+
+  const summaryLabel = props.authStatus.connected && props.connectionStatus === 'connected'
+    ? '연결 완료'
+    : props.authStatus.pending || props.isConnecting
+      ? '연결 진행 중'
+      : '연결 상태 확인 필요'
+
+  return [backendLabel, authLabel, summaryLabel]
+})
+
+const accountLabel = computed(() => props.authStatus.accountEmail ?? 'ChatGPT 연결 후 계정 정보가 표시됩니다.')
 </script>
 
 <template>
@@ -31,8 +63,8 @@ const emit = defineEmits<{
         :key="item.label"
         type="button"
         class="nav-item"
-        :class="{ 'nav-item--active': item.screen === activeScreen }"
-        @click="item.screen && emit('primaryAction', item.screen)"
+        :class="{ 'nav-item--active': item.screen === activeScreen && item.action !== 'create-session' }"
+        @click="item.action === 'create-session' ? emit('createSession') : item.screen && emit('primaryAction', item.screen)"
       >
         <span class="material-symbols-outlined">{{ item.icon }}</span>
         <span>{{ item.label }}</span>
@@ -51,21 +83,21 @@ const emit = defineEmits<{
       >
         {{ session.title }}
       </button>
-      <p v-if="sidebar.recentSessions.length === 0" class="empty-state">검색 결과와 일치하는 세션이 아직 없어요.</p>
+      <p v-if="sidebar.recentSessions.length === 0" class="empty-state">표시할 세션이 아직 없어요.</p>
     </div>
 
-    <nav class="nav-group nav-group--secondary" aria-label="보조 탐색">
-      <a v-for="item in sidebar.secondaryNav" :key="item.label" href="#" class="nav-item nav-item--secondary">
-        <span class="material-symbols-outlined">{{ item.icon }}</span>
-        <span>{{ item.label }}</span>
-      </a>
-    </nav>
+    <div class="connection-card">
+      <p class="section-label section-label--inline">연결 상태</p>
+      <div class="status-line">
+        <span v-for="item in statusItems" :key="item" class="status-text">{{ item }}</span>
+      </div>
+      <p class="account-label">{{ accountLabel }}</p>
 
-    <div class="profile-card">
-      <div class="avatar">{{ sidebar.profile.initials }}</div>
-      <div>
-        <strong>{{ sidebar.profile.name }}</strong>
-        <span>{{ sidebar.profile.plan }}</span>
+      <div class="connection-actions">
+        <button type="button" class="connect-button" :disabled="authStatus.connected || isConnecting" @click="emit('connectOpenAi')">
+          {{ authStatus.connected ? 'ChatGPT 연결됨' : isConnecting || authStatus.pending ? '연결 중...' : 'ChatGPT 연결' }}
+        </button>
+        <button type="button" class="ghost-button" @click="emit('openHelp')">도움말</button>
       </div>
     </div>
   </aside>
@@ -82,7 +114,6 @@ const emit = defineEmits<{
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
-  backdrop-filter: blur(18px);
   box-shadow: var(--color-shadow);
 }
 
@@ -100,7 +131,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   color: #fff;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
+  background: var(--color-primary);
 }
 
 .brand-block h1 {
@@ -118,42 +149,46 @@ const emit = defineEmits<{
   font-weight: 700;
 }
 
-.nav-group {
+.nav-group,
+.sessions-block,
+.connection-card {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+}
+
+.nav-item,
+.session-item,
+.connect-button,
+.ghost-button {
+  border: 1px solid transparent;
+  font: inherit;
 }
 
 .nav-item {
-  border: 0;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 13px 14px;
   border-radius: 16px;
-  font: inherit;
   text-align: left;
   color: var(--color-text-muted);
   background: transparent;
   cursor: pointer;
-  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
 }
 
-.nav-item:hover {
+.nav-item:hover,
+.session-item:hover,
+.ghost-button:hover,
+.connect-button:hover:not(:disabled) {
+  border-color: rgba(24, 74, 140, 0.12);
+  background: var(--color-surface-muted);
+}
+
+.nav-item--active,
+.session-item--active {
   color: var(--color-primary-strong);
   background: var(--color-surface-muted);
-  transform: translateX(2px);
-}
-
-.nav-item--active {
-  color: var(--color-primary-strong);
-  background: var(--color-surface-strong);
-  box-shadow: inset 0 0 0 1px rgba(24, 74, 140, 0.12);
   font-weight: 700;
-}
-
-.sessions-block {
-  display: grid;
-  gap: 10px;
 }
 
 .section-label {
@@ -166,19 +201,13 @@ const emit = defineEmits<{
   font-weight: 700;
 }
 
-.empty-state {
-  margin: 0;
-  padding: 0 14px;
-  color: var(--color-text-soft);
-  font-size: 0.82rem;
-  line-height: 1.5;
+.section-label--inline {
+  padding: 0;
 }
 
 .session-item {
   width: 100%;
-  border: 0;
   appearance: none;
-  font: inherit;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,63 +216,71 @@ const emit = defineEmits<{
   border-radius: 14px;
   color: var(--color-text-muted);
   background: rgba(255, 255, 255, 0.48);
+  cursor: pointer;
 }
 
-.session-item--active {
-  color: var(--color-primary-strong);
-  background: var(--color-surface-strong);
-  box-shadow: inset 0 0 0 1px rgba(24, 74, 140, 0.12);
+.empty-state,
+.account-label {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
-.session-item:hover {
-  background: var(--color-surface-strong);
-  color: var(--color-text);
-}
-
-.nav-group--secondary {
+.connection-card {
   margin-top: auto;
-  padding-top: 18px;
-  border-top: 1px solid var(--color-border);
-}
-
-.nav-item--secondary {
-  padding-block: 11px;
-}
-
-.profile-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(233, 237, 242, 0.84) 100%);
+  background: rgba(255, 255, 255, 0.84);
 }
 
-.avatar {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: inline-flex;
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   align-items: center;
-  justify-content: center;
-  color: var(--color-primary-strong);
-  background: var(--color-secondary-soft);
-  font: 800 0.94rem/1 var(--font-heading);
 }
 
-.profile-card strong,
-.profile-card span {
-  display: block;
-}
-
-.profile-card strong {
-  font-size: 0.94rem;
-}
-
-.profile-card span {
-  margin-top: 4px;
+.status-text {
   color: var(--color-text-muted);
   font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.status-text:not(:last-child)::after {
+  content: '|';
+  margin-left: 6px;
+  color: rgba(22, 32, 43, 0.28);
+}
+
+.connection-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.connect-button,
+.ghost-button {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.connect-button {
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.ghost-button {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+
+.connect-button:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 @media (max-width: 960px) {

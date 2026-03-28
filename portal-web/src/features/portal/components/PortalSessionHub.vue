@@ -243,7 +243,7 @@ function submitEdit(sessionId?: string) {
 
 .primary-button {
   color: #fff;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-strong) 100%);
+  background: var(--color-primary);
 }
 
 .hub-toolbar {
@@ -283,7 +283,7 @@ function submitEdit(sessionId?: string) {
 
 .session-card--active {
   border-color: rgba(24, 74, 140, 0.22);
-  background: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(226, 238, 252, 0.88) 100%);
+  background: rgba(24, 74, 140, 0.06);
 }
 
 .session-card__top {

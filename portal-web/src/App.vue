@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import PortalDashboardPage from './pages/PortalDashboardPage.vue'
+import PortalDataAnalysisPage from './pages/PortalDataAnalysisPage.vue'
 </script>
 
 <template>
-  <PortalDashboardPage />
+  <PortalDataAnalysisPage />
 </template>

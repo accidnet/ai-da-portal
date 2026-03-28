@@ -3,6 +3,7 @@ export interface NavItem {
   icon: string
   active?: boolean
   screen?: PortalScreen
+  action?: 'create-session'
 }
 
 export type PortalScreen = 'dashboard' | 'sessions' | 'datasets'
@@ -43,12 +44,6 @@ export interface SidebarData {
   productTagline: string
   primaryNav: NavItem[]
   recentSessions: SessionItem[]
-  secondaryNav: NavItem[]
-  profile: {
-    name: string
-    plan: string
-    initials: string
-  }
 }
 
 export interface HeaderData {
@@ -109,6 +104,14 @@ export interface ConversationData {
   messages: ChatMessage[]
   thinkingLabel: string
   isThinking?: boolean
+}
+
+export interface SharedAnalysisSnapshot {
+  id: string
+  title: string
+  fileName: string
+  content: string
+  createdAt: string
 }
 
 export interface MetricCard {
