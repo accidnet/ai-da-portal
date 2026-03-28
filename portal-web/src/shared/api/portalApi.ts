@@ -20,11 +20,24 @@ export interface OpenAiAuthorizeResponse {
 export interface SessionSummaryResponse {
   id: string
   title: string
+  created_at?: string
   updated_at: string
+  message_count?: number
+  dataset_count?: number
+  preferred_dataset_id?: string | null
+  last_dataset?: {
+    id: string
+    filename: string
+  } | null
 }
 
 export interface SessionDetailResponse extends SessionSummaryResponse {
   created_at: string
+}
+
+export interface SessionUpdatePayload {
+  title?: string
+  preferred_dataset_id?: string | null
 }
 
 export interface DatasetDetailResponse {
@@ -33,6 +46,29 @@ export interface DatasetDetailResponse {
   content_type: string | null
   storage_path: string
   created_at: string
+}
+
+export interface SessionDeleteResponse {
+  id: string
+  deleted: boolean
+}
+
+export interface SessionDatasetLinkResponse {
+  session_id: string
+  dataset_ids: string[]
+}
+
+export interface DatasetLibraryResponse {
+  id: string
+  filename: string
+  content_type: string | null
+  storage_path: string
+  created_at: string
+  row_count: number
+  column_count: number
+  linked_session_count: number
+  linked_session_ids: string[]
+  latest_used_at: string | null
 }
 
 export interface DatasetPreviewResponse {
@@ -259,6 +295,79 @@ export async function fetchSessions(signal?: AbortSignal): Promise<SessionSummar
   return (await response.json()) as SessionSummaryResponse[]
 }
 
+async function patchSession(
+  sessionId: string,
+  payload: SessionUpdatePayload,
+  signal?: AbortSignal,
+): Promise<SessionDetailResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Session update failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as SessionDetailResponse
+}
+
+export async function updateSessionTitle(
+  sessionId: string,
+  title: string,
+  signal?: AbortSignal,
+): Promise<SessionDetailResponse> {
+  return patchSession(sessionId, { title }, signal)
+}
+
+export async function updateSessionPreferredDataset(
+  sessionId: string,
+  preferredDatasetId: string | null,
+  signal?: AbortSignal,
+): Promise<SessionDetailResponse> {
+  return patchSession(sessionId, { preferred_dataset_id: preferredDatasetId }, signal)
+}
+
+export async function deleteSession(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SessionDeleteResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions/${sessionId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Session delete failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as SessionDeleteResponse
+}
+
 export async function fetchSessionSnapshot(
   sessionId: string,
   signal?: AbortSignal,
@@ -414,6 +523,115 @@ export async function fetchDatasetProfile(
   }
 
   return (await response.json()) as DatasetProfileResponse
+}
+
+export async function fetchDatasets(signal?: AbortSignal): Promise<DatasetLibraryResponse[]> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Dataset list failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as DatasetLibraryResponse[]
+}
+
+export async function attachDatasetToSession(
+  sessionId: string,
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<SessionDatasetLinkResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions/${sessionId}/datasets`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ dataset_id: datasetId }),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Dataset attach failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as SessionDatasetLinkResponse
+}
+
+export async function detachDatasetFromSession(
+  sessionId: string,
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<SessionDatasetLinkResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions/${sessionId}/datasets/${datasetId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Dataset detach failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as SessionDatasetLinkResponse
+}
+
+export async function deleteDataset(
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<DatasetDetailResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets/${datasetId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Dataset delete failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as DatasetDetailResponse
 }
 
 export async function createAnalysis(

@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import type { SidebarData } from '../types'
+import type { PortalScreen, SidebarData } from '../types'
 
 const props = defineProps<{
   sidebar: SidebarData
   activeSessionId?: string | null
+  activeScreen: PortalScreen
 }>()
 
 const emit = defineEmits<{
   selectSession: [sessionId: string]
-  primaryAction: [label: string]
+  primaryAction: [screen: PortalScreen]
 }>()
 </script>
 
@@ -30,8 +31,8 @@ const emit = defineEmits<{
         :key="item.label"
         type="button"
         class="nav-item"
-        :class="{ 'nav-item--active': item.active }"
-        @click="emit('primaryAction', item.label)"
+        :class="{ 'nav-item--active': item.screen === activeScreen }"
+        @click="item.screen && emit('primaryAction', item.screen)"
       >
         <span class="material-symbols-outlined">{{ item.icon }}</span>
         <span>{{ item.label }}</span>

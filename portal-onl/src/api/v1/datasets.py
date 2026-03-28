@@ -2,19 +2,21 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 
 from api.deps import get_dataset_service
 from domain.datasets.schemas import (
+    DatasetDeleteResponse,
     DatasetDetail,
     DatasetPreviewResponse,
     DatasetProfileResponse,
+    DatasetSummary,
 )
 from domain.datasets.service import DatasetService
 
 router = APIRouter()
 
 
-@router.get("", response_model=list[DatasetDetail])
+@router.get("", response_model=list[DatasetSummary])
 def list_datasets(
     service: DatasetService = Depends(get_dataset_service),
-) -> list[DatasetDetail]:
+) -> list[DatasetSummary]:
     return service.list_datasets()
 
 
@@ -71,5 +73,24 @@ def get_dataset_preview(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete("/{dataset_id}", response_model=DatasetDeleteResponse)
+def delete_dataset(
+    dataset_id: str,
+    service: DatasetService = Depends(get_dataset_service),
+) -> DatasetDeleteResponse:
+    try:
+        return service.delete(dataset_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset '{dataset_id}' was not found.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc

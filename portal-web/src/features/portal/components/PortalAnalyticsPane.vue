@@ -21,11 +21,15 @@ const props = defineProps<{
   datasetAsset?: DatasetAsset | null
   isLoading?: boolean
   errorMessage?: string | null
+  isFullscreen?: boolean
+  exportDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
   promptClick: [prompt: string]
   insightAction: []
+  toggleFullscreen: []
+  exportReport: []
 }>()
 
 const backendSummaryCards = computed(() => props.analyticsPayload?.summary_cards ?? [])
@@ -197,10 +201,19 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
       </div>
 
       <div class="analytics-actions">
-        <button type="button" aria-label="전체 화면 보기">
-          <span class="material-symbols-outlined">fullscreen</span>
+        <button
+          type="button"
+          :aria-label="props.isFullscreen ? '전체 화면 종료' : '전체 화면 보기'"
+          @click="emit('toggleFullscreen')"
+        >
+          <span class="material-symbols-outlined">{{ props.isFullscreen ? 'fullscreen_exit' : 'fullscreen' }}</span>
         </button>
-        <button type="button" aria-label="리포트 다운로드">
+        <button
+          type="button"
+          aria-label="리포트 다운로드"
+          :disabled="props.exportDisabled"
+          @click="emit('exportReport')"
+        >
           <span class="material-symbols-outlined">download</span>
         </button>
       </div>
@@ -450,6 +463,11 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   color: var(--color-text-muted);
   background: rgba(255, 255, 255, 0.7);
   cursor: pointer;
+}
+
+.analytics-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .analytics-alert {

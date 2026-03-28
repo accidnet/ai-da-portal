@@ -5,7 +5,9 @@ import type {
   WorkspacePayload,
 } from '../types'
 import type {
+  DatasetDetailResponse,
   DatasetProfileResponse,
+  DatasetPreviewResponse,
   SessionSnapshotDatasetResponse,
   SessionSnapshotMessageResponse,
   SessionSnapshotResponse,
@@ -17,6 +19,7 @@ export interface SessionRuntimeState {
   analyticsPayload: AnalyticsPayload | null
   workspacePayload: WorkspacePayload | null
   datasets: DatasetAsset[]
+  preferredDatasetId: string | null
 }
 
 export function mapDatasetProfile(payload: DatasetProfileResponse['profile']): DatasetAsset['profile'] {
@@ -44,6 +47,26 @@ export function mapDatasetAsset(payload: SessionSnapshotDatasetResponse): Datase
       rows: payload.preview.rows,
     },
     profile: mapDatasetProfile(payload.profile.profile),
+  }
+}
+
+export function mapDatasetDetailToAsset(payload: {
+  detail: DatasetDetailResponse
+  preview?: DatasetPreviewResponse | null
+  profile?: DatasetProfileResponse | null
+}): DatasetAsset {
+  return {
+    id: payload.detail.id,
+    filename: payload.detail.filename,
+    contentType: payload.detail.content_type,
+    createdAt: payload.detail.created_at,
+    preview: payload.preview
+      ? {
+          columns: payload.preview.columns,
+          rows: payload.preview.rows,
+        }
+      : null,
+    profile: payload.profile ? mapDatasetProfile(payload.profile.profile) : null,
   }
 }
 
@@ -102,5 +125,6 @@ export function mapSnapshotToSessionState(
     analyticsPayload: snapshot.analytics,
     workspacePayload: snapshot.workspace,
     datasets,
+    preferredDatasetId: snapshot.session.preferred_dataset_id ?? null,
   }
 }

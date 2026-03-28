@@ -2,11 +2,40 @@ export interface NavItem {
   label: string
   icon: string
   active?: boolean
+  screen?: PortalScreen
+}
+
+export type PortalScreen = 'dashboard' | 'sessions' | 'datasets'
+
+export interface LinkedDatasetSummary {
+  id: string
+  filename: string
 }
 
 export interface SessionItem {
   id?: string
   title: string
+  createdAt?: string
+  updatedAt?: string
+  messageCount?: number
+  datasetCount?: number
+  lastDataset?: LinkedDatasetSummary | null
+  preferredDatasetId?: string | null
+}
+
+export interface DatasetLibraryItem {
+  id: string
+  filename: string
+  contentType: string | null
+  storagePath: string
+  createdAt: string
+  rowCount: number
+  columnCount: number
+  linkedSessionCount: number
+  linkedSessionIds: string[]
+  latestUsedAt: string | null
+  preview?: DatasetPreview | null
+  profile?: DatasetProfile | null
 }
 
 export interface SidebarData {

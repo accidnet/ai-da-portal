@@ -15,14 +15,29 @@ class SessionCreateRequest(BaseModel):
     title: str = "New analysis session"
 
 
+class SessionUpdateRequest(BaseModel):
+    title: str | None = None
+    preferred_dataset_id: str | None = None
+
+
+class SessionLastDataset(BaseModel):
+    id: str
+    filename: str
+
+
 class SessionSummary(BaseModel):
     id: str
     title: str
+    created_at: datetime
     updated_at: datetime
+    preferred_dataset_id: str | None = None
+    message_count: int
+    dataset_count: int
+    last_dataset: SessionLastDataset | None = None
 
 
 class SessionDetail(SessionSummary):
-    created_at: datetime
+    pass
 
 
 class SessionMessage(BaseModel):
@@ -45,3 +60,17 @@ class SessionSnapshotResponse(BaseModel):
     datasets: list[SessionSnapshotDataset]
     analytics: AnalyticsPayload | None = None
     workspace: WorkspacePayload | None = None
+
+
+class SessionDatasetLinkRequest(BaseModel):
+    dataset_id: str
+
+
+class SessionDatasetLinkResponse(BaseModel):
+    session_id: str
+    dataset_ids: list[str]
+
+
+class SessionDeleteResponse(BaseModel):
+    id: str
+    deleted: bool

@@ -106,7 +106,14 @@ def test_uploaded_dataset_preview_profile_and_list() -> None:
 
         listed = client.get("/api/v1/datasets")
         assert listed.status_code == 200
-        assert any(item["id"] == dataset["id"] for item in listed.json())
+        listed_item = next(
+            item for item in listed.json() if item["id"] == dataset["id"]
+        )
+        assert listed_item["row_count"] == 12
+        assert listed_item["column_count"] == 4
+        assert listed_item["linked_session_count"] == 0
+        assert listed_item["linked_session_ids"] == []
+        assert listed_item["latest_used_at"] is None
 
         preview = client.get(f"/api/v1/datasets/{dataset['id']}/preview")
         assert preview.status_code == 200
@@ -121,6 +128,42 @@ def test_uploaded_dataset_preview_profile_and_list() -> None:
         assert profile_body["profile"]["row_count"] == 12
         assert profile_body["profile"]["column_count"] == 4
         assert profile_body["profile"]["columns"][0]["dtype"] == "datetime"
+
+
+def test_dataset_delete_blocks_linked_sessions_and_allows_unlinked_dataset() -> None:
+    with TestClient(app) as client:
+        linked_dataset = _upload_sample_csv(client)
+
+        attach = client.post(
+            "/api/v1/sessions/delete-guard-session/datasets",
+            json={"dataset_id": linked_dataset["id"]},
+        )
+        assert attach.status_code == 201
+
+        listed = client.get("/api/v1/datasets")
+        assert listed.status_code == 200
+        linked_item = next(
+            item for item in listed.json() if item["id"] == linked_dataset["id"]
+        )
+        assert linked_item["linked_session_count"] == 1
+        assert linked_item["linked_session_ids"] == ["delete-guard-session"]
+        assert linked_item["latest_used_at"] is not None
+
+        blocked_delete = client.delete(f"/api/v1/datasets/{linked_dataset['id']}")
+        assert blocked_delete.status_code == 409
+
+        detached = client.delete(
+            f"/api/v1/sessions/delete-guard-session/datasets/{linked_dataset['id']}"
+        )
+        assert detached.status_code == 200
+        assert detached.json()["dataset_ids"] == []
+
+        deleted = client.delete(f"/api/v1/datasets/{linked_dataset['id']}")
+        assert deleted.status_code == 200
+        assert deleted.json() == {"id": linked_dataset["id"], "deleted": True}
+
+        missing = client.get(f"/api/v1/datasets/{linked_dataset['id']}")
+        assert missing.status_code == 404
 
 
 def test_dataset_upload_accepts_optional_session_id_and_links_snapshot() -> None:
@@ -151,6 +194,7 @@ def test_dataset_upload_accepts_optional_session_id_and_links_snapshot() -> None
         assert snapshot.status_code == 200
         snapshot_body = snapshot.json()
         assert snapshot_body["dataset_ids"] == [dataset["id"]]
+        assert snapshot_body["session"]["preferred_dataset_id"] == dataset["id"]
         assert (
             snapshot_body["datasets"][0]["detail"]["filename"] == "linked_metrics.csv"
         )
@@ -346,6 +390,7 @@ def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
         snapshot_body = snapshot.json()
 
         assert snapshot_body["session"]["id"] == "snapshot-session"
+        assert snapshot_body["session"]["preferred_dataset_id"] == dataset["id"]
         assert snapshot_body["dataset_ids"] == [dataset["id"]]
         assert len(snapshot_body["messages"]) == 2
         assert snapshot_body["messages"][0]["role"] == "user"
