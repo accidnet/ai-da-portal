@@ -2,8 +2,8 @@
 import { computed } from 'vue'
 
 import type {
-  AnalyticsData,
   AnalyticsChartPayload,
+  AnalyticsData,
   AnalyticsInsight,
   AnalyticsPayload,
   AnalyticsSummaryCard,
@@ -37,6 +37,7 @@ const backendDatasetProfile = computed(
 )
 const backendDatasetPreview = computed(() => props.datasetAsset?.preview ?? null)
 const hasDatasetPreview = computed(() => (backendDatasetPreview.value?.rows?.length ?? 0) > 0)
+
 const fallbackWorkspace = computed<WorkspacePayload | null>(() => {
   if (!props.analyticsPayload) {
     return null
@@ -45,16 +46,17 @@ const fallbackWorkspace = computed<WorkspacePayload | null>(() => {
   return {
     template_id: 'overview',
     title: props.analytics.title,
-    description: '기본 analytics payload 기반 workspace',
+    description: '기본 analytics payload 기반 작업공간',
     sections: [
-      { kind: 'summary_cards', title: 'Key Metrics', max_items: 4 },
-      { kind: 'chart', title: 'Primary Chart', chart_index: 0 },
-      { kind: 'table', title: 'Detail Table', table_index: 0 },
-      { kind: 'insight', title: 'Recommendation', insight_index: 0 },
-      { kind: 'dataset_profile', title: 'Dataset Profile' },
+      { kind: 'summary_cards', title: '핵심 지표', max_items: 4 },
+      { kind: 'chart', title: '주요 차트', chart_index: 0 },
+      { kind: 'table', title: '상세 표', table_index: 0 },
+      { kind: 'insight', title: '인사이트', insight_index: 0 },
+      { kind: 'dataset_profile', title: '데이터 스냅샷' },
     ],
   }
 })
+
 const workspacePayload = computed(() => props.workspacePayload ?? fallbackWorkspace.value)
 const workspaceSections = computed(() => workspacePayload.value?.sections ?? [])
 const hasWorkspaceData = computed(() => workspaceSections.value.some(hasSectionContent))
@@ -119,22 +121,20 @@ function summaryCardsForSection(section: WorkspaceSectionPayload): AnalyticsSumm
   const filtered = labels.length
     ? cards.filter((card) => labels.includes(card.label))
     : cards
+
   return filtered.slice(0, section.max_items ?? filtered.length)
 }
 
 function chartForSection(section: WorkspaceSectionPayload): AnalyticsChartPayload | null {
-  const index = section.chart_index ?? 0
-  return backendCharts.value[index] ?? null
+  return backendCharts.value[section.chart_index ?? 0] ?? null
 }
 
 function tableForSection(section: WorkspaceSectionPayload): AnalyticsTablePayload | null {
-  const index = section.table_index ?? 0
-  return backendTables.value[index] ?? null
+  return backendTables.value[section.table_index ?? 0] ?? null
 }
 
 function insightForSection(section: WorkspaceSectionPayload): AnalyticsInsight | null {
-  const index = section.insight_index ?? 0
-  return backendInsights.value[index] ?? null
+  return backendInsights.value[section.insight_index ?? 0] ?? null
 }
 
 function chartPoints(chart: AnalyticsChartPayload | null) {
@@ -180,7 +180,7 @@ function chartPath(chart: AnalyticsChartPayload | null): string {
 
 function chartBadge(chart: AnalyticsChartPayload | null): string {
   if (chart?.series[0]?.data.length) {
-    return 'Live backend payload'
+    return '실시간 백엔드 결과'
   }
 
   return props.analytics.chartChange
@@ -191,23 +191,23 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   <aside class="analytics-shell" :class="workspacePayload ? `analytics-shell--${workspacePayload.template_id}` : null">
     <header class="analytics-header">
       <div>
-        <p>Workspace</p>
+        <p>작업공간</p>
         <h2>{{ workspaceTitle }}</h2>
         <small v-if="workspaceDescription" class="workspace-description">{{ workspaceDescription }}</small>
       </div>
 
       <div class="analytics-actions">
-        <button type="button" aria-label="Fullscreen view">
+        <button type="button" aria-label="전체 화면 보기">
           <span class="material-symbols-outlined">fullscreen</span>
         </button>
-        <button type="button" aria-label="Download report">
+        <button type="button" aria-label="리포트 다운로드">
           <span class="material-symbols-outlined">download</span>
         </button>
       </div>
     </header>
 
     <p v-if="errorMessage" class="analytics-alert">{{ errorMessage }}</p>
-    <p v-else-if="isLoading" class="analytics-alert analytics-alert--loading">Updating live analytics...</p>
+    <p v-else-if="isLoading" class="analytics-alert analytics-alert--loading">실시간 분석 결과를 업데이트하고 있어요...</p>
 
     <template v-for="(section, sectionIndex) in workspaceSections" :key="`${section.kind}-${sectionIndex}`">
       <section
@@ -216,7 +216,7 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
       >
         <div class="chart-headline">
           <div>
-            <p>{{ section.title ?? 'Chart' }}</p>
+            <p>{{ section.title ?? '차트' }}</p>
             <h3>{{ chartForSection(section)?.title }}</h3>
           </div>
           <span>{{ chartBadge(chartForSection(section)) }}</span>
@@ -234,7 +234,7 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
             <path :d="chartPath(chartForSection(section))"></path>
           </svg>
 
-          <p v-else class="chart-empty">No chart data available yet. Send a prompt or run an analysis.</p>
+          <p v-else class="chart-empty">아직 차트 데이터가 없어요. 프롬프트를 보내거나 분석을 실행해 주세요.</p>
         </div>
       </section>
 
@@ -266,7 +266,7 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
         class="panel-card table-card"
       >
         <header>
-          <p>{{ section.title ?? 'Table' }}</p>
+          <p>{{ section.title ?? '분석 결과' }}</p>
           <h3>{{ tableForSection(section)?.title }}</h3>
         </header>
 
@@ -292,21 +292,19 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
       >
         <header class="dataset-card__header">
           <div>
-            <p>{{ section.title ?? 'Data Snapshot' }}</p>
-            <h3>{{ datasetAsset?.filename ?? 'No dataset selected' }}</h3>
+            <p>{{ section.title ?? '데이터 스냅샷' }}</p>
+            <h3>{{ datasetAsset?.filename ?? '선택된 데이터셋이 없어요' }}</h3>
           </div>
-          <span v-if="backendDatasetProfile">
-            {{ backendDatasetProfile.rowCount }} rows
-          </span>
+          <span v-if="backendDatasetProfile">{{ backendDatasetProfile.rowCount }}행</span>
         </header>
 
         <div v-if="backendDatasetProfile" class="dataset-stats">
           <article class="dataset-stat">
-            <p>Rows</p>
+            <p>행 수</p>
             <strong>{{ backendDatasetProfile.rowCount }}</strong>
           </article>
           <article class="dataset-stat">
-            <p>Columns</p>
+            <p>열 수</p>
             <strong>{{ backendDatasetProfile.columnCount }}</strong>
           </article>
         </div>
@@ -314,8 +312,8 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
         <div v-if="backendDatasetProfile" class="dataset-columns">
           <article v-for="column in backendDatasetProfile.columns" :key="column.name" class="dataset-column">
             <strong>{{ column.name }}</strong>
-            <span>{{ column.dtype }} · null {{ Math.round(column.nullRatio * 100) }}%</span>
-            <small v-if="column.sampleValues.length">Samples: {{ column.sampleValues.join(', ') }}</small>
+            <span>{{ column.dtype }} · 결측 {{ Math.round(column.nullRatio * 100) }}%</span>
+            <small v-if="column.sampleValues.length">예시값: {{ column.sampleValues.join(', ') }}</small>
           </article>
         </div>
 
@@ -337,7 +335,7 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
         </div>
 
         <div v-if="backendDatasetProfile?.suggestedPrompts.length" class="prompt-list">
-          <p>Suggested prompts</p>
+          <p>추천 프롬프트</p>
           <button
             v-for="prompt in backendDatasetProfile.suggestedPrompts"
             :key="prompt"
@@ -518,7 +516,8 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   gap: 14px;
 }
 
-.chart-headline span {
+.chart-headline span,
+.dataset-card__header span {
   padding: 8px 10px;
   border-radius: 999px;
   color: var(--color-primary-strong);
@@ -669,7 +668,6 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
 .dataset-preview td {
   padding: 14px 0;
   border-bottom: 1px solid var(--color-border);
-  font-size: 0.86rem;
 }
 
 .table-card th,
@@ -688,34 +686,11 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   text-align: right;
 }
 
-.trend-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.trend-pill--up {
-  color: var(--color-success);
-}
-
-.trend-pill--flat {
-  color: var(--color-text-soft);
-}
-
 .dataset-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-}
-
-.dataset-card__header span {
-  padding: 8px 10px;
-  border-radius: 999px;
-  color: var(--color-primary-strong);
-  background: var(--color-primary-soft);
-  font-weight: 700;
-  font-size: 0.8rem;
 }
 
 .dataset-stats {

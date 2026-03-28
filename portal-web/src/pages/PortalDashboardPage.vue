@@ -7,19 +7,21 @@ import PortalHeader from '../features/portal/components/PortalHeader.vue'
 import PortalSidebar from '../features/portal/components/PortalSidebar.vue'
 import type {
   AnalyticsData,
-  AnalyticsPayload,
   ChatMessage,
   ComposerChip,
   ComposerData,
   ConversationData,
-  DatasetAsset,
   HeaderData,
   MessageAttachmentPreview,
   OpenAiAuthStatus,
   SessionItem,
   SidebarData,
-  WorkspacePayload,
 } from '../features/portal/types'
+import {
+  type SessionRuntimeState,
+  mapDatasetAsset,
+  mapSnapshotToSessionState,
+} from '../features/portal/utils/sessionState'
 import {
   authorizeOpenAi,
   type ChatInteractionResponse,
@@ -29,19 +31,12 @@ import {
   fetchDatasetProfile,
   fetchHealthcheck,
   fetchOpenAiAuthStatus,
+  fetchSessionSnapshot,
   fetchSessions,
   sendChatInteraction,
   sendChatMessage,
   uploadDataset,
 } from '../shared/api/portalApi'
-
-interface SessionRuntimeState {
-  title: string
-  messages: ChatMessage[]
-  analyticsPayload: AnalyticsPayload | null
-  workspacePayload: WorkspacePayload | null
-  datasets: DatasetAsset[]
-}
 
 interface OpenAiPopupMessage {
   source?: string
@@ -52,20 +47,22 @@ interface OpenAiPopupMessage {
 
 const OPENAI_AUTH_POPUP_SOURCE = 'portal-openai-auth'
 const ANALYTICS_PANE_WIDTH_STORAGE_KEY = 'portal.analyticsPaneWidth'
+const DEFAULT_SESSION_TITLE = 'ChatGPT 분석 세션'
+const LOCAL_SESSION_ID = 'local-session'
 
 const shellSidebar: SidebarData = {
-  productName: 'Data Analysis AI',
-  productTagline: 'Data Intelligence',
+  productName: '데이터 분석 AI',
+  productTagline: '데이터 인텔리전스',
   primaryNav: [
-    { label: 'New Analysis', icon: 'add_chart', active: true },
-    { label: 'History', icon: 'history' },
-    { label: 'Data Sources', icon: 'database' },
-    { label: 'Models', icon: 'neurology' },
+    { label: '새 분석', icon: 'add_chart', active: true },
+    { label: '기록', icon: 'history' },
+    { label: '데이터 소스', icon: 'database' },
+    { label: '모델', icon: 'neurology' },
   ],
   recentSessions: [],
   secondaryNav: [
-    { label: 'Settings', icon: 'settings' },
-    { label: 'Help', icon: 'help' },
+    { label: '설정', icon: 'settings' },
+    { label: '도움말', icon: 'help' },
   ],
   profile: {
     name: 'Alex Architect',
@@ -75,21 +72,21 @@ const shellSidebar: SidebarData = {
 }
 
 const shellHeader: HeaderData = {
-  searchPlaceholder: 'Search analysis, datasets, or prompts...',
+  searchPlaceholder: '분석, 데이터셋, 프롬프트 검색',
   actions: ['notifications', 'ios_share', 'account_circle'],
 }
 
 const shellAnalytics: AnalyticsData = {
-  title: 'Analytical Canvas',
-  chartTitle: 'Waiting for live analysis',
-  chartChange: 'No analysis yet',
+  title: '분석 작업공간',
+  chartTitle: '실시간 분석 대기 중',
+  chartChange: '아직 분석 결과가 없어요',
   chartPoints: [],
   metrics: [],
   tableRows: [],
   insight: {
-    title: 'Start here',
-    body: 'Upload a dataset or send a prompt to populate the analytics pane with live backend output.',
-    actionLabel: 'Run Analysis',
+    title: '여기서 시작해 보세요',
+    body: '데이터셋을 업로드하거나 프롬프트를 보내면 이 영역에 실시간 분석 결과가 채워집니다.',
+    actionLabel: '분석 실행',
   },
 }
 
@@ -118,11 +115,13 @@ const isResizingAnalyticsPane = ref(false)
 const activeSessionId = ref<string | null>(null)
 const sessionSummaries = ref<SessionItem[]>([])
 const sessionStates = ref<Record<string, SessionRuntimeState>>({})
+const hydratedSessionIds = ref<Record<string, boolean>>({})
 const datasetPickerRef = ref<HTMLInputElement | null>(null)
 const interactionPickerRef = ref<HTMLInputElement | null>(null)
 const pendingAttachment = ref<File | null>(null)
 let authPollTimer: number | null = null
 let authPopup: Window | null = null
+let latestSnapshotRequestId = 0
 
 function clampAnalyticsPaneWidth(width: number): number {
   return Math.min(Math.max(width, 320), 720)
@@ -167,12 +166,14 @@ function restoreAnalyticsPaneWidth() {
   analyticsPaneWidth.value = clampAnalyticsPaneWidth(parsedWidth)
 }
 
-function createWelcomeMessages(): ChatMessage[] {
+function createWelcomeMessages(title?: string): ChatMessage[] {
   return [
     {
       role: 'assistant',
       author: 'AI 데이터 분석가',
-      text: `데이터셋을 업로드하면 바로 분석을 시작할 수 있어요.`,
+      text: title
+        ? `${title} 세션입니다. 데이터셋을 업로드하거나 프롬프트를 보내면 바로 분석을 시작할 수 있어요.`
+        : '데이터셋을 업로드하면 바로 분석을 시작할 수 있어요.',
       bullets: [
         { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
         { text: '추세, 상관관계, 이상치 분석 요청하기' },
@@ -199,7 +200,7 @@ function normalizeAssistantMessage(message: string): string {
 function createSessionState(title: string): SessionRuntimeState {
   return {
     title,
-    messages: createWelcomeMessages(),
+    messages: createWelcomeMessages(title),
     analyticsPayload: null,
     workspacePayload: null,
     datasets: [],
@@ -227,7 +228,7 @@ function updateSessionSummary(sessionId: string, title: string) {
 }
 
 function buildSessionTitle(): string {
-  return `Analysis Session ${sessionSummaries.value.length + 1}`
+  return `분석 세션 ${sessionSummaries.value.length + 1}`
 }
 
 function syncAuthPolling() {
@@ -266,7 +267,7 @@ async function loadAuthStatus() {
       authPopup = null
     }
   } catch {
-    authError.value = 'ChatGPT connection status could not be loaded.'
+    authError.value = 'ChatGPT 연결 상태를 불러오지 못했어요.'
   } finally {
     syncAuthPolling()
   }
@@ -285,7 +286,7 @@ async function handleOpenAiAuthMessage(event: MessageEvent<OpenAiPopupMessage>) 
 
   if (event.data.status === 'error') {
     isConnecting.value = false
-    authError.value = event.data.error ?? 'ChatGPT sign-in did not complete.'
+    authError.value = event.data.error ?? 'ChatGPT 연결을 완료하지 못했어요.'
     await loadAuthStatus()
     return
   }
@@ -318,10 +319,11 @@ async function loadSessions() {
     }))
 
     if (sessionSummaries.value.length === 0) {
-      const created = await createSession('ChatGPT analysis session')
+      const created = await createSession(DEFAULT_SESSION_TITLE)
       sessionSummaries.value = [{ id: created.id, title: created.title }]
       activeSessionId.value = created.id
       ensureSessionState(created.id, created.title)
+      hydratedSessionIds.value[created.id] = true
       return
     }
 
@@ -337,12 +339,17 @@ async function loadSessions() {
     if (!activeSessionId.value || !sessionStates.value[activeSessionId.value]) {
       activeSessionId.value = firstSessionId ?? null
     }
+
+    if (activeSessionId.value) {
+      await hydrateSessionSnapshot(activeSessionId.value)
+    }
   } catch {
     if (!activeSessionId.value) {
-      const fallback = 'local-session'
+      const fallback = LOCAL_SESSION_ID
       activeSessionId.value = fallback
-      sessionSummaries.value = [{ id: fallback, title: 'ChatGPT analysis session' }]
-      ensureSessionState(fallback, 'ChatGPT analysis session')
+      sessionSummaries.value = [{ id: fallback, title: DEFAULT_SESSION_TITLE }]
+      ensureSessionState(fallback, DEFAULT_SESSION_TITLE)
+      hydratedSessionIds.value[fallback] = true
     }
   }
 }
@@ -352,10 +359,11 @@ function getActiveSessionId(): string {
     return activeSessionId.value
   }
 
-  const fallback = 'local-session'
+  const fallback = LOCAL_SESSION_ID
   activeSessionId.value = fallback
-  ensureSessionState(fallback, 'ChatGPT analysis session')
-  updateSessionSummary(fallback, 'ChatGPT analysis session')
+  ensureSessionState(fallback, DEFAULT_SESSION_TITLE)
+  updateSessionSummary(fallback, DEFAULT_SESSION_TITLE)
+  hydratedSessionIds.value[fallback] = true
   return fallback
 }
 
@@ -366,11 +374,41 @@ async function ensureActiveSession() {
     return currentSessionId
   }
 
-  const created = await createSession('ChatGPT analysis session')
+  const created = await createSession(DEFAULT_SESSION_TITLE)
   activeSessionId.value = created.id
   sessionSummaries.value = [{ id: created.id, title: created.title }, ...sessionSummaries.value]
   ensureSessionState(created.id, created.title)
+  hydratedSessionIds.value[created.id] = true
   return created.id
+}
+
+async function hydrateSessionSnapshot(sessionId: string, force = false) {
+  if (!sessionId || sessionId === LOCAL_SESSION_ID) {
+    return
+  }
+
+  const summary = sessionSummaries.value.find((session) => session.id === sessionId)
+  ensureSessionState(sessionId, summary?.title ?? DEFAULT_SESSION_TITLE)
+
+  if (hydratedSessionIds.value[sessionId] && !force) {
+    return
+  }
+
+  const requestId = ++latestSnapshotRequestId
+
+  try {
+    const snapshot = await fetchSessionSnapshot(sessionId)
+    if (requestId !== latestSnapshotRequestId) {
+      return
+    }
+
+    const state = mapSnapshotToSessionState(snapshot, createWelcomeMessages)
+    sessionStates.value[sessionId] = state
+    updateSessionSummary(sessionId, state.title)
+    hydratedSessionIds.value[sessionId] = true
+  } catch {
+    hydratedSessionIds.value[sessionId] = true
+  }
 }
 
 async function createAndSelectSession() {
@@ -383,6 +421,7 @@ async function createAndSelectSession() {
     activeSessionId.value = created.id
     ensureSessionState(created.id, created.title)
     updateSessionSummary(created.id, created.title)
+    hydratedSessionIds.value[created.id] = true
     searchQuery.value = ''
   } catch {
     chatError.value = '새 분석 세션을 만들지 못했어요. 잠시 후 다시 시도해 주세요.'
@@ -421,20 +460,21 @@ async function connectOpenAi() {
     }
   } catch {
     isConnecting.value = false
-    authError.value = 'ChatGPT sign-in could not be started.'
+    authError.value = 'ChatGPT 연결을 시작하지 못했어요.'
   } finally {
     syncAuthPolling()
   }
 }
 
-function selectSession(sessionId: string) {
+async function selectSession(sessionId: string) {
   activeSessionId.value = sessionId
   const summary = sessionSummaries.value.find((session) => session.id === sessionId)
-  ensureSessionState(sessionId, summary?.title ?? 'ChatGPT analysis session')
+  ensureSessionState(sessionId, summary?.title ?? DEFAULT_SESSION_TITLE)
+  await hydrateSessionSnapshot(sessionId, true)
 }
 
 function handlePrimaryAction(label: string) {
-  if (label === 'New Analysis') {
+  if (label === '새 분석') {
     void createAndSelectSession()
   }
 }
@@ -449,7 +489,7 @@ async function handleSendMessage(message: string) {
   analyticsError.value = null
 
   const sessionId = await ensureActiveSession()
-  const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+  const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
   const attachedFile = pendingAttachment.value
   const userMessage = message || (attachedFile ? `${attachedFile.name} 파일을 업로드해서 분석해줘.` : '')
   const userMessageEntry: ChatMessage = {
@@ -487,15 +527,11 @@ async function handleSendMessage(message: string) {
         datasetIds: sessionState.datasets.map((dataset) => dataset.id),
       })
 
-    const interactionResponse = attachedFile ? response as ChatInteractionResponse : null
+      const interactionResponse = attachedFile ? response as ChatInteractionResponse : null
 
     if (interactionResponse?.dataset) {
       const interactionDataset = interactionResponse.dataset
-      const dataset = createDatasetAsset(
-        interactionDataset.detail,
-        interactionDataset.preview,
-        interactionDataset.profile,
-      )
+      const dataset = mapDatasetAsset(interactionDataset)
       sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
       sessionState.messages = sessionState.messages.map((entry) => (
         entry === userMessageEntry
@@ -525,7 +561,7 @@ async function handleSendMessage(message: string) {
   } catch (error) {
     chatError.value = error instanceof Error
       ? error.message
-      : 'The message could not be sent. Check ChatGPT connection and backend status.'
+      : '메시지를 보내지 못했어요. ChatGPT 연결과 백엔드 상태를 확인해 주세요.'
     pendingAttachment.value = attachedFile
   } finally {
     isSending.value = false
@@ -567,7 +603,7 @@ function createAttachmentPreview(
 ): MessageAttachmentPreview {
   return {
     filename,
-    meta: `${formatFileSize(size)} · ${preview.rows.length} rows preview`,
+    meta: `${formatFileSize(size)} · ${preview.rows.length}행 미리보기`,
     columns: preview.columns,
     rows: preview.rows,
   }
@@ -595,68 +631,6 @@ function handleInteractionFileChange(event: Event) {
   queueInteractionFile(file)
 }
 
-function mapDatasetProfile(payload: {
-  row_count: number
-  column_count: number
-  columns: Array<{
-    name: string
-    dtype: string
-    null_ratio: number
-    sample_values: string[]
-  }>
-  suggested_prompts: string[]
-}): DatasetAsset['profile'] {
-  return {
-    rowCount: payload.row_count,
-    columnCount: payload.column_count,
-    columns: payload.columns.map((column) => ({
-      name: column.name,
-      dtype: column.dtype,
-      nullRatio: column.null_ratio,
-      sampleValues: column.sample_values,
-    })),
-    suggestedPrompts: payload.suggested_prompts,
-  }
-}
-
-function createDatasetAsset(
-  detail: {
-    id: string
-    filename: string
-    content_type: string | null
-    created_at: string
-  },
-  preview: {
-    columns: string[]
-    rows: Array<Record<string, string | number | null>>
-  },
-  profile: {
-    profile: {
-      row_count: number
-      column_count: number
-      columns: Array<{
-        name: string
-        dtype: string
-        null_ratio: number
-        sample_values: string[]
-      }>
-      suggested_prompts: string[]
-    }
-  },
-): DatasetAsset {
-  return {
-    id: detail.id,
-    filename: detail.filename,
-    contentType: detail.content_type,
-    createdAt: detail.created_at,
-    preview: {
-      columns: preview.columns,
-      rows: preview.rows,
-    },
-    profile: mapDatasetProfile(profile.profile),
-  }
-}
-
 async function handleDatasetFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -681,15 +655,15 @@ async function processDatasetFile(file: File) {
 
   try {
     const sessionId = await ensureActiveSession()
-    const detail = await uploadDataset(file)
+    const detail = await uploadDataset(file, sessionId)
     const [preview, profile] = await Promise.all([
       fetchDatasetPreview(detail.id),
       fetchDatasetProfile(detail.id),
     ])
 
-    const dataset = createDatasetAsset(detail, preview, profile)
+    const dataset = mapDatasetAsset({ detail, preview, profile })
 
-    const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+    const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
     sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
     sessionState.analyticsPayload = null
     sessionState.workspacePayload = null
@@ -701,17 +675,17 @@ async function processDatasetFile(file: File) {
         text: `${dataset.filename} 업로드를 완료했어요. 이제 같은 데이터셋 ID로 채팅과 분석을 이어서 실행할 수 있어요.`,
         bullets: [
           {
-            text: `${dataset.profile?.rowCount ?? 0} rows / ${dataset.profile?.columnCount ?? 0} columns profiled`,
+            text: `${dataset.profile?.rowCount ?? 0}행 / ${dataset.profile?.columnCount ?? 0}열 프로파일을 반영했어요`,
           },
-          { text: '우측 패널에 서버 기준 미리보기와 프로파일이 반영됨' },
-          { text: '이제 프롬프트 전송과 Run Analysis가 동일한 데이터셋을 사용함' },
+          { text: '오른쪽 패널에 서버 기준 미리보기와 프로파일이 반영돼요' },
+          { text: '이제 프롬프트 전송과 분석 실행이 같은 데이터셋을 사용해요' },
         ],
       },
     ]
     updateSessionSummary(sessionId, sessionState.title)
     activeSessionId.value = sessionId
   } catch {
-    uploadError.value = 'Dataset upload failed. Please try again with a CSV or spreadsheet file.'
+    uploadError.value = '데이터셋 업로드에 실패했어요. CSV 또는 스프레드시트 파일로 다시 시도해 주세요.'
   } finally {
     isUploading.value = false
   }
@@ -720,11 +694,11 @@ async function processDatasetFile(file: File) {
 async function runAnalysis() {
   analyticsError.value = null
   const sessionId = await ensureActiveSession()
-  const sessionState = ensureSessionState(sessionId, 'ChatGPT analysis session')
+  const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
   const primaryDataset = sessionState.datasets[0]
 
   if (!primaryDataset) {
-    analyticsError.value = 'Upload a dataset first to run analysis.'
+    analyticsError.value = '분석을 실행하려면 먼저 데이터셋을 업로드해 주세요.'
     return
   }
 
@@ -747,12 +721,12 @@ async function runAnalysis() {
         author: 'AI 데이터 분석가',
         text:
           analysis.analytics?.insights[0]?.body ??
-          'Analysis completed. The live analytics panel has been refreshed.',
+          '분석이 완료되어 실시간 분석 패널을 업데이트했어요.',
       },
     ]
     updateSessionSummary(sessionId, sessionState.title)
   } catch {
-    analyticsError.value = 'Analysis could not be started.'
+    analyticsError.value = '분석을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'
   } finally {
     isRunningAnalysis.value = false
   }
@@ -804,16 +778,16 @@ const recentSessions = computed<SessionItem[]>(() => {
 })
 
 const conversation = computed<ConversationData>(() => ({
-  messages: activeSessionState.value?.messages ?? createWelcomeMessages(),
+  messages: activeSessionState.value?.messages ?? createWelcomeMessages(DEFAULT_SESSION_TITLE),
   thinkingLabel: isSending.value
     ? isSendingInteraction.value
-      ? 'Uploading file and analyzing data...'
-      : 'Processing with ChatGPT...'
+      ? '파일을 업로드하고 데이터를 분석하고 있어요...'
+      : 'ChatGPT가 응답을 준비하고 있어요...'
     : isUploading.value
-      ? 'Uploading dataset...'
+      ? '데이터셋을 업로드하고 있어요...'
       : isRunningAnalysis.value
-        ? 'Running analysis...'
-        : 'Ready for your next prompt',
+        ? '분석을 실행하고 있어요...'
+        : '다음 분석 요청을 입력해 주세요',
   isThinking: isSending.value || isUploading.value || isRunningAnalysis.value,
 }))
 
@@ -822,7 +796,7 @@ const composer = computed<ComposerData>(() => {
 
   chips.push({
     icon: authStatus.value.connected ? 'smart_toy' : 'analytics',
-    label: authStatus.value.connected ? 'ChatGPT connected' : 'Backend analysis mode',
+    label: authStatus.value.connected ? 'ChatGPT 연결됨' : '백엔드 분석 모드',
     tone: authStatus.value.connected ? 'primary' : 'neutral',
   })
 
@@ -846,7 +820,7 @@ const composer = computed<ComposerData>(() => {
   if (extraDatasetCount > 0) {
     chips.push({
       icon: 'dataset',
-      label: `+${extraDatasetCount} more`,
+      label: `추가 ${extraDatasetCount}개`,
       tone: 'neutral',
     })
   }
@@ -854,7 +828,7 @@ const composer = computed<ComposerData>(() => {
   if (isUploading.value) {
     chips.push({
       icon: 'progress_activity',
-      label: 'Uploading',
+      label: '업로드 중',
       tone: 'neutral',
     })
   }
@@ -929,7 +903,7 @@ onUnmounted(() => {
         :class="{ 'portal-main-grid--resizing': isResizingAnalyticsPane }"
         :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
       >
-      <PortalConversationPane
+        <PortalConversationPane
           :conversation="conversation"
           :composer="composer"
           :send-disabled="isSending || isRunningAnalysis"
@@ -963,7 +937,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <button class="floating-action" type="button" aria-label="Run analysis" @click="runAnalysis">
+    <button class="floating-action" type="button" aria-label="분석 실행" @click="runAnalysis">
       <span class="material-symbols-outlined">add</span>
     </button>
 

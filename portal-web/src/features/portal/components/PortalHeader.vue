@@ -18,40 +18,40 @@ const emit = defineEmits<{
 
 const connectionLabel = computed(() => {
   if (props.connectionStatus === 'connected') {
-    return 'Backend connected'
+    return '백엔드 연결됨'
   }
 
   if (props.connectionStatus === 'offline') {
-    return 'Backend offline'
+    return '백엔드 연결 끊김'
   }
 
-  return 'Checking backend'
+  return '백엔드 연결 확인 중'
 })
 
 const authLabel = computed(() => {
   if (props.authStatus.connected) {
     return props.authStatus.accountEmail
-      ? `ChatGPT connected: ${props.authStatus.accountEmail}`
-      : 'ChatGPT connected'
+      ? `ChatGPT 연결됨 · ${props.authStatus.accountEmail}`
+      : 'ChatGPT 연결됨'
   }
 
   if (props.authStatus.pending || props.isConnecting) {
-    return 'Finish ChatGPT sign-in'
+    return 'ChatGPT 연결을 완료해 주세요'
   }
 
-  return 'Connect ChatGPT'
+  return 'ChatGPT 연결'
 })
 
 const authButtonLabel = computed(() => {
   if (props.authStatus.connected) {
-    return 'Connected'
+    return '연결 완료'
   }
 
   if (props.authStatus.pending || props.isConnecting) {
-    return 'Waiting...'
+    return '연결 대기 중...'
   }
 
-  return 'Connect ChatGPT'
+  return 'ChatGPT 연결'
 })
 </script>
 
