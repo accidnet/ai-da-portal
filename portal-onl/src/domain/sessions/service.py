@@ -11,8 +11,8 @@ from domain.sessions.schemas import (
     SessionSnapshotDataset,
     SessionSnapshotResponse,
     SessionSummary,
-    SessionWorkspace,
 )
+from domain.shared import WorkspacePayload
 
 if TYPE_CHECKING:
     from domain.datasets.service import DatasetService
@@ -86,14 +86,7 @@ class SessionService:
     ) -> None:
         record = self._get_or_create_record(session_id, title=title)
         record.dataset_ids = self._merge_dataset_ids(record.dataset_ids, [dataset_id])
-        now = datetime.now(UTC)
-        record.workspace = SessionWorkspace(
-            session_id=session_id,
-            dataset_ids=list(record.dataset_ids),
-            primary_dataset_id=dataset_id,
-            updated_at=now,
-        )
-        self._touch(record, now=now)
+        self._touch(record)
 
     def record_chat(
         self,
@@ -103,7 +96,7 @@ class SessionService:
         assistant_message: str,
         dataset_ids: list[str],
         analytics: AnalyticsPayload | None,
-        workspace: SessionWorkspace | None,
+        workspace: WorkspacePayload | None,
     ) -> None:
         record = self._get_or_create_record(session_id, title=user_message)
         now = datetime.now(UTC)
@@ -127,22 +120,7 @@ class SessionService:
         if analytics is not None:
             record.analytics = analytics
         if workspace is not None:
-            record.workspace = workspace.model_copy(
-                update={
-                    "dataset_ids": self._merge_dataset_ids(
-                        record.dataset_ids,
-                        workspace.dataset_ids,
-                    ),
-                    "updated_at": now,
-                }
-            )
-        elif record.dataset_ids:
-            record.workspace = SessionWorkspace(
-                session_id=session_id,
-                dataset_ids=list(record.dataset_ids),
-                primary_dataset_id=record.dataset_ids[0],
-                updated_at=now,
-            )
+            record.workspace = workspace
         self._touch(record, now=now)
 
     def record_analysis(
@@ -150,30 +128,21 @@ class SessionService:
         *,
         session_id: str,
         dataset_id: str | None,
-        analysis_id: str,
-        analysis_type: str,
         analytics: AnalyticsPayload | None,
+        workspace: WorkspacePayload | None,
         title: str | None = None,
-    ) -> SessionWorkspace:
+    ) -> None:
         record = self._get_or_create_record(session_id, title=title)
         record.dataset_ids = self._merge_dataset_ids(
             record.dataset_ids,
             [dataset_id] if dataset_id else [],
         )
         now = datetime.now(UTC)
-        workspace = SessionWorkspace(
-            session_id=session_id,
-            dataset_ids=list(record.dataset_ids),
-            primary_dataset_id=dataset_id,
-            analysis_id=analysis_id,
-            analysis_type=analysis_type,
-            updated_at=now,
-        )
-        record.workspace = workspace
+        if workspace is not None:
+            record.workspace = workspace
         if analytics is not None:
             record.analytics = analytics
         self._touch(record, now=now)
-        return workspace
 
     def get_snapshot(
         self, session_id: str, dataset_service: "DatasetService"
@@ -254,4 +223,4 @@ class _SessionRecord:
     messages: list[SessionMessage] = field(default_factory=list)
     dataset_ids: list[str] = field(default_factory=list)
     analytics: AnalyticsPayload | None = None
-    workspace: SessionWorkspace | None = None
+    workspace: WorkspacePayload | None = None

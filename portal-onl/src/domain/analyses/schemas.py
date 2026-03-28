@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from domain.shared import AnalyticsPayload, ReasoningStatus
+from domain.shared import AnalyticsPayload, ReasoningStatus, WorkspacePayload
 
 
 class AnalysisRequest(BaseModel):
@@ -28,9 +28,11 @@ class AnalysisDetail(BaseModel):
     status: ReasoningStatus = "queued"
     created_at: datetime
     analytics: AnalyticsPayload | None = None
+    workspace: WorkspacePayload | None = None
 
 
 class AnalysisArtifactsResponse(BaseModel):
     analysis_id: str
     analytics: AnalyticsPayload
+    workspace: WorkspacePayload | None = None
     notes: list[str] = Field(default_factory=list)

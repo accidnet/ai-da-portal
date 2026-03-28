@@ -8,7 +8,7 @@ from domain.datasets.schemas import (
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
-from domain.shared import AnalyticsPayload
+from domain.shared import AnalyticsPayload, WorkspacePayload
 
 
 class SessionCreateRequest(BaseModel):
@@ -38,19 +38,10 @@ class SessionSnapshotDataset(BaseModel):
     profile: DatasetProfileResponse
 
 
-class SessionWorkspace(BaseModel):
-    session_id: str
-    dataset_ids: list[str]
-    primary_dataset_id: str | None = None
-    analysis_id: str | None = None
-    analysis_type: str | None = None
-    updated_at: datetime
-
-
 class SessionSnapshotResponse(BaseModel):
     session: SessionDetail
     messages: list[SessionMessage]
     dataset_ids: list[str]
     datasets: list[SessionSnapshotDataset]
     analytics: AnalyticsPayload | None = None
-    workspace: SessionWorkspace | None = None
+    workspace: WorkspacePayload | None = None

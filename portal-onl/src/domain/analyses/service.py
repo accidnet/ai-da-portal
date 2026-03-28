@@ -10,17 +10,21 @@ from domain.analyses.schemas import (
 )
 from domain.datasets.service import DatasetService
 from domain.sessions.service import SessionService
+from domain.workspace.service import WorkspacePlanner
+from infrastructure.llm.client import LlmClient
 
 
 class AnalysisService:
     def __init__(
         self,
         dataset_service: DatasetService | None = None,
+        llm_client: LlmClient | None = None,
         session_service: SessionService | None = None,
     ) -> None:
         self._dataset_service = dataset_service or DatasetService()
         self._session_service = session_service or SessionService()
         self._analyses: dict[str, _AnalysisRecord] = {}
+        self._workspace_planner = WorkspacePlanner(llm_client=llm_client)
 
     def create(self, payload: AnalysisRequest) -> AnalysisDetail:
         dataset_id = payload.dataset_id or self._dataset_service.get_latest_dataset_id()
@@ -42,6 +46,12 @@ class AnalysisService:
             status="completed",
             created_at=datetime.now(UTC),
             analytics=analytics,
+            workspace=self._workspace_planner.plan(
+                prompt=payload.prompt,
+                analytics=analytics,
+                analysis_type=payload.analysis_type,
+                dataset_ids=[dataset_id],
+            ),
         )
         self._analyses[analysis_id] = _AnalysisRecord(
             detail=detail,
@@ -52,10 +62,8 @@ class AnalysisService:
         self._session_service.record_analysis(
             session_id=payload.session_id,
             dataset_id=dataset_id,
-            analysis_id=analysis_id,
-            analysis_type=payload.analysis_type,
             analytics=analytics,
-            title=payload.prompt,
+            workspace=detail.workspace,
         )
         return detail
 
@@ -76,6 +84,7 @@ class AnalysisService:
                 analysis_type=record.detail.analysis_type,
                 prompt=None,
             ),
+            workspace=record.detail.workspace,
             notes=record.notes,
         )
 

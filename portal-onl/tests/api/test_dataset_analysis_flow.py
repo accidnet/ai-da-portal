@@ -57,6 +57,39 @@ class FakeLlmClient(LlmClient):
         del system, dataset_ids
         return f"GPT reply: {user_message[:80]}"
 
+    def generate_json(
+        self, system: str, user_message: str, dataset_ids: list[str] | None = None
+    ) -> dict[str, object]:
+        del system, dataset_ids
+        lowered = user_message.lower()
+
+        template_id = "chart_focus"
+        title = "LLM Workspace"
+        if "correlation" in lowered or "상관" in lowered:
+            template_id = "correlation_focus"
+            title = "Correlation Workspace"
+        elif "trend" in lowered or "추세" in lowered:
+            template_id = "trend_story"
+            title = "Trend Workspace"
+        elif "anomaly" in lowered or "이상치" in lowered:
+            template_id = "anomaly_watch"
+            title = "Anomaly Workspace"
+        elif "group" in lowered or "compare" in lowered or "채널별" in lowered:
+            template_id = "comparison_board"
+            title = "Comparison Workspace"
+
+        return {
+            "template_id": template_id,
+            "title": title,
+            "description": "Chosen by fake LLM planner",
+            "sections": [
+                {"kind": "chart", "chart_index": 0, "title": "Primary Chart"},
+                {"kind": "summary_cards", "max_items": 4, "title": "Key Metrics"},
+                {"kind": "table", "table_index": 0, "title": "Detail Table"},
+                {"kind": "insight", "insight_index": 0, "title": "Recommendation"},
+            ],
+        }
+
 
 def _override_message_service() -> MessageService:
     return MessageService(
@@ -121,7 +154,7 @@ def test_dataset_upload_accepts_optional_session_id_and_links_snapshot() -> None
         assert (
             snapshot_body["datasets"][0]["detail"]["filename"] == "linked_metrics.csv"
         )
-        assert snapshot_body["workspace"]["primary_dataset_id"] == dataset["id"]
+        assert snapshot_body["workspace"] is None
 
 
 def test_analysis_and_chat_use_uploaded_dataset() -> None:
@@ -145,6 +178,9 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert analysis_body["analytics"]["charts"]
         assert analysis_body["analytics"]["tables"]
         assert analysis_body["analytics"]["insights"]
+        assert analysis_body["workspace"] is not None
+        assert analysis_body["workspace"]["template_id"] == "correlation_focus"
+        assert analysis_body["workspace"]["sections"]
 
         artifacts = client.get(f"/api/v1/analyses/{analysis_body['id']}/artifacts")
         assert artifacts.status_code == 200
@@ -161,6 +197,8 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat.status_code == 202
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
+        assert chat_body["workspace"] is not None
+        assert chat_body["workspace"]["template_id"] == "correlation_focus"
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["summary_cards"]
     app.dependency_overrides.clear()
@@ -182,8 +220,41 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat.status_code == 202
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
+        assert chat_body["workspace"] is not None
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["charts"]
+    app.dependency_overrides.clear()
+
+
+def test_analysis_workspace_supports_trend_and_anomaly_templates() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        trend = client.post(
+            "/api/v1/analyses",
+            json={
+                "session_id": "trend-session",
+                "dataset_id": dataset["id"],
+                "analysis_type": "trend",
+                "prompt": "Show the monthly trend for spend.",
+            },
+        )
+        assert trend.status_code == 202
+        assert trend.json()["workspace"]["template_id"] == "trend_story"
+
+        anomaly = client.post(
+            "/api/v1/analyses",
+            json={
+                "session_id": "anomaly-session",
+                "dataset_id": dataset["id"],
+                "analysis_type": "anomaly_detection",
+                "prompt": "Detect anomaly rows in spend.",
+            },
+        )
+        assert anomaly.status_code == 202
+        assert anomaly.json()["workspace"]["template_id"] == "anomaly_watch"
+
     app.dependency_overrides.clear()
 
 
@@ -227,6 +298,7 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         ]
         assert body["dataset"]["profile"]["profile"]["row_count"] == 3
         assert body["analytics"] is not None
+        assert body["workspace"] is not None
         assert body["analytics"]["summary_cards"]
         assert body["assistant_message"].startswith("GPT reply:")
 
@@ -287,8 +359,11 @@ def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
         ]
         assert snapshot_body["datasets"][0]["profile"]["profile"]["row_count"] == 12
         assert snapshot_body["analytics"] is not None
-        assert snapshot_body["workspace"]["analysis_id"] is not None
-        assert snapshot_body["workspace"]["analysis_id"] != analysis_body["id"]
-        assert snapshot_body["workspace"]["primary_dataset_id"] == dataset["id"]
+        assert snapshot_body["workspace"] is not None
+        assert (
+            snapshot_body["workspace"]["template_id"]
+            == chat.json()["workspace"]["template_id"]
+        )
+        assert snapshot_body["workspace"]["title"] == chat.json()["workspace"]["title"]
 
     app.dependency_overrides.clear()

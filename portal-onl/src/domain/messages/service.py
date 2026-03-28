@@ -16,8 +16,8 @@ from domain.messages.schemas import (
     ChatResponse,
 )
 from domain.shared import AnalyticsPayload
-from domain.sessions.schemas import SessionWorkspace
 from domain.sessions.service import SessionService
+from domain.workspace.service import WorkspacePlanner
 from infrastructure.llm.client import LlmClient, LlmClientError
 
 
@@ -36,6 +36,7 @@ class MessageService:
         self._dataset_service = dataset_service
         self._analysis_service = analysis_service
         self._session_service = session_service
+        self._workspace_planner = WorkspacePlanner(llm_client=llm_client)
 
     def handle_chat(self, payload: ChatRequest, agent_runtime: object) -> ChatResponse:
         del agent_runtime
@@ -56,13 +57,15 @@ class MessageService:
             session_dataset_ids=session_dataset_ids,
         )
         analytics = analysis_detail.analytics if analysis_detail is not None else None
+        workspace = analysis_detail.workspace if analysis_detail is not None else None
         logger.debug(
-            "Analytics prepared session_id=%s has_analytics=%s summary_cards=%s charts=%s tables=%s",
+            "Analytics prepared session_id=%s has_analytics=%s summary_cards=%s charts=%s tables=%s workspace=%s",
             payload.session_id,
             analytics is not None,
             len(analytics.summary_cards) if analytics else 0,
             len(analytics.charts) if analytics else 0,
             len(analytics.tables) if analytics else 0,
+            workspace.template_id if workspace else None,
         )
         try:
             assistant_message = self._llm_client.generate(
@@ -100,7 +103,7 @@ class MessageService:
             assistant_message=assistant_message,
             dataset_ids=snapshot_dataset_ids,
             analytics=analytics,
-            workspace=self._build_workspace(analysis_detail),
+            workspace=workspace,
         )
 
         return ChatResponse(
@@ -108,6 +111,7 @@ class MessageService:
             assistant_message=assistant_message,
             follow_up_suggestions=self._suggestions(route),
             analytics=analytics,
+            workspace=workspace,
         )
 
     async def handle_chat_interaction(
@@ -230,23 +234,6 @@ class MessageService:
         if session_dataset_ids:
             return session_dataset_ids[0]
         return self._dataset_service.get_latest_dataset_id()
-
-    def _build_workspace(
-        self, analysis_detail: AnalysisDetail | None
-    ) -> SessionWorkspace | None:
-        if analysis_detail is None:
-            return None
-
-        return SessionWorkspace(
-            session_id=analysis_detail.session_id,
-            dataset_ids=[analysis_detail.dataset_id]
-            if analysis_detail.dataset_id
-            else [],
-            primary_dataset_id=analysis_detail.dataset_id,
-            analysis_id=analysis_detail.id,
-            analysis_type=analysis_detail.analysis_type,
-            updated_at=analysis_detail.created_at,
-        )
 
     def _route_to_analysis_type(self, route: AgentRoute, message: str) -> str:
         lowered = message.lower()

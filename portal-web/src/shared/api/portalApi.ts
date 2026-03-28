@@ -93,8 +93,31 @@ export interface ChatResponse {
         null_ratio: number
         sample_values: string[]
       }>
-      suggested_prompts: string[]
+    suggested_prompts: string[]
     } | null
+  } | null
+  workspace: {
+    template_id:
+      | 'overview'
+      | 'chart_focus'
+      | 'table_focus'
+      | 'dataset_profile'
+      | 'executive_summary'
+      | 'correlation_focus'
+      | 'trend_story'
+      | 'anomaly_watch'
+      | 'comparison_board'
+    title: string
+    description?: string | null
+    sections: Array<{
+      kind: 'summary_cards' | 'chart' | 'table' | 'insight' | 'dataset_profile'
+      title?: string | null
+      chart_index?: number | null
+      table_index?: number | null
+      insight_index?: number | null
+      max_items?: number | null
+      summary_card_labels?: string[]
+    }>
   } | null
 }
 
@@ -114,6 +137,7 @@ export interface AnalysisResponse {
   status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
   created_at: string
   analytics: ChatResponse['analytics']
+  workspace: ChatResponse['workspace']
 }
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000'

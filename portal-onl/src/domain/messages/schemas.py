@@ -5,7 +5,7 @@ from domain.datasets.schemas import (
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
-from domain.shared import AnalyticsPayload, ReasoningStatus
+from domain.shared import AnalyticsPayload, ReasoningStatus, WorkspacePayload
 
 
 class ChatRequest(BaseModel):
@@ -20,6 +20,7 @@ class ChatResponse(BaseModel):
     follow_up_suggestions: list[str] = Field(default_factory=list)
     status: ReasoningStatus = "completed"
     analytics: AnalyticsPayload | None = None
+    workspace: WorkspacePayload | None = None
 
 
 class ChatInteractionDataset(BaseModel):

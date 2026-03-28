@@ -27,6 +27,83 @@ const canSend = computed(
   () => (draft.value.trim().length > 0 || Boolean(props.attachedFileName)) && !props.sendDisabled,
 )
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function applyInlineMarkdown(value: string): string {
+  return value
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+}
+
+function renderMarkdown(value: string): string {
+  const lines = value.split(/\r?\n/)
+  const blocks: string[] = []
+  let paragraph: string[] = []
+  let listItems: string[] = []
+
+  const flushParagraph = () => {
+    if (!paragraph.length) {
+      return
+    }
+
+    blocks.push(`<p>${applyInlineMarkdown(paragraph.join('<br />'))}</p>`)
+    paragraph = []
+  }
+
+  const flushList = () => {
+    if (!listItems.length) {
+      return
+    }
+
+    blocks.push(`<ul>${listItems.map((item) => `<li>${applyInlineMarkdown(item)}</li>`).join('')}</ul>`)
+    listItems = []
+  }
+
+  for (const rawLine of lines) {
+    const line = escapeHtml(rawLine.trimEnd())
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      flushParagraph()
+      flushList()
+      continue
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/)
+    if (headingMatch) {
+      flushParagraph()
+      flushList()
+      const level = headingMatch[1].length
+      blocks.push(`<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`)
+      continue
+    }
+
+    const listMatch = trimmed.match(/^[-*]\s+(.*)$/)
+    if (listMatch) {
+      flushParagraph()
+      listItems.push(listMatch[1])
+      continue
+    }
+
+    flushList()
+    paragraph.push(trimmed)
+  }
+
+  flushParagraph()
+  flushList()
+
+  return blocks.join('')
+}
+
 function submit() {
   const message = draft.value.trim()
   if ((!message && !props.attachedFileName) || props.sendDisabled) {
@@ -108,7 +185,37 @@ function handleDrop(event: DragEvent) {
             <span>{{ message.author }}</span>
           </div>
 
-          <p class="message-text">{{ message.text }}</p>
+          <div class="message-text" v-html="renderMarkdown(message.text)"></div>
+
+          <div v-if="message.attachmentPreview" class="message-attachment-preview">
+            <div class="message-attachment-preview__header">
+              <div>
+                <strong>{{ message.attachmentPreview.filename }}</strong>
+                <span>{{ message.attachmentPreview.meta ?? '첨부 파일 미리보기' }}</span>
+              </div>
+              <span class="material-symbols-outlined">table_view</span>
+            </div>
+
+            <div
+              v-if="message.attachmentPreview.columns.length && message.attachmentPreview.rows.length"
+              class="message-attachment-preview__table"
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th v-for="column in message.attachmentPreview.columns" :key="column">{{ column }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, rowIndex) in message.attachmentPreview.rows" :key="rowIndex">
+                    <td v-for="column in message.attachmentPreview.columns" :key="column">
+                      {{ row[column] }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           <div v-if="message.codeBlock" class="code-card">
             <span class="code-language">{{ message.codeBlock.language }}</span>
@@ -315,6 +422,116 @@ function handleDrop(event: DragEvent) {
 .message-text {
   margin: 0;
   line-height: 1.72;
+}
+
+.message-text :deep(p),
+.message-text :deep(ul),
+.message-text :deep(h1),
+.message-text :deep(h2),
+.message-text :deep(h3),
+.message-text :deep(blockquote) {
+  margin: 0;
+}
+
+.message-text :deep(p + p),
+.message-text :deep(p + ul),
+.message-text :deep(ul + p),
+.message-text :deep(h1 + p),
+.message-text :deep(h2 + p),
+.message-text :deep(h3 + p),
+.message-text :deep(p + h1),
+.message-text :deep(p + h2),
+.message-text :deep(p + h3) {
+  margin-top: 12px;
+}
+
+.message-text :deep(h1),
+.message-text :deep(h2),
+.message-text :deep(h3) {
+  color: var(--color-text);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.message-text :deep(ul) {
+  padding-left: 18px;
+}
+
+.message-text :deep(li + li) {
+  margin-top: 6px;
+}
+
+.message-text :deep(code) {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(24, 74, 140, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.82em;
+}
+
+.message-text :deep(a) {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-attachment-preview {
+  margin-top: 14px;
+  border: 1px solid rgba(24, 74, 140, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+}
+
+.message-attachment-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(24, 74, 140, 0.1);
+}
+
+.message-attachment-preview__header strong,
+.message-attachment-preview__header span {
+  display: block;
+}
+
+.message-attachment-preview__header strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+}
+
+.message-attachment-preview__header div > span {
+  margin-top: 4px;
+  color: var(--color-text-soft);
+  font-size: 0.73rem;
+}
+
+.message-attachment-preview__table {
+  overflow-x: auto;
+}
+
+.message-attachment-preview__table table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+}
+
+.message-attachment-preview__table th,
+.message-attachment-preview__table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(24, 74, 140, 0.08);
+  text-align: left;
+  font-size: 0.76rem;
+  vertical-align: top;
+}
+
+.message-attachment-preview__table th {
+  color: var(--color-text-soft);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(24, 74, 140, 0.04);
 }
 
 .code-card {

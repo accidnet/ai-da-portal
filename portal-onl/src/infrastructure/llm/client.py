@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 import httpx
 
@@ -61,6 +62,14 @@ class LlmClient:
             headers=headers,
             payload=payload,
         )
+
+    def generate_json(
+        self, system: str, user_message: str, dataset_ids: list[str] | None = None
+    ) -> dict[str, object]:
+        raw = self.generate(
+            system=system, user_message=user_message, dataset_ids=dataset_ids
+        )
+        return self._extract_json_object(raw)
 
     def _generate_with_api_key(self, prompt: StructuredPrompt) -> str:
         headers = {
@@ -237,6 +246,31 @@ class LlmClient:
 
     def _extract_stream_output_text(self, stream_text: str) -> str | None:
         return self._extract_stream_output_from_lines(stream_text.splitlines())
+
+    def _extract_json_object(self, raw_text: str) -> dict[str, object]:
+        normalized = raw_text.strip()
+        fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", normalized, re.DOTALL)
+        if fence_match:
+            normalized = fence_match.group(1).strip()
+        elif not normalized.startswith("{"):
+            start = normalized.find("{")
+            end = normalized.rfind("}")
+            if start >= 0 and end > start:
+                normalized = normalized[start : end + 1]
+
+        try:
+            payload = json.loads(normalized)
+        except json.JSONDecodeError as exc:
+            raise LlmClientError(
+                "OpenAI returned invalid JSON for structured output."
+            ) from exc
+
+        if not isinstance(payload, dict):
+            raise LlmClientError(
+                "OpenAI returned non-object JSON for structured output."
+            )
+
+        return payload
 
     def _parse_sse_data_line(
         self, raw_line: str

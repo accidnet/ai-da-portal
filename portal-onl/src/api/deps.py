@@ -44,6 +44,7 @@ def get_dataset_service() -> DatasetService:
 def get_analysis_service() -> AnalysisService:
     return AnalysisService(
         dataset_service=get_dataset_service(),
+        llm_client=get_llm_client(),
         session_service=get_session_service(),
     )
 
