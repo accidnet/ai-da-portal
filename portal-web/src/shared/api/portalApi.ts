@@ -220,7 +220,15 @@ export async function sendChatMessage(
   })
 
   if (!response.ok) {
-    throw new Error(`Chat request failed with status ${response.status}`)
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Chat request failed with status ${response.status}`)
   }
 
   return (await response.json()) as ChatResponse

@@ -3,6 +3,9 @@ from textwrap import dedent
 
 from fastapi.testclient import TestClient
 
+from api.deps import get_analysis_service, get_dataset_service, get_message_service
+from domain.messages.service import MessageService
+from infrastructure.llm.client import LlmClient
 from main import app
 
 
@@ -39,6 +42,25 @@ def _upload_sample_csv(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
+class FakeLlmClient(LlmClient):
+    def __init__(self) -> None:
+        pass
+
+    def generate(
+        self, system: str, user_message: str, dataset_ids: list[str] | None = None
+    ) -> str:
+        del system, dataset_ids
+        return f"GPT reply: {user_message[:80]}"
+
+
+def _override_message_service() -> MessageService:
+    return MessageService(
+        llm_client=FakeLlmClient(),
+        dataset_service=get_dataset_service(),
+        analysis_service=get_analysis_service(),
+    )
+
+
 def test_uploaded_dataset_preview_profile_and_list() -> None:
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
@@ -63,6 +85,7 @@ def test_uploaded_dataset_preview_profile_and_list() -> None:
 
 
 def test_analysis_and_chat_use_uploaded_dataset() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -98,11 +121,13 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat.status_code == 202
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
-        assert chat_body["assistant_message"]
+        assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["summary_cards"]
+    app.dependency_overrides.clear()
 
 
 def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -117,5 +142,6 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat.status_code == 202
         chat_body = chat.json()
         assert chat_body["analytics"] is not None
-        assert chat_body["assistant_message"]
+        assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["analytics"]["charts"]
+    app.dependency_overrides.clear()

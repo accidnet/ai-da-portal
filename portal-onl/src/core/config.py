@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     uploads_dir: str = "storage/uploads"
 
     llm_provider: str = "openai"
-    llm_model: str = "gpt-4.1"
+    llm_model: str = "gpt-5.4"
     openai_api_key: str | None = Field(default=None, repr=False)
     openai_auth_client_id: str = "app_EMoamEEZ73f0CkXaXp7hrann"
     openai_auth_issuer: str = "https://auth.openai.com"

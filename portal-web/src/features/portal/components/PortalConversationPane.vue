@@ -246,6 +246,7 @@ function handleDrop(event: DragEvent) {
 
 .message-row {
   display: flex;
+  align-items: flex-start;
 }
 
 .message-row--user {
@@ -253,6 +254,7 @@ function handleDrop(event: DragEvent) {
 }
 
 .message-card {
+  display: inline-block;
   max-width: min(92%, 760px);
   padding: 20px;
   border-radius: 22px;
@@ -260,13 +262,14 @@ function handleDrop(event: DragEvent) {
 }
 
 .message-card--user {
+  align-self: flex-start;
   color: #fff;
   background: linear-gradient(135deg, var(--color-primary) 0%, #245fa7 100%);
   border-top-right-radius: 8px;
 }
 
 .message-card--assistant {
-  width: 100%;
+  align-self: flex-start;
   color: var(--color-text);
   background: rgba(255, 255, 255, 0.92);
   border-top-left-radius: 8px;

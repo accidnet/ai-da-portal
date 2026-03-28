@@ -455,8 +455,10 @@ async function handleSendMessage(message: string) {
     ]
     sessionState.analyticsPayload = response.analytics
     updateSessionSummary(sessionId, sessionState.title)
-  } catch {
-    chatError.value = 'The message could not be sent. Check ChatGPT connection and backend status.'
+  } catch (error) {
+    chatError.value = error instanceof Error
+      ? error.message
+      : 'The message could not be sent. Check ChatGPT connection and backend status.'
   } finally {
     isSending.value = false
   }

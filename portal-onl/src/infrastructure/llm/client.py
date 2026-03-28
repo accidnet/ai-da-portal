@@ -7,6 +7,10 @@ from domain.auth.service import OpenAiAuthService
 from infrastructure.llm.schemas import StructuredPrompt
 
 
+class LlmClientError(RuntimeError):
+    pass
+
+
 class LlmClient:
     def __init__(
         self,
@@ -20,7 +24,7 @@ class LlmClient:
 
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
-    ) -> str | None:
+    ) -> str:
         prompt = StructuredPrompt(
             system=system,
             user=user_message,
@@ -28,13 +32,51 @@ class LlmClient:
         )
 
         if self._settings.openai_api_key:
-            return f"API key mode is configured, but this scaffold currently prioritizes ChatGPT OAuth-backed Codex requests. Prompt tools: {', '.join(prompt.tools) or 'none'}."
+            return self._generate_with_api_key(prompt)
 
         access_token = self._auth_service.get_access_token()
         if not access_token:
-            return None
+            raise LlmClientError(
+                "No OpenAI credentials are available. Connect ChatGPT or configure OPENAI_API_KEY."
+            )
 
         account_id = self._auth_service.get_account_id()
+        headers = self._build_oauth_headers(
+            access_token=access_token, account_id=account_id
+        )
+        payload = {
+            "model": self._settings.llm_model,
+            "instructions": prompt.system,
+            "input": prompt.user,
+        }
+
+        return self._request_response(
+            endpoint=self._settings.openai_codex_api_endpoint,
+            headers=headers,
+            payload=payload,
+        )
+
+    def _generate_with_api_key(self, prompt: StructuredPrompt) -> str:
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self._settings.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._settings.llm_model,
+            "instructions": prompt.system,
+            "input": prompt.user,
+        }
+
+        return self._request_response(
+            endpoint="https://api.openai.com/v1/responses",
+            headers=headers,
+            payload=payload,
+        )
+
+    def _build_oauth_headers(
+        self, *, access_token: str, account_id: str | None
+    ) -> dict[str, str]:
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {access_token}",
@@ -43,25 +85,32 @@ class LlmClient:
         if account_id:
             headers["ChatGPT-Account-Id"] = account_id
 
-        payload = {
-            "model": self._settings.llm_model,
-            "instructions": prompt.system,
-            "input": prompt.user,
-        }
+        return headers
 
+    def _request_response(
+        self, *, endpoint: str, headers: dict[str, str], payload: dict[str, object]
+    ) -> str:
         client = self._http_client or httpx.Client(timeout=30.0)
         should_close = self._http_client is None
         try:
             response = client.post(
-                self._settings.openai_codex_api_endpoint,
+                endpoint,
                 headers=headers,
                 json=payload,
             )
             response.raise_for_status()
             data = response.json()
-            return self._extract_output_text(data)
-        except (httpx.HTTPError, ValueError, KeyError):
-            return None
+            output = self._extract_output_text(data)
+            if output:
+                return output
+            raise LlmClientError("OpenAI returned no assistant text.")
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip() if exc.response is not None else str(exc)
+            raise LlmClientError(
+                f"OpenAI request failed: {detail or str(exc)}"
+            ) from exc
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            raise LlmClientError("OpenAI response could not be processed.") from exc
         finally:
             if should_close:
                 client.close()
@@ -101,7 +150,9 @@ class LlmClient:
                     if isinstance(content, list):
                         parts: list[str] = []
                         for item in content:
-                            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                            if isinstance(item, dict) and isinstance(
+                                item.get("text"), str
+                            ):
                                 parts.append(item["text"].strip())
                         if parts:
                             return "\n\n".join(parts)
