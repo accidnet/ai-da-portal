@@ -16,6 +16,11 @@ const props = defineProps<{
   errorMessage?: string | null
 }>()
 
+const emit = defineEmits<{
+  promptClick: [prompt: string]
+  insightAction: []
+}>()
+
 const backendChart = computed(() => props.analyticsPayload?.charts[0] ?? null)
 const backendSummaryCards = computed(() => props.analyticsPayload?.summary_cards ?? [])
 const backendTables = computed(() => props.analyticsPayload?.tables ?? [])
@@ -283,6 +288,8 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
           v-for="prompt in backendDatasetProfile.suggestedPrompts"
           :key="prompt"
           type="button"
+          :disabled="isLoading"
+          @click="emit('promptClick', prompt)"
         >
           {{ prompt }}
         </button>
@@ -300,7 +307,9 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
       <div>
         <p>{{ displayInsight?.title ?? analytics.insight.title }}</p>
         <h3>{{ displayInsight?.body ?? analytics.insight.body }}</h3>
-        <button type="button">{{ displayInsight?.action_label ?? analytics.insight.actionLabel }}</button>
+        <button type="button" :disabled="isLoading" @click="emit('insightAction')">
+          {{ displayInsight?.action_label ?? analytics.insight.actionLabel }}
+        </button>
       </div>
     </section>
   </aside>
@@ -653,6 +662,12 @@ function previewRows(preview: DatasetPreview | null): Array<Record<string, strin
   color: var(--color-text);
   background: var(--color-surface-muted);
   cursor: pointer;
+}
+
+.prompt-list button:disabled,
+.insight-card button:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .insight-card {
