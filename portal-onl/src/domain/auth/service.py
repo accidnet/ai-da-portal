@@ -127,6 +127,24 @@ class OpenAiAuthService:
             expires_at=expires_at,
         )
 
+    def logout(self) -> OpenAiAuthStatusResponse:
+        state = self._cleanup_expired_pending(self._store.load())
+        if state.pending is None and state.connection is None:
+            return OpenAiAuthStatusResponse(
+                state="disconnected",
+                connected=False,
+                pending=False,
+            )
+
+        state.pending = None
+        state.connection = None
+        self._store.save(state)
+        return OpenAiAuthStatusResponse(
+            state="disconnected",
+            connected=False,
+            pending=False,
+        )
+
     def complete_callback(self, code: str, state_value: str) -> OpenAiTokenBundle:
         auth_state = self._cleanup_expired_pending(self._store.load())
         pending = auth_state.pending

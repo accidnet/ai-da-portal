@@ -113,6 +113,13 @@ def authorize_openai(
     return service.build_authorize_url(callback_url)
 
 
+@router.post("/openai/logout", response_model=OpenAiAuthStatusResponse)
+def logout_openai(
+    service: OpenAiAuthService = Depends(get_openai_auth_service),
+) -> OpenAiAuthStatusResponse:
+    return service.logout()
+
+
 @router.get(
     "/openai/callback", response_class=HTMLResponse, name="openai_auth_callback"
 )

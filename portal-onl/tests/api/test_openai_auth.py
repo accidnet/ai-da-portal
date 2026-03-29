@@ -59,6 +59,14 @@ class FakeOpenAiAuthService:
             expires_at=self.status.expires_at,
         )
 
+    def logout(self) -> OpenAiAuthStatusResponse:
+        self.status = OpenAiAuthStatusResponse(
+            state="disconnected",
+            connected=False,
+            pending=False,
+        )
+        return self.status
+
 
 def test_openai_auth_authorize_and_status() -> None:
     service = FakeOpenAiAuthService()
@@ -101,6 +109,60 @@ def test_openai_auth_callback_returns_success_page() -> None:
         assert "window.opener.postMessage" in response.text
 
     app.dependency_overrides.clear()
+
+
+def test_openai_auth_logout_returns_disconnected_status() -> None:
+    service = FakeOpenAiAuthService()
+    service.status = OpenAiAuthStatusResponse(
+        state="connected",
+        connected=True,
+        pending=False,
+        account_email="analyst@example.com",
+    )
+    app.dependency_overrides[get_openai_auth_service] = lambda: service
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/auth/openai/logout")
+        assert response.status_code == 200
+        assert response.json() == {
+            "state": "disconnected",
+            "connected": False,
+            "pending": False,
+            "account_email": None,
+            "account_id": None,
+            "expires_at": None,
+            "scopes": [],
+        }
+
+    app.dependency_overrides.clear()
+
+
+def test_openai_auth_service_logout_clears_pending_and_connection(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    store = OpenAiAuthStore(str(tmp_path / "openai_auth.json"))
+    store.save(
+        OpenAiAuthState(
+            pending=PendingOpenAiAuth(
+                state="demo-state",
+                code_verifier="demo-verifier",
+                redirect_uri="http://127.0.0.1:8000/api/v1/auth/openai/callback",
+                created_at=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            ),
+            connection=OpenAiTokenBundle(
+                access_token="access-token",
+                refresh_token="refresh-token",
+                account_email="analyst@example.com",
+            ),
+        )
+    )
+    service = OpenAiAuthService(settings=Settings(), store=store)
+
+    response = service.logout()
+
+    assert response.state == "disconnected"
+    saved = store.load()
+    assert saved.pending is None
+    assert saved.connection is None
 
 
 class FailingTokenClient:

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 from fastapi import UploadFile
 
@@ -40,6 +41,12 @@ class MessageService:
 
     def handle_chat(self, payload: ChatRequest, agent_runtime: object) -> ChatResponse:
         del agent_runtime
+        session = self._session_service.ensure_session(payload.session_id)
+        session_title = self._resolve_session_title(
+            session_id=payload.session_id,
+            current_title=session.title,
+            user_message=payload.message,
+        )
         session_dataset_ids = self._session_service.get_dataset_ids(payload.session_id)
         route = route_message(
             payload.message,
@@ -108,6 +115,7 @@ class MessageService:
 
         return ChatResponse(
             session_id=payload.session_id,
+            session_title=session_title,
             assistant_message=assistant_message,
             analytics=analytics,
             workspace=workspace,
@@ -168,6 +176,65 @@ class MessageService:
         )
 
         return "\n\n".join(sections)
+
+    def _resolve_session_title(
+        self,
+        *,
+        session_id: str,
+        current_title: str,
+        user_message: str,
+    ) -> str:
+        if not self._session_service.is_auto_title_candidate(current_title):
+            return current_title
+
+        generated_title = self._generate_session_title(user_message)
+        return self._session_service.update_title_if_default(
+            session_id=session_id,
+            title=generated_title,
+        ).title
+
+    def _generate_session_title(self, user_message: str) -> str:
+        try:
+            generated = self._llm_client.generate(
+                system=(
+                    "당신은 데이터 분석 대화의 세션 제목 생성기입니다. "
+                    "사용자 첫 질문을 12~30자 안팎의 매우 짧은 한국어 제목 1개로만 요약하세요. "
+                    "따옴표, 마침표, 번호, 설명 문장은 포함하지 마세요."
+                ),
+                user_message=f"첫 사용자 질문:\n{user_message}",
+            )
+            sanitized = self._sanitize_session_title(generated)
+            if sanitized:
+                return sanitized
+        except LlmClientError as exc:
+            logger.info(
+                "Session title generation failed; using fallback detail=%s", exc
+            )
+
+        return self._fallback_session_title(user_message)
+
+    def _sanitize_session_title(self, title: str) -> str | None:
+        sanitized = " ".join(title.strip().split())
+        sanitized = sanitized.strip("'\"“”‘’`「」[](){}<>")
+        sanitized = re.sub(r"^[\-•*#\d\s.:]+", "", sanitized)
+        sanitized = re.sub(r"[.?!。！？]+$", "", sanitized)
+        sanitized = re.split(r"[\r\n]", sanitized, maxsplit=1)[0].strip()
+        if not sanitized:
+            return None
+        return sanitized[:30].rstrip()
+
+    def _fallback_session_title(self, user_message: str) -> str:
+        cleaned = re.sub(r"\s+", " ", user_message).strip()
+        cleaned = cleaned.strip("'\"“”‘’`「」[](){}<>")
+        cleaned = re.sub(r"[?!.。！？]+$", "", cleaned)
+        first_chunk = re.split(r"[.?!。！？\n]+", cleaned, maxsplit=1)[0].strip()
+        if len(first_chunk) >= 12:
+            cleaned = first_chunk
+        if not cleaned:
+            return "새 분석 요청"
+        if len(cleaned) <= 30:
+            return cleaned
+        return f"{cleaned[:29].rstrip()}…"
 
     def _build_analysis(
         self,

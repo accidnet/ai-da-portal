@@ -54,7 +54,9 @@ class FakeLlmClient(LlmClient):
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
     ) -> str:
-        del system, dataset_ids
+        del dataset_ids
+        if "세션 제목 생성기" in system:
+            return "마케팅 지표 상관분석"
         return f"GPT reply: {user_message[:80]}"
 
     def generate_json(
@@ -244,6 +246,7 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat_body["workspace"] is not None
         assert chat_body["workspace"]["template_id"] == "correlation_focus"
         assert chat_body["assistant_message"].startswith("GPT reply:")
+        assert chat_body["session_title"] == "Marketing performance review"
         assert chat_body["analytics"]["summary_cards"]
     app.dependency_overrides.clear()
 
@@ -266,6 +269,7 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat_body["analytics"] is not None
         assert chat_body["workspace"] is not None
         assert chat_body["assistant_message"].startswith("GPT reply:")
+        assert chat_body["session_title"] == "마케팅 지표 상관분석"
         assert chat_body["analytics"]["charts"]
     app.dependency_overrides.clear()
 
@@ -345,6 +349,7 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         assert body["workspace"] is not None
         assert body["analytics"]["summary_cards"]
         assert body["assistant_message"].startswith("GPT reply:")
+        assert body["session_title"] == "marketing_metrics.csv"
 
         snapshot = client.get("/api/v1/sessions/interaction-session/snapshot")
         assert snapshot.status_code == 200
@@ -410,5 +415,53 @@ def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
             == chat.json()["workspace"]["template_id"]
         )
         assert snapshot_body["workspace"]["title"] == chat.json()["workspace"]["title"]
+
+    app.dependency_overrides.clear()
+
+
+def _override_message_service_with_title_failure() -> MessageService:
+    return MessageService(
+        llm_client=FailingTitleOnlyClient(),
+        dataset_service=get_dataset_service(),
+        analysis_service=get_analysis_service(),
+        session_service=get_session_service(),
+    )
+
+
+class FailingTitleOnlyClient(FakeLlmClient):
+    def generate(
+        self, system: str, user_message: str, dataset_ids: list[str] | None = None
+    ) -> str:
+        if "세션 제목 생성기" in system:
+            from infrastructure.llm.client import LlmClientError
+
+            raise LlmClientError("title failure")
+        return super().generate(system, user_message, dataset_ids)
+
+
+def test_chat_generates_fallback_session_title_when_llm_title_fails() -> None:
+    app.dependency_overrides[get_message_service] = (
+        _override_message_service_with_title_failure
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/chat/messages",
+            json={
+                "session_id": "fallback-title-session",
+                "message": "매출과 광고비 추세를 요약하고 다음 분석도 추천해줘. 추가로 채널별 차이도 보고 싶어.",
+                "dataset_ids": [],
+            },
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert (
+            body["session_title"]
+            == "매출과 광고비 추세를 요약하고 다음 분석도 추천해줘"
+        )
+
+        session = client.get("/api/v1/sessions/fallback-title-session")
+        assert session.status_code == 200
+        assert session.json()["title"] == body["session_title"]
 
     app.dependency_overrides.clear()
