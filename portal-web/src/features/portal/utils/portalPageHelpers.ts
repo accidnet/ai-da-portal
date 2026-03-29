@@ -26,6 +26,10 @@ export function clampAnalyticsPaneWidth(width: number): number {
   return Math.min(Math.max(width, 320), 720)
 }
 
+export function clampSidebarWidth(width: number): number {
+  return Math.min(Math.max(width, 248), 420)
+}
+
 export function mapSessionSummary(session: SessionSummaryResponse): SessionItem {
   return {
     id: session.id,

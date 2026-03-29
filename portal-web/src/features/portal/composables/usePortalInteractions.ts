@@ -27,6 +27,7 @@ export function usePortalInteractions(options: {
   workspacePayload: ComputedRef<SessionRuntimeState['workspacePayload']>
   ensureActiveSession: () => Promise<string>
   ensureSessionState: (sessionId: string, title: string) => SessionRuntimeState
+  updateSessionTitleLocally: (sessionId: string, title: string) => void
   syncSessionSummaryWithState: (sessionId: string) => void
   loadDatasets: () => Promise<void>
   openDatasetPicker: () => void
@@ -38,6 +39,7 @@ export function usePortalInteractions(options: {
     workspacePayload,
     ensureActiveSession,
     ensureSessionState,
+    updateSessionTitleLocally,
     syncSessionSummaryWithState,
     loadDatasets,
     openDatasetPicker,
@@ -122,6 +124,11 @@ export function usePortalInteractions(options: {
             datasetIds: sessionState.datasets.map((dataset) => dataset.id),
           })
       const interactionResponse = attachedFile ? (response as ChatInteractionResponse) : null
+      const nextSessionTitle = response.session_title?.trim()
+
+      if (nextSessionTitle) {
+        updateSessionTitleLocally(sessionId, nextSessionTitle)
+      }
 
       if (interactionResponse?.dataset) {
         const uploadedDataset = interactionResponse.dataset
