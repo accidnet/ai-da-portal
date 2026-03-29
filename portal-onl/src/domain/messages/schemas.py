@@ -16,6 +16,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     session_id: str
+    session_title: str
     assistant_message: str
     status: ReasoningStatus = "completed"
     analytics: AnalyticsPayload | None = None

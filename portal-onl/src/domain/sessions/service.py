@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import re
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -23,6 +24,13 @@ if TYPE_CHECKING:
 
 
 class SessionService:
+    _DEFAULT_TITLE_PATTERNS = (
+        re.compile(r"^ChatGPT 분석 세션$", re.IGNORECASE),
+        re.compile(r"^New analysis session$", re.IGNORECASE),
+        re.compile(r"^분석 세션\s*\d+$"),
+        re.compile(r"^Session\s+[A-Za-z0-9-]{4,}$", re.IGNORECASE),
+    )
+
     def __init__(self) -> None:
         now = datetime.now(UTC)
         self._sessions: dict[str, _SessionRecord] = {
@@ -126,6 +134,18 @@ class SessionService:
         self._touch(record)
         return record.detail
 
+    def update_title_if_default(self, session_id: str, title: str) -> SessionDetail:
+        record = self._get_or_create_record(session_id)
+        normalized_title = self._normalize_title(title)
+        if normalized_title is None:
+            return record.detail
+        if not self.is_auto_title_candidate(record.detail.title):
+            return record.detail
+
+        record.detail = record.detail.model_copy(update={"title": normalized_title})
+        self._touch(record)
+        return record.detail
+
     def delete(self, session_id: str) -> SessionDeleteResponse:
         self._get_record(session_id)
         del self._sessions[session_id]
@@ -185,7 +205,7 @@ class SessionService:
         analytics: AnalyticsPayload | None,
         workspace: WorkspacePayload | None,
     ) -> None:
-        record = self._get_or_create_record(session_id, title=user_message)
+        record = self._get_or_create_record(session_id)
         now = datetime.now(UTC)
         record.messages.extend(
             [
@@ -271,12 +291,6 @@ class SessionService:
     ) -> "_SessionRecord":
         record = self._sessions.get(session_id)
         if record is not None:
-            if self._should_update_title(record.detail.title) and title:
-                record.detail = record.detail.model_copy(
-                    update={
-                        "title": self._normalize_title(title) or record.detail.title
-                    }
-                )
             return record
 
         self.ensure_session(session_id, title=title)
@@ -310,8 +324,13 @@ class SessionService:
             return None
         return normalized[:60]
 
-    def _should_update_title(self, title: str) -> bool:
-        return title.startswith("Session ")
+    def is_auto_title_candidate(self, title: str | None) -> bool:
+        normalized = self._normalize_title(title)
+        if normalized is None:
+            return True
+        return any(
+            pattern.fullmatch(normalized) for pattern in self._DEFAULT_TITLE_PATTERNS
+        )
 
     def _sync_preferred_dataset(self, record: "_SessionRecord") -> None:
         if record.detail.preferred_dataset_id is None and record.dataset_ids:
