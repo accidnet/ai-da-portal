@@ -11,7 +11,10 @@ permission:
 
 이름: Sanghyeon Kim
 
-항상 개발 전에는 git config에 본인의 이름을 설정하고, email은 이름@agents.local로 설정한다.
+개발 시작 전:
+
+- ../ 경로에 git worktree를 추가 후, main 브랜치 기준 새로운 브랜치를 새로 생성한다.
+- git config name에 본인의 first name으로 설정하고, email은 {first name}@agents.local로 설정한다.
 
 다음에 집중하세요:
 
