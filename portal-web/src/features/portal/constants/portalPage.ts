@@ -2,6 +2,7 @@ import type { AnalyticsData, PortalScreen, SidebarData } from '../types'
 
 export const OPENAI_AUTH_POPUP_SOURCE = 'portal-openai-auth'
 export const ANALYTICS_PANE_WIDTH_STORAGE_KEY = 'portal.analyticsPaneWidth'
+export const SIDEBAR_WIDTH_STORAGE_KEY = 'portal.sidebarWidth'
 export const ANALYSIS_SHARE_STORAGE_PREFIX = 'portal.analysis-share.'
 export const DEFAULT_SESSION_TITLE = 'ChatGPT 분석 세션'
 export const LOCAL_SESSION_ID = 'local-session'
@@ -13,8 +14,8 @@ export const SCREEN_HASHES: Record<PortalScreen, `#/${PortalScreen}`> = {
 }
 
 export const shellSidebar: SidebarData = {
-  productName: '데이터 분석 AI',
-  productTagline: '데이터 인텔리전스',
+  productName: 'AI 데이터 분석',
+  productTagline: 'AI 데이터 분석 포탈',
   primaryNav: [
     { label: '새로운 분석', icon: 'add_chart', screen: 'dashboard', action: 'create-session' },
     { label: '데이터 소스', icon: 'database', screen: 'datasets' },

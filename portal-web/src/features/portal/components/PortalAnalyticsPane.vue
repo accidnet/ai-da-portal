@@ -62,6 +62,9 @@ const workspaceSections = computed(() => workspacePayload.value?.sections.filter
 const hasWorkspaceData = computed(() => workspaceSections.value.some(hasSectionContent))
 const workspaceTitle = computed(() => workspacePayload.value?.title ?? props.analytics.title)
 const workspaceDescription = computed(() => workspacePayload.value?.description ?? null)
+const shareTooltip = '공유 링크 복사'
+const exportTooltip = '리포트 미리보기'
+const fullscreenTooltip = computed(() => (props.isFullscreen ? '전체 화면 종료' : '전체 화면 보기'))
 
 function normalizePoint(value: number | string | null | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -161,13 +164,33 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
       </div>
 
       <div class="analytics-actions">
-        <button type="button" aria-label="공유 링크 복사" :disabled="props.shareDisabled" @click="emit('shareReport')">
+        <button
+          type="button"
+          :aria-label="shareTooltip"
+          :title="shareTooltip"
+          :data-tooltip="shareTooltip"
+          :disabled="props.shareDisabled"
+          @click="emit('shareReport')"
+        >
           <span class="material-symbols-outlined">link</span>
         </button>
-        <button type="button" aria-label="리포트 미리보기" :disabled="props.exportDisabled" @click="emit('exportReport')">
+        <button
+          type="button"
+          :aria-label="exportTooltip"
+          :title="exportTooltip"
+          :data-tooltip="exportTooltip"
+          :disabled="props.exportDisabled"
+          @click="emit('exportReport')"
+        >
           <span class="material-symbols-outlined">preview</span>
         </button>
-        <button type="button" :aria-label="props.isFullscreen ? '전체 화면 종료' : '전체 화면 보기'" @click="emit('toggleFullscreen')">
+        <button
+          type="button"
+          :aria-label="fullscreenTooltip"
+          :title="fullscreenTooltip"
+          :data-tooltip="fullscreenTooltip"
+          @click="emit('toggleFullscreen')"
+        >
           <span class="material-symbols-outlined">{{ props.isFullscreen ? 'fullscreen_exit' : 'fullscreen' }}</span>
         </button>
       </div>
@@ -365,6 +388,7 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
 }
 
 .analytics-actions button {
+  position: relative;
   width: 40px;
   height: 40px;
   display: inline-flex;
@@ -375,6 +399,30 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
   cursor: pointer;
+}
+
+.analytics-actions button:hover:not(:disabled),
+.analytics-actions button:focus-visible {
+  border-color: rgba(24, 74, 140, 0.16);
+  color: var(--color-primary-strong);
+  outline: none;
+}
+
+.analytics-actions button:hover:not(:disabled)::after,
+.analytics-actions button:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  padding: 6px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  pointer-events: none;
 }
 
 .analytics-actions button:disabled {

@@ -13,7 +13,6 @@ import { usePortalSessions } from '../features/portal/composables/usePortalSessi
 import { shellAnalytics, shellSidebar } from '../features/portal/constants/portalPage'
 import type {
   BackendConnectionStatus,
-  ComposerChip,
   ComposerData,
   ConversationData,
   PortalScreen,
@@ -33,15 +32,28 @@ const isHelpDialogOpen = ref(false)
 const sharedAnalysis = ref<SharedAnalysisSnapshot | null>(null)
 
 const {
+  sidebarWidth,
+  isResizingSidebar,
   analyticsPaneWidth,
   isResizingAnalyticsPane,
   isAnalyticsFullscreen,
+  restoreSidebarWidth,
   restoreAnalyticsPaneWidth,
+  startSidebarResize,
   startAnalyticsPaneResize,
   toggleAnalyticsFullscreen,
 } = usePortalAnalyticsPane()
 
-const { authStatus, isConnecting, authError, bindAuthListeners, loadAuthStatus, connectOpenAi } = usePortalAuth()
+const {
+  authStatus,
+  isConnecting,
+  isDisconnecting,
+  authError,
+  bindAuthListeners,
+  loadAuthStatus,
+  connectOpenAi,
+  logoutOpenAi,
+} = usePortalAuth()
 
 let removeSessionLinks: ((sessionId: string) => void) | null = null
 
@@ -52,6 +64,7 @@ const {
   sessionHubError,
   isSessionMutating,
   ensureSessionState,
+  updateSessionTitleLocally,
   syncSessionSummaryWithState,
   loadSessions,
   ensureActiveSession,
@@ -131,6 +144,7 @@ const {
   workspacePayload,
   ensureActiveSession,
   ensureSessionState,
+  updateSessionTitleLocally,
   syncSessionSummaryWithState,
   loadDatasets,
   openDatasetPicker,
@@ -160,43 +174,8 @@ const conversation = computed<ConversationData>(() => ({
 }))
 
 const composer = computed<ComposerData>(() => {
-  const chips: ComposerChip[] = []
-  chips.push({
-    icon: authStatus.value.connected ? 'smart_toy' : 'analytics',
-    label: authStatus.value.connected ? 'ChatGPT 연결됨' : '백엔드 분석 모드',
-    tone: authStatus.value.connected ? 'primary' : 'neutral',
-  })
-  if (activeSessionState.value?.title) {
-    chips.push({
-      icon: 'forum',
-      label: activeSessionState.value.title,
-      tone: 'neutral',
-    })
-  }
-  if (activeDataset.value) {
-    chips.push({
-      icon: 'database',
-      label: `${activeDataset.value.filename} · 활성`,
-      tone: 'primary',
-    })
-  }
-  const extraDatasetCount = Math.max((activeSessionState.value?.datasets.length ?? 0) - 1, 0)
-  if (extraDatasetCount > 0) {
-    chips.push({
-      icon: 'dataset',
-      label: `추가 ${extraDatasetCount}개`,
-      tone: 'neutral',
-    })
-  }
-  if (isUploading.value) {
-    chips.push({
-      icon: 'progress_activity',
-      label: '업로드 중',
-      tone: 'neutral',
-    })
-  }
   return {
-    chips,
+    chips: [],
     placeholder: activeDataset.value
       ? `${activeDataset.value.filename} 데이터에 대해 질문하거나 다른 파일을 추가해보세요...`
       : '분석 요청을 입력하고 CSV 같은 파일을 함께 첨부해보세요...',
@@ -299,6 +278,7 @@ watch(currentScreen, (screen) => {
 
 onMounted(async () => {
   const controller = new AbortController()
+  restoreSidebarWidth()
   restoreAnalyticsPaneWidth()
   bindAuthListeners()
   try {
@@ -325,7 +305,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="portal-layout">
+  <div class="portal-layout" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <PortalSidebar
       :sidebar="{ ...shellSidebar, recentSessions }"
       :active-screen="currentScreen"
@@ -333,12 +313,24 @@ onMounted(async () => {
       :connection-status="connectionStatus"
       :auth-status="authStatus"
       :is-connecting="isConnecting"
+      :is-disconnecting="isDisconnecting"
       @primary-action="handleScreenChange"
       @create-session="handleCreateSession"
       @connect-open-ai="connectOpenAi"
+      @disconnect-open-ai="logoutOpenAi"
       @open-help="openHelpDialog"
       @select-session="(sessionId) => selectSession(sessionId, 'dashboard')"
     />
+
+    <button
+      class="page-pane-resizer"
+      :class="{ 'page-pane-resizer--active': isResizingSidebar }"
+      type="button"
+      aria-label="사이드바 너비 조절"
+      @pointerdown="startSidebarResize"
+    >
+      <span></span>
+    </button>
 
     <div class="portal-main-shell">
       <div v-if="authError || exportMessage" class="portal-status-messages">
@@ -431,7 +423,7 @@ onMounted(async () => {
         <header class="portal-dialog__header">
           <div>
             <p>도움말</p>
-            <h2>데이터 분석 AI 사용 안내</h2>
+            <h2>AI 데이터 분석 사용 안내</h2>
           </div>
           <button type="button" class="dialog-close" @click="closeHelpDialog">
             <span class="material-symbols-outlined">close</span>
@@ -473,11 +465,32 @@ onMounted(async () => {
   position: relative;
   height: 100vh;
   display: grid;
-  grid-template-columns: 288px minmax(0, 1fr);
+  grid-template-columns: minmax(248px, var(--sidebar-width, 288px)) 20px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  gap: 24px;
+  gap: 0;
   padding: 24px;
   overflow: hidden;
+}
+
+.page-pane-resizer {
+  position: relative;
+  width: 20px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.page-pane-resizer span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: rgba(24, 74, 140, 0.22);
+  box-shadow:
+    0 -7px 0 rgba(24, 74, 140, 0.22),
+    0 7px 0 rgba(24, 74, 140, 0.22);
 }
 
 .portal-main-shell {
@@ -506,8 +519,10 @@ onMounted(async () => {
 
 .auth-error,
 .export-message {
-  margin: -8px 4px 0;
+  margin: 0 4px;
+  padding-top: 2px;
   font-size: 0.86rem;
+  line-height: 1.5;
 }
 
 .auth-error {
@@ -632,7 +647,7 @@ onMounted(async () => {
 
 @media (max-width: 1280px) {
   .portal-layout {
-    grid-template-columns: 248px minmax(0, 1fr);
+    padding: 20px;
   }
 }
 
@@ -643,6 +658,10 @@ onMounted(async () => {
     height: auto;
     min-height: 100vh;
     overflow: auto;
+  }
+
+  .page-pane-resizer {
+    display: none;
   }
 
   .portal-main-shell,

@@ -48,6 +48,20 @@ export function usePortalSessions(options: {
     sessionSummaries.value = [...sessionSummaries.value]
   }
 
+  function updateSessionTitleLocally(sessionId: string, title: string) {
+    const normalizedTitle = title.trim()
+    if (!normalizedTitle) {
+      return
+    }
+
+    const state = ensureSessionState(sessionId, normalizedTitle)
+    state.title = normalizedTitle
+    updateSessionSummary(sessionId, {
+      title: normalizedTitle,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
   function syncSessionSummaryWithState(sessionId: string) {
     const state = sessionStates.value[sessionId]
     if (!state) {
@@ -258,6 +272,7 @@ export function usePortalSessions(options: {
     isSessionMutating,
     ensureSessionState,
     updateSessionSummary,
+    updateSessionTitleLocally,
     syncSessionSummaryWithState,
     loadSessions,
     getActiveSessionId,

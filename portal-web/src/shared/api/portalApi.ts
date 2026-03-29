@@ -17,6 +17,11 @@ export interface OpenAiAuthorizeResponse {
   expires_at: string
 }
 
+export interface OpenAiLogoutResponse {
+  success?: boolean
+  state?: 'disconnected'
+}
+
 export interface SessionSummaryResponse {
   id: string
   title: string
@@ -121,6 +126,7 @@ export interface SessionSnapshotResponse {
 
 export interface ChatResponse {
   session_id: string
+  session_title?: string | null
   assistant_message: string
   status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
   analytics: {
@@ -256,6 +262,22 @@ export async function authorizeOpenAi(signal?: AbortSignal): Promise<OpenAiAutho
   }
 
   return (await response.json()) as OpenAiAuthorizeResponse
+}
+
+export async function logoutOpenAi(signal?: AbortSignal): Promise<OpenAiLogoutResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/auth/openai/logout`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new Error(`OpenAI logout failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as OpenAiLogoutResponse
 }
 
 export async function createSession(

@@ -274,18 +274,6 @@ onMounted(() => {
     </div>
 
     <footer class="composer-shell">
-      <div class="composer-meta-list">
-        <span
-          v-for="chip in composer.chips"
-          :key="chip.label"
-          class="composer-meta"
-          :class="`composer-meta--${chip.tone ?? 'neutral'}`"
-        >
-          <span class="material-symbols-outlined">{{ chip.icon }}</span>
-          {{ chip.label }}
-        </span>
-      </div>
-
       <p v-if="errorMessage" class="composer-error">{{ errorMessage }}</p>
 
       <div v-if="attachedFileName" class="composer-attachment">
@@ -645,13 +633,6 @@ onMounted(() => {
   font-size: 0.82rem;
 }
 
-.composer-meta-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
 .composer-attachment {
   display: flex;
   align-items: center;
@@ -710,34 +691,6 @@ onMounted(() => {
   color: var(--color-text-soft);
   background: rgba(24, 74, 140, 0.08);
   cursor: pointer;
-}
-
-.composer-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  color: var(--color-text-soft);
-  font-size: 0.76rem;
-  font-weight: 600;
-}
-
-.composer-meta::after {
-  content: '•';
-  margin-left: 2px;
-  color: rgba(22, 32, 43, 0.32);
-}
-
-.composer-meta:last-child::after {
-  display: none;
-}
-
-.composer-meta--primary {
-  color: var(--color-primary-strong);
-}
-
-.composer-meta--neutral {
-  color: var(--color-text-muted);
 }
 
 .composer-box {

@@ -1,6 +1,6 @@
 import { onUnmounted, ref } from 'vue'
 
-import { authorizeOpenAi, fetchOpenAiAuthStatus } from '../../../shared/api/portalApi'
+import { authorizeOpenAi, fetchOpenAiAuthStatus, logoutOpenAi as requestOpenAiLogout } from '../../../shared/api/portalApi'
 import type { OpenAiAuthStatus } from '../types'
 import { OPENAI_AUTH_POPUP_SOURCE } from '../constants/portalPage'
 import { mapOpenAiAuthStatus } from '../utils/portalPageHelpers'
@@ -23,6 +23,7 @@ export function usePortalAuth() {
     scopes: [],
   })
   const isConnecting = ref(false)
+  const isDisconnecting = ref(false)
   const authError = ref<string | null>(null)
 
   let authPollTimer: number | null = null
@@ -90,6 +91,10 @@ export function usePortalAuth() {
   }
 
   async function connectOpenAi() {
+    if (isDisconnecting.value) {
+      return
+    }
+
     if (authPopup && !authPopup.closed) {
       authPopup.focus()
       return
@@ -119,6 +124,35 @@ export function usePortalAuth() {
     }
   }
 
+  async function logoutOpenAi() {
+    if (isConnecting.value || isDisconnecting.value) {
+      return
+    }
+
+    isDisconnecting.value = true
+    authError.value = null
+
+    try {
+      await requestOpenAiLogout()
+      authStatus.value = {
+        state: 'disconnected',
+        connected: false,
+        pending: false,
+        accountEmail: null,
+        accountId: null,
+        expiresAt: null,
+        scopes: [],
+      }
+      authPopup = null
+      await loadAuthStatus()
+    } catch {
+      authError.value = '로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.'
+    } finally {
+      isDisconnecting.value = false
+      syncAuthPolling()
+    }
+  }
+
   function bindAuthListeners() {
     window.addEventListener('message', handleOpenAiAuthMessage)
     window.addEventListener('focus', handleWindowFocus)
@@ -140,10 +174,12 @@ export function usePortalAuth() {
   return {
     authStatus,
     isConnecting,
+    isDisconnecting,
     authError,
     bindAuthListeners,
     unbindAuthListeners,
     loadAuthStatus,
     connectOpenAi,
+    logoutOpenAi,
   }
 }
