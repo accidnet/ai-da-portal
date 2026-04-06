@@ -6,7 +6,14 @@ from pydantic import BaseModel, Field
 ReasoningStatus = Literal[
     "queued", "profiling", "running_analysis", "completed", "failed"
 ]
-ChartType = Literal["line", "bar", "scatter", "table", "metric"]
+ChartType = Literal["line", "bar", "area", "scatter", "donut", "table", "metric"]
+ChartId = Literal[
+    "trend_line",
+    "category_bar",
+    "category_area",
+    "correlation_scatter",
+    "share_donut",
+]
 WorkspaceTemplateId = Literal[
     "overview",
     "chart_focus",
@@ -39,11 +46,25 @@ class ChartSeries(BaseModel):
     data: list[float | int | str | None]
 
 
+class ChartPoint(BaseModel):
+    x: float
+    y: float
+    label: str | None = None
+
+
+class ChartMeta(BaseModel):
+    x_label: str | None = None
+    y_label: str | None = None
+
+
 class ChartPayload(BaseModel):
+    id: ChartId | None = None
     type: ChartType
     title: str
     x: list[str] = Field(default_factory=list)
     series: list[ChartSeries] = Field(default_factory=list)
+    points: list[ChartPoint] = Field(default_factory=list)
+    meta: ChartMeta | None = None
 
 
 class TableColumn(BaseModel):

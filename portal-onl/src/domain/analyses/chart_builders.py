@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from itertools import combinations
+from dataclasses import dataclass
 
 import pandas as pd
 
 from domain.datasets.profiling import build_profile_from_dataframe
 from domain.shared import (
     AnalyticsPayload,
+    ChartId,
+    ChartMeta,
     ChartPayload,
+    ChartPoint,
     ChartSeries,
     InsightPayload,
     SummaryCard,
@@ -16,12 +19,18 @@ from domain.shared import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class ChartSpec:
+    id: ChartId
+    type: str
+
+
 def build_analytics_from_dataframe(
     dataframe: pd.DataFrame, analysis_type: str, prompt: str | None = None
 ) -> AnalyticsPayload:
     return AnalyticsPayload(
         summary_cards=_build_summary_cards(dataframe),
-        charts=[_build_chart(dataframe, analysis_type)],
+        charts=[_build_chart(dataframe, analysis_type, prompt)],
         tables=[_build_table(dataframe, analysis_type)],
         insights=[
             _build_insight(dataframe, analysis_type, prompt),
@@ -62,85 +71,214 @@ def _build_summary_cards(dataframe: pd.DataFrame) -> list[SummaryCard]:
     ]
 
 
-def _build_chart(dataframe: pd.DataFrame, analysis_type: str) -> ChartPayload:
-    numeric_columns = [
-        column
-        for column in dataframe.columns
-        if pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    datetime_columns = [
-        column
-        for column in dataframe.columns
-        if pd.api.types.is_datetime64_any_dtype(dataframe[column])
-    ]
-    if not numeric_columns:
-        return ChartPayload(
-            type="bar",
-            title="No numeric columns available",
-            x=[str(index) for index in range(min(len(dataframe), 5))],
-            series=[
-                ChartSeries(
-                    name="records", data=[1 for _ in range(min(len(dataframe), 5))]
-                )
-            ],
-        )
+def _build_chart(
+    dataframe: pd.DataFrame, analysis_type: str, prompt: str | None
+) -> ChartPayload:
+    spec = _select_chart_spec(dataframe, analysis_type, prompt)
 
-    primary_column = numeric_columns[0]
+    if spec.id == "correlation_scatter":
+        return _build_correlation_scatter(dataframe)
+    if spec.id == "trend_line":
+        return _build_trend_chart(dataframe, chart_id=spec.id, chart_type=spec.type)
+    if spec.id == "category_area":
+        return _build_trend_chart(dataframe, chart_id=spec.id, chart_type=spec.type)
+    if spec.id == "share_donut":
+        return _build_share_donut(dataframe)
+    return _build_category_bar(dataframe)
+
+
+def _select_chart_spec(
+    dataframe: pd.DataFrame, analysis_type: str, prompt: str | None
+) -> ChartSpec:
+    lowered = (prompt or "").lower()
+    numeric_columns = _numeric_columns(dataframe)
+    datetime_columns = _datetime_columns(dataframe)
+    categorical_columns = _categorical_columns(dataframe)
+
     if analysis_type == "correlation" and len(numeric_columns) > 1:
-        x_labels: list[str] = []
-        series_data: list[float] = []
-        for left, right in combinations(numeric_columns, 2):
-            x_labels.append(f"{left} vs {right}")
-            series_data.append(float(dataframe[left].corr(dataframe[right]) or 0.0))
-        return ChartPayload(
-            type="bar",
-            title="Correlation Strength",
-            x=x_labels[:8],
-            series=[ChartSeries(name="correlation", data=series_data[:8])],
-        )
+        return ChartSpec(id="correlation_scatter", type="scatter")
 
     if analysis_type == "trend":
-        if datetime_columns:
-            x_labels = [
-                value.isoformat() if hasattr(value, "isoformat") else str(value)
-                for value in dataframe[datetime_columns[0]].head(12)
-            ]
-        else:
-            x_labels = [str(index) for index in dataframe.index[:12]]
-        series_data = [
-            float(value) for value in dataframe[primary_column].head(12).fillna(0)
-        ]
-        return ChartPayload(
-            type="line",
-            title=f"{primary_column.title()} Trend",
-            x=x_labels,
-            series=[ChartSeries(name=primary_column, data=series_data)],
-        )
+        if _contains_any(
+            lowered, "누적", "volume", "cumulative", "total volume", "총량"
+        ):
+            return ChartSpec(id="category_area", type="area")
+        return ChartSpec(id="trend_line", type="line")
 
-    grouped = dataframe[primary_column].head(10)
+    if _contains_any(
+        lowered, "비중", "구성", "점유율", "share", "portion", "ratio", "composition"
+    ):
+        if numeric_columns and categorical_columns:
+            return ChartSpec(id="share_donut", type="donut")
+
+    if (
+        analysis_type == "grouped_aggregation"
+        and numeric_columns
+        and categorical_columns
+    ):
+        return ChartSpec(id="category_bar", type="bar")
+
+    if datetime_columns and numeric_columns:
+        return ChartSpec(id="trend_line", type="line")
+
+    if numeric_columns and categorical_columns:
+        return ChartSpec(id="category_bar", type="bar")
+
+    if numeric_columns:
+        return ChartSpec(id="category_area", type="area")
+
+    return ChartSpec(id="category_bar", type="bar")
+
+
+def _build_correlation_scatter(dataframe: pd.DataFrame) -> ChartPayload:
+    numeric_columns = _numeric_columns(dataframe)
+    if len(numeric_columns) < 2:
+        return _build_category_bar(dataframe)
+
+    left = numeric_columns[0]
+    right = numeric_columns[1]
+    sample = dataframe[[left, right]].dropna().head(48)
+    points = [
+        ChartPoint(
+            x=float(row[left]),
+            y=float(row[right]),
+            label=f"{index}",
+        )
+        for index, row in sample.iterrows()
+    ]
     return ChartPayload(
-        type="bar",
-        title=f"{primary_column.title()} Distribution",
-        x=[str(value) for value in grouped.index],
+        id="correlation_scatter",
+        type="scatter",
+        title=f"{left.title()} vs {right.title()}",
+        points=points,
+        meta=ChartMeta(x_label=left, y_label=right),
+    )
+
+
+def _build_trend_chart(
+    dataframe: pd.DataFrame, *, chart_id: ChartId, chart_type: str
+) -> ChartPayload:
+    numeric_columns = _numeric_columns(dataframe)
+    if not numeric_columns:
+        return _build_category_bar(dataframe)
+
+    datetime_columns = _datetime_columns(dataframe)
+    primary_column = numeric_columns[0]
+    sample = dataframe.head(12)
+
+    if datetime_columns:
+        x_labels = [
+            value.isoformat() if hasattr(value, "isoformat") else str(value)
+            for value in sample[datetime_columns[0]]
+        ]
+    else:
+        x_labels = [str(index) for index in sample.index]
+
+    series_data = [float(value) for value in sample[primary_column].fillna(0)]
+    return ChartPayload(
+        id=chart_id,
+        type=chart_type,
+        title=f"{primary_column.title()} Trend",
+        x=x_labels,
+        series=[ChartSeries(name=primary_column, data=series_data)],
+        meta=ChartMeta(
+            x_label=datetime_columns[0] if datetime_columns else "index",
+            y_label=primary_column,
+        ),
+    )
+
+
+def _build_share_donut(dataframe: pd.DataFrame) -> ChartPayload:
+    numeric_columns = _numeric_columns(dataframe)
+    categorical_columns = _categorical_columns(dataframe)
+    if not numeric_columns or not categorical_columns:
+        return _build_category_bar(dataframe)
+
+    category = categorical_columns[0]
+    metric = numeric_columns[0]
+    grouped = (
+        dataframe[[category, metric]]
+        .dropna()
+        .groupby(category, as_index=False)[metric]
+        .sum()
+        .sort_values(metric, ascending=False)
+        .head(6)
+    )
+    return ChartPayload(
+        id="share_donut",
+        type="donut",
+        title=f"{metric.title()} Share by {category.title()}",
+        x=[str(value) for value in grouped[category]],
         series=[
             ChartSeries(
-                name=primary_column, data=[float(value) for value in grouped.fillna(0)]
+                name=metric,
+                data=[round(float(value), 4) for value in grouped[metric]],
             )
         ],
+        meta=ChartMeta(x_label=category, y_label=metric),
+    )
+
+
+def _build_category_bar(dataframe: pd.DataFrame) -> ChartPayload:
+    numeric_columns = _numeric_columns(dataframe)
+    categorical_columns = _categorical_columns(dataframe)
+
+    if numeric_columns and categorical_columns:
+        category = categorical_columns[0]
+        metric = numeric_columns[0]
+        grouped = (
+            dataframe[[category, metric]]
+            .dropna()
+            .groupby(category, as_index=False)[metric]
+            .sum()
+            .sort_values(metric, ascending=False)
+            .head(8)
+        )
+        return ChartPayload(
+            id="category_bar",
+            type="bar",
+            title=f"{metric.title()} by {category.title()}",
+            x=[str(value) for value in grouped[category]],
+            series=[
+                ChartSeries(
+                    name=metric,
+                    data=[round(float(value), 4) for value in grouped[metric]],
+                )
+            ],
+            meta=ChartMeta(x_label=category, y_label=metric),
+        )
+
+    if numeric_columns:
+        primary_column = numeric_columns[0]
+        sample = dataframe[primary_column].head(8).fillna(0)
+        return ChartPayload(
+            id="category_bar",
+            type="bar",
+            title=f"{primary_column.title()} Distribution",
+            x=[str(index) for index in sample.index],
+            series=[
+                ChartSeries(
+                    name=primary_column,
+                    data=[float(value) for value in sample],
+                )
+            ],
+            meta=ChartMeta(x_label="index", y_label=primary_column),
+        )
+
+    sample_size = min(len(dataframe), 5)
+    return ChartPayload(
+        id="category_bar",
+        type="bar",
+        title="Row Distribution",
+        x=[str(index) for index in range(sample_size)],
+        series=[ChartSeries(name="records", data=[1 for _ in range(sample_size)])],
+        meta=ChartMeta(x_label="row", y_label="records"),
     )
 
 
 def _build_table(dataframe: pd.DataFrame, analysis_type: str) -> TablePayload:
-    numeric_columns = [
-        column
-        for column in dataframe.columns
-        if pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    categorical_columns = [
-        column
-        for column in dataframe.columns
-        if not pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
+    numeric_columns = _numeric_columns(dataframe)
+    categorical_columns = _categorical_columns(dataframe)
 
     if analysis_type == "anomaly_detection" and numeric_columns:
         column = numeric_columns[0]
@@ -211,17 +349,8 @@ def _build_table(dataframe: pd.DataFrame, analysis_type: str) -> TablePayload:
 def _build_insight(
     dataframe: pd.DataFrame, analysis_type: str, prompt: str | None
 ) -> InsightPayload:
-    numeric_columns = [
-        column
-        for column in dataframe.columns
-        if pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    categorical_columns = [
-        column
-        for column in dataframe.columns
-        if not pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    missing_cells = int(dataframe.isna().sum().sum())
+    numeric_columns = _numeric_columns(dataframe)
+    categorical_columns = _categorical_columns(dataframe)
 
     if analysis_type == "correlation" and len(numeric_columns) > 1:
         return InsightPayload(
@@ -263,6 +392,35 @@ def _build_insight(
         body="The uploaded dataset is ready for profiling and the next step is to inspect missing values or data types.",
         action_label="Profile the dataset",
     )
+
+
+def _numeric_columns(dataframe: pd.DataFrame) -> list[str]:
+    return [
+        column
+        for column in dataframe.columns
+        if pd.api.types.is_numeric_dtype(dataframe[column])
+    ]
+
+
+def _datetime_columns(dataframe: pd.DataFrame) -> list[str]:
+    return [
+        column
+        for column in dataframe.columns
+        if pd.api.types.is_datetime64_any_dtype(dataframe[column])
+    ]
+
+
+def _categorical_columns(dataframe: pd.DataFrame) -> list[str]:
+    return [
+        column
+        for column in dataframe.columns
+        if not pd.api.types.is_numeric_dtype(dataframe[column])
+        and not pd.api.types.is_datetime64_any_dtype(dataframe[column])
+    ]
+
+
+def _contains_any(message: str, *keywords: str) -> bool:
+    return any(keyword in message for keyword in keywords)
 
 
 def _to_serializable(value: object) -> str | int | float | None:

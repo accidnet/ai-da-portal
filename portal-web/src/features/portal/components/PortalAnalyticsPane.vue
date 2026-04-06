@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { resolveVisualizationComponent } from './visualizations'
+
 import type {
   AnalyticsChartPayload,
   AnalyticsData,
@@ -66,12 +68,6 @@ const shareTooltip = '공유 링크 복사'
 const exportTooltip = '리포트 미리보기'
 const fullscreenTooltip = computed(() => (props.isFullscreen ? '전체 화면 종료' : '전체 화면 보기'))
 
-function normalizePoint(value: number | string | null | undefined): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
 function normalizeDatasetProfile(payload: AnalyticsPayload['dataset_profile'] | undefined | null): DatasetAsset['profile'] | null {
   if (!payload) return null
 
@@ -114,43 +110,8 @@ function tableForSection(section: WorkspaceSectionPayload): AnalyticsTablePayloa
   return backendTables.value[section.table_index ?? 0] ?? null
 }
 
-function chartPoints(chart: AnalyticsChartPayload | null) {
-  if (chart && chart.x.length > 0 && chart.series.length > 0) {
-    const series = chart.series[0]
-    return chart.x.map((label, index) => ({
-      label,
-      value: normalizePoint(series.data[index]),
-    }))
-  }
-
-  return props.analytics.chartPoints.map((point) => ({
-    label: point.label,
-    value: point.spend,
-  }))
-}
-
-function hasChartData(chart: AnalyticsChartPayload | null): boolean {
-  return chartPoints(chart).some((point) => point.value > 0)
-}
-
-function chartPath(chart: AnalyticsChartPayload | null): string {
-  const points = chartPoints(chart)
-  if (points.length === 0) return ''
-
-  const maxValue = Math.max(...points.map((point) => point.value), 1)
-  if (points.length === 1) return 'M 0 50 L 100 50'
-
-  return points
-    .map((point, index) => {
-      const x = (index / (points.length - 1)) * 100
-      const y = 100 - (point.value / maxValue) * 100
-      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
-    })
-    .join(' ')
-}
-
-function chartBadge(chart: AnalyticsChartPayload | null): string {
-  return chart?.series[0]?.data.length ? '실시간 백엔드 결과' : props.analytics.chartChange
+function visualizationComponent(section: WorkspaceSectionPayload) {
+  return resolveVisualizationComponent(chartForSection(section))
 }
 </script>
 
@@ -206,23 +167,14 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
             <p>{{ section.title ?? '차트' }}</p>
             <h3>{{ chartForSection(section)?.title }}</h3>
           </div>
-          <span>{{ chartBadge(chartForSection(section)) }}</span>
         </div>
 
-        <div class="chart-body">
-          <div v-if="hasChartData(chartForSection(section))" class="chart-bars">
-            <div v-for="point in chartPoints(chartForSection(section))" :key="point.label" class="bar-item">
-              <div class="bar-fill" :style="{ height: `${Math.min(point.value, 100)}%` }"></div>
-              <small>{{ point.label }}</small>
-            </div>
-          </div>
-
-          <svg v-if="hasChartData(chartForSection(section))" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <path :d="chartPath(chartForSection(section))"></path>
-          </svg>
-
-          <p v-else class="chart-empty">아직 차트 데이터가 없어요. 프롬프트를 보내거나 분석을 실행해 주세요.</p>
-        </div>
+        <component
+          :is="visualizationComponent(section)"
+          :chart="chartForSection(section)"
+          :fallback-points="props.analytics.chartPoints"
+          :fallback-badge="props.analytics.chartChange"
+        />
       </section>
 
       <section v-else-if="section.kind === 'summary_cards' && summaryCardsForSection(section).length" class="workspace-section">
@@ -486,7 +438,6 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   padding: 20px;
 }
 
-.chart-headline span,
 .dataset-card__header span {
   padding: 8px 10px;
   border-radius: 999px;
@@ -494,67 +445,6 @@ function chartBadge(chart: AnalyticsChartPayload | null): string {
   background: var(--color-surface-muted);
   font-weight: 700;
   font-size: 0.8rem;
-}
-
-.chart-body {
-  position: relative;
-  height: 220px;
-  margin-top: 16px;
-  padding: 12px 0 24px;
-}
-
-.chart-empty {
-  margin: 0;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  color: var(--color-text-soft);
-  font-size: 0.9rem;
-  text-align: center;
-}
-
-.chart-bars {
-  position: absolute;
-  inset: 12px 0 24px;
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 8px;
-  align-items: end;
-}
-
-.bar-item {
-  height: 100%;
-  display: grid;
-  align-items: end;
-  justify-items: center;
-  gap: 8px;
-}
-
-.bar-fill {
-  width: 100%;
-  min-height: 12px;
-  border-radius: 999px 999px 8px 8px;
-  background: rgba(24, 74, 140, 0.24);
-}
-
-.bar-item small {
-  color: var(--color-text-soft);
-  font-size: 0.68rem;
-}
-
-.chart-body svg {
-  position: absolute;
-  inset: 0 0 24px;
-  width: 100%;
-  height: calc(100% - 24px);
-}
-
-.chart-body path {
-  fill: none;
-  stroke: var(--color-primary);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .workspace-section {

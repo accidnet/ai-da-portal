@@ -92,7 +92,7 @@ export function usePortalInteractions(options: {
     const sessionId = await ensureActiveSession()
     const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
     const attachedFile = pendingAttachment.value
-    const userMessage = message || (attachedFile ? `${attachedFile.name} 파일을 업로드해서 분석해줘.` : '')
+    const userMessage = message || (attachedFile ? `${attachedFile.name} 파일을 분석해줘.` : '')
     const userMessageEntry: ChatMessage = {
       role: 'user',
       text: userMessage,

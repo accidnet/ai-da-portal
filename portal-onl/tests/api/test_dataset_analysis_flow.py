@@ -224,6 +224,9 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert analysis_body["analytics"]["charts"]
         assert analysis_body["analytics"]["tables"]
         assert analysis_body["analytics"]["insights"]
+        assert analysis_body["analytics"]["charts"][0]["id"] == "correlation_scatter"
+        assert analysis_body["analytics"]["charts"][0]["type"] == "scatter"
+        assert analysis_body["analytics"]["charts"][0]["points"]
         assert analysis_body["workspace"] is not None
         assert analysis_body["workspace"]["template_id"] == "correlation_focus"
         assert analysis_body["workspace"]["sections"]
@@ -248,6 +251,7 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["session_title"] == "Marketing performance review"
         assert chat_body["analytics"]["summary_cards"]
+        assert chat_body["analytics"]["charts"][0]["id"] == "correlation_scatter"
     app.dependency_overrides.clear()
 
 
@@ -271,6 +275,8 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat_body["assistant_message"].startswith("GPT reply:")
         assert chat_body["session_title"] == "마케팅 지표 상관분석"
         assert chat_body["analytics"]["charts"]
+        assert chat_body["analytics"]["charts"][0]["id"] == "correlation_scatter"
+        assert chat_body["analytics"]["charts"][0]["type"] == "scatter"
     app.dependency_overrides.clear()
 
 
@@ -290,6 +296,8 @@ def test_analysis_workspace_supports_trend_and_anomaly_templates() -> None:
         )
         assert trend.status_code == 202
         assert trend.json()["workspace"]["template_id"] == "trend_story"
+        assert trend.json()["analytics"]["charts"][0]["id"] == "trend_line"
+        assert trend.json()["analytics"]["charts"][0]["type"] == "line"
 
         anomaly = client.post(
             "/api/v1/analyses",
@@ -302,6 +310,31 @@ def test_analysis_workspace_supports_trend_and_anomaly_templates() -> None:
         )
         assert anomaly.status_code == 202
         assert anomaly.json()["workspace"]["template_id"] == "anomaly_watch"
+
+    app.dependency_overrides.clear()
+
+
+def test_chat_selects_donut_for_share_questions() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        chat = client.post(
+            "/api/v1/chat/messages",
+            json={
+                "session_id": "share-session",
+                "message": "채널별 spend 비중을 도넛 형태로 보여줘.",
+                "dataset_ids": [dataset["id"]],
+            },
+        )
+
+        assert chat.status_code == 202
+        body = chat.json()
+        assert body["analytics"] is not None
+        assert body["analytics"]["charts"][0]["id"] == "share_donut"
+        assert body["analytics"]["charts"][0]["type"] == "donut"
+        assert body["analytics"]["charts"][0]["x"]
+        assert body["analytics"]["charts"][0]["series"][0]["data"]
 
     app.dependency_overrides.clear()
 

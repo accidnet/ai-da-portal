@@ -137,10 +137,16 @@ export interface ChatResponse {
       tone?: 'primary' | 'warning' | 'neutral'
     }>
     charts: Array<{
-      type: 'line' | 'bar' | 'scatter' | 'table' | 'metric'
+      id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'share_donut' | null
+      type: 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
       title: string
       x: string[]
       series: Array<{ name: string; data: Array<number | string | null> }>
+      points?: Array<{ x: number; y: number; label?: string | null }>
+      meta?: {
+        x_label?: string | null
+        y_label?: string | null
+      } | null
     }>
     tables: Array<{
       title: string

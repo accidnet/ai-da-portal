@@ -181,11 +181,34 @@ export interface AnalyticsChartSeries {
   data: Array<number | string | null>
 }
 
+export type AnalyticsChartId =
+  | 'trend_line'
+  | 'category_bar'
+  | 'category_area'
+  | 'correlation_scatter'
+  | 'share_donut'
+
+export type AnalyticsChartType = 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
+
+export interface AnalyticsChartPointPayload {
+  x: number
+  y: number
+  label?: string | null
+}
+
+export interface AnalyticsChartMeta {
+  x_label?: string | null
+  y_label?: string | null
+}
+
 export interface AnalyticsChartPayload {
-  type: 'line' | 'bar' | 'scatter' | 'table' | 'metric'
+  id?: AnalyticsChartId | null
+  type: AnalyticsChartType
   title: string
   x: string[]
   series: AnalyticsChartSeries[]
+  points?: AnalyticsChartPointPayload[]
+  meta?: AnalyticsChartMeta | null
 }
 
 export interface AnalyticsTableColumn {
