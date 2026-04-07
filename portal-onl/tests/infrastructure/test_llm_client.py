@@ -187,3 +187,123 @@ def test_llm_client_detects_sse_when_event_line_comes_first() -> None:
     reply = client.generate(system="system", user_message="user prompt")
 
     assert reply == "Hello via event"
+
+
+def test_llm_client_prefers_done_text_over_response_completed_wrapper() -> None:
+    stream_text = "\n".join(
+        [
+            "event: response.output_text.done",
+            'data: {"type":"response.output_text.done","text":"실제 분석 결과입니다."}',
+            "",
+            "event: response.completed",
+            'data: {"type":"response.completed","response":{"id":"resp_1","object":"response","output":[]}}',
+            "",
+            "data: [DONE]",
+        ]
+    )
+    http_client = RecordingHttpClient(
+        response_text=stream_text,
+        content_type="text/plain",
+    )
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        http_client=http_client,
+    )
+
+    reply = client.generate(system="system", user_message="user prompt")
+
+    assert reply == "실제 분석 결과입니다."
+
+
+def test_llm_client_generate_json_unwraps_nested_response_payload() -> None:
+    http_client = RecordingHttpClient(
+        {
+            "id": "wrapper-1",
+            "response": {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "text": '{"template_id":"chart_focus","title":"Workspace","sections":[]}'
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+    )
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        http_client=http_client,
+    )
+
+    payload = client.generate_json(system="system", user_message="user prompt")
+
+    assert payload == {
+        "template_id": "chart_focus",
+        "title": "Workspace",
+        "sections": [],
+    }
+
+
+def test_llm_client_generate_unwraps_nested_response_payload() -> None:
+    http_client = RecordingHttpClient(
+        {
+            "id": "wrapper-1",
+            "response": {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "text": "실제 LLM 분석 응답입니다.",
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+    )
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        http_client=http_client,
+    )
+
+    reply = client.generate(system="system", user_message="user prompt")
+
+    assert reply == "실제 LLM 분석 응답입니다."
+
+
+def test_llm_client_generate_json_reads_output_json_content() -> None:
+    http_client = RecordingHttpClient(
+        {
+            "output": [
+                {
+                    "content": [
+                        {
+                            "json": {
+                                "template_id": "chart_focus",
+                                "title": "Workspace",
+                                "sections": [],
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        http_client=http_client,
+    )
+
+    payload = client.generate_json(system="system", user_message="user prompt")
+
+    assert payload == {
+        "template_id": "chart_focus",
+        "title": "Workspace",
+        "sections": [],
+    }

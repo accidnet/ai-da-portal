@@ -1,4 +1,6 @@
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +48,23 @@ class Settings(BaseSettings):
     openai_codex_api_endpoint: str = "https://chatgpt.com/backend-api/codex/responses"
 
 
+def resolve_env_files() -> tuple[str, ...]:
+    # 개발 실행에서는 .env.dev를 함께 읽어 로컬 기본값을 덮어쓴다.
+    env_files: list[str] = []
+
+    if Path(".env").is_file():
+        env_files.append(".env")
+
+    active_profile = os.getenv("PORTAL_ENV", "").strip().lower()
+    if active_profile in {"dev", "development"} and Path(".env.dev").is_file():
+        env_files.append(".env.dev")
+
+    return tuple(env_files)
+
+
 @lru_cache
 def get_settings() -> Settings:
+    env_files = resolve_env_files()
+    if env_files:
+        return Settings(_env_file=env_files)
     return Settings()

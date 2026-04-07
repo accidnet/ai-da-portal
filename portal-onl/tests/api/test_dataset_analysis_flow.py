@@ -472,6 +472,27 @@ class FailingTitleOnlyClient(FakeLlmClient):
         return super().generate(system, user_message, dataset_ids)
 
 
+class EnvelopeOnlyClient(FakeLlmClient):
+    def generate(
+        self, system: str, user_message: str, dataset_ids: list[str] | None = None
+    ) -> str:
+        if "세션 제목 생성기" in system:
+            return super().generate(system, user_message, dataset_ids)
+        return (
+            '{"id":"resp_046a","object":"response","created_at":1775562359,'
+            '"status":"completed","output":[],"response":{"output":[]}}'
+        )
+
+
+def _override_message_service_with_envelope_only_client() -> MessageService:
+    return MessageService(
+        llm_client=EnvelopeOnlyClient(),
+        dataset_service=get_dataset_service(),
+        analysis_service=get_analysis_service(),
+        session_service=get_session_service(),
+    )
+
+
 def test_chat_generates_fallback_session_title_when_llm_title_fails() -> None:
     app.dependency_overrides[get_message_service] = (
         _override_message_service_with_title_failure
@@ -496,5 +517,30 @@ def test_chat_generates_fallback_session_title_when_llm_title_fails() -> None:
         session = client.get("/api/v1/sessions/fallback-title-session")
         assert session.status_code == 200
         assert session.json()["title"] == body["session_title"]
+
+    app.dependency_overrides.clear()
+
+
+def test_chat_uses_analysis_fallback_when_llm_returns_response_envelope() -> None:
+    app.dependency_overrides[get_message_service] = (
+        _override_message_service_with_envelope_only_client
+    )
+    with TestClient(app) as client:
+        dataset = _upload_sample_csv(client)
+
+        response = client.post(
+            "/api/v1/chat/messages",
+            json={
+                "session_id": "envelope-session",
+                "message": "spend와 new_users의 관계를 분석해줘.",
+                "dataset_ids": [dataset["id"]],
+            },
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["analytics"] is not None
+        assert body["assistant_message"].startswith("백엔드 분석은 완료됐어요.")
+        assert '"object":"response"' not in body["assistant_message"]
 
     app.dependency_overrides.clear()

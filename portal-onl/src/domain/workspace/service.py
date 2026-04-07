@@ -1,12 +1,21 @@
 import json
 import logging
 
+from pydantic import BaseModel, Field
+
 from agents.state import AgentRoute
 from domain.shared import AnalyticsPayload, WorkspacePayload, WorkspaceSectionPayload
 from infrastructure.llm.client import LlmClient, LlmClientError
 
 
 logger = logging.getLogger(__name__)
+
+
+class PlannedWorkspacePayload(BaseModel):
+    template_id: str | None = None
+    title: str | None = None
+    description: str | None = None
+    sections: list[WorkspaceSectionPayload] = Field(default_factory=list)
 
 
 class WorkspacePlanner:
@@ -37,7 +46,13 @@ class WorkspacePlanner:
                     ),
                     dataset_ids=dataset_ids,
                 )
-                workspace = WorkspacePayload.model_validate(planned)
+                workspace = self._build_workspace_from_plan(
+                    planned=planned,
+                    prompt=prompt,
+                    analytics=analytics,
+                    route=route,
+                    analysis_type=analysis_type,
+                )
                 sanitized = self._sanitize_workspace(workspace, analytics)
                 if sanitized.sections:
                     return sanitized
@@ -278,6 +293,30 @@ class WorkspacePlanner:
                 sections=sections_by_template[template_id],
             ),
             analytics,
+        )
+
+    def _build_workspace_from_plan(
+        self,
+        *,
+        planned: dict[str, object],
+        prompt: str | None,
+        analytics: AnalyticsPayload,
+        route: AgentRoute | None,
+        analysis_type: str | None,
+    ) -> WorkspacePayload:
+        partial = PlannedWorkspacePayload.model_validate(planned)
+        template_id = partial.template_id or self._infer_template_id(
+            prompt=prompt,
+            analytics=analytics,
+            route=route,
+            analysis_type=analysis_type,
+        )
+        title = partial.title or self._build_title(template_id, analysis_type)
+        return WorkspacePayload(
+            template_id=template_id,
+            title=title,
+            description=partial.description,
+            sections=partial.sections,
         )
 
     def _infer_template_id(

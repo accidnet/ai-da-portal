@@ -270,6 +270,18 @@ class LlmClient:
                 "OpenAI returned non-object JSON for structured output."
             )
 
+        nested_response = payload.get("response")
+        if isinstance(nested_response, dict):
+            extracted = self._extract_output_text(
+                nested_response, allow_raw_json_fallback=False
+            )
+            if extracted:
+                return self._extract_json_object(extracted)
+
+        extracted = self._extract_output_text(payload, allow_raw_json_fallback=False)
+        if extracted and extracted != normalized:
+            return self._extract_json_object(extracted)
+
         return payload
 
     def _parse_sse_data_line(
@@ -324,7 +336,9 @@ class LlmClient:
         if event_type == "response.completed":
             response_payload = event.get("response")
             if isinstance(response_payload, dict):
-                completed = self._extract_output_text(response_payload)
+                completed = self._extract_output_text(
+                    response_payload, allow_raw_json_fallback=False
+                )
                 if completed:
                     logger.debug("Captured response.completed len=%s", len(completed))
                     return (completed, True)
@@ -342,10 +356,20 @@ class LlmClient:
 
         return None
 
-    def _extract_output_text(self, data: dict[str, object]) -> str | None:
+    def _extract_output_text(
+        self, data: dict[str, object], *, allow_raw_json_fallback: bool = True
+    ) -> str | None:
         output_text = data.get("output_text")
         if isinstance(output_text, str) and output_text.strip():
             return output_text.strip()
+
+        nested_response = data.get("response")
+        if isinstance(nested_response, dict):
+            nested_text = self._extract_output_text(
+                nested_response, allow_raw_json_fallback=False
+            )
+            if nested_text:
+                return nested_text
 
         output = data.get("output")
         if isinstance(output, list):
@@ -362,6 +386,10 @@ class LlmClient:
                     text = entry.get("text")
                     if isinstance(text, str) and text.strip():
                         collected.append(text.strip())
+                        continue
+                    json_value = entry.get("json")
+                    if isinstance(json_value, dict):
+                        collected.append(json.dumps(json_value, ensure_ascii=False))
             if collected:
                 return "\n\n".join(collected)
 
@@ -384,7 +412,8 @@ class LlmClient:
                         if parts:
                             return "\n\n".join(parts)
 
-        raw_json = json.dumps(data)
-        if raw_json and raw_json != "{}":
-            return raw_json
+        if allow_raw_json_fallback:
+            raw_json = json.dumps(data)
+            if raw_json and raw_json != "{}":
+                return raw_json
         return None

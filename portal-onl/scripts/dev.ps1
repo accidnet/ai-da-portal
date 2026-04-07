@@ -9,6 +9,7 @@ if (-not (Test-Path $python)) {
 
 Push-Location $root
 try {
+    $env:PORTAL_ENV = "dev"
     & $python -m uvicorn --app-dir src main:app --reload @Args
 }
 finally {

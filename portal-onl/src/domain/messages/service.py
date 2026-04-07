@@ -82,6 +82,12 @@ class MessageService:
                 ),
                 dataset_ids=payload.dataset_ids,
             )
+            assistant_message = self._finalize_assistant_message(
+                assistant_message=assistant_message,
+                route=route,
+                analytics=analytics,
+                dataset_ids=payload.dataset_ids,
+            )
             logger.debug(
                 "LLM reply generated session_id=%s reply_len=%s",
                 payload.session_id,
@@ -369,3 +375,85 @@ class MessageService:
             return "요청한 분석을 실행했어요. 오른쪽 Workspace에 결과 카드와 표를 반영했습니다."
 
         return "요청을 처리했어요. 추가로 궁금한 점이나 더 보고 싶은 분석이 있으면 이어서 입력해 주세요."
+
+    def _finalize_assistant_message(
+        self,
+        *,
+        assistant_message: str,
+        route: AgentRoute,
+        analytics: AnalyticsPayload | None,
+        dataset_ids: list[str],
+    ) -> str:
+        extracted = self._extract_assistant_text(assistant_message)
+        if extracted:
+            return extracted
+
+        logger.warning(
+            "LLM reply contained no usable assistant text; using fallback route=%s",
+            route,
+        )
+        return self._fallback_assistant_message(
+            route=route,
+            analytics=analytics,
+            dataset_ids=dataset_ids,
+        )
+
+    def _extract_assistant_text(self, assistant_message: str) -> str | None:
+        normalized = assistant_message.strip()
+        if not normalized:
+            return None
+        if not normalized.startswith("{"):
+            return normalized
+
+        try:
+            payload = json.loads(normalized)
+        except json.JSONDecodeError:
+            return normalized
+
+        if not isinstance(payload, dict):
+            return normalized
+
+        return self._extract_assistant_text_from_payload(payload)
+
+    def _extract_assistant_text_from_payload(
+        self, payload: dict[str, object]
+    ) -> str | None:
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        response = payload.get("response")
+        if isinstance(response, dict):
+            nested = self._extract_assistant_text_from_payload(response)
+            if nested:
+                return nested
+
+        output = payload.get("output")
+        if isinstance(output, list):
+            parts: list[str] = []
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get("content")
+                if not isinstance(content, list):
+                    continue
+                for entry in content:
+                    if not isinstance(entry, dict):
+                        continue
+                    text = entry.get("text")
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text.strip())
+            if parts:
+                return "\n\n".join(parts)
+
+        choices = payload.get("choices")
+        if isinstance(choices, list) and choices:
+            first_choice = choices[0]
+            if isinstance(first_choice, dict):
+                message = first_choice.get("message")
+                if isinstance(message, dict):
+                    content = message.get("content")
+                    if isinstance(content, str) and content.strip():
+                        return content.strip()
+
+        return None

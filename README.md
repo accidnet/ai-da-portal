@@ -40,6 +40,19 @@ uv sync
 uv run uvicorn --app-dir src main:app --reload
 ```
 
+개발용 `.env.dev`를 적용해서 실행하려면 아래처럼 실행하면 됩니다. 이 경우 백엔드는 `DEBUG` 레벨 로그까지 콘솔에 출력합니다.
+
+```bash
+cd portal-onl
+PORTAL_ENV=dev uv run uvicorn --app-dir src main:app --reload
+```
+
+또는 루트 스크립트로 바로 실행할 수 있습니다.
+
+```bash
+./scripts/portal-onl-dev.sh
+```
+
 프론트엔드 빌드:
 
 ```bash
