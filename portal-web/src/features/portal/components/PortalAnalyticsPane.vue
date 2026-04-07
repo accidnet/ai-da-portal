@@ -63,7 +63,6 @@ const workspacePayload = computed(() => props.workspacePayload ?? fallbackWorksp
 const workspaceSections = computed(() => workspacePayload.value?.sections.filter((section) => section.kind !== 'insight') ?? [])
 const hasWorkspaceData = computed(() => workspaceSections.value.some(hasSectionContent))
 const workspaceTitle = computed(() => workspacePayload.value?.title ?? props.analytics.title)
-const workspaceDescription = computed(() => workspacePayload.value?.description ?? null)
 const shareTooltip = '공유 링크 복사'
 const exportTooltip = '리포트 미리보기'
 const fullscreenTooltip = computed(() => (props.isFullscreen ? '전체 화면 종료' : '전체 화면 보기'))
@@ -119,9 +118,8 @@ function visualizationComponent(section: WorkspaceSectionPayload) {
   <aside class="analytics-shell" :class="workspacePayload ? `analytics-shell--${workspacePayload.template_id}` : null">
     <header class="analytics-header">
       <div>
-        <p>작업공간</p>
+        <p>시각화</p>
         <h2>{{ workspaceTitle }}</h2>
-        <small v-if="workspaceDescription" class="workspace-description">{{ workspaceDescription }}</small>
       </div>
 
       <div class="analytics-actions">
@@ -324,14 +322,6 @@ function visualizationComponent(section: WorkspaceSectionPayload) {
 
 .analytics-header h2 {
   font-size: 1.05rem;
-}
-
-.workspace-description {
-  display: block;
-  margin-top: 6px;
-  color: var(--color-text-soft);
-  font-size: 0.78rem;
-  line-height: 1.5;
 }
 
 .analytics-actions {
