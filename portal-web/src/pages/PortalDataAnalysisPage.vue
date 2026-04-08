@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import PortalDatasetLibrary from '../features/portal/components/PortalDatasetLibrary.vue'
 import PortalDashboardWorkspaceView from '../features/portal/components/PortalDashboardWorkspaceView.vue'
@@ -30,6 +30,9 @@ const sessionHubSearchQuery = ref('')
 const datasetLibrarySearchQuery = ref('')
 const isHelpDialogOpen = ref(false)
 const sharedAnalysis = ref<SharedAnalysisSnapshot | null>(null)
+const isCompactLayout = ref(false)
+const isSidebarOpen = ref(false)
+const isAnalyticsPanelOpen = ref(false)
 
 const {
   sidebarWidth,
@@ -257,6 +260,43 @@ function closeSharedAnalysisDialog() {
   sharedAnalysis.value = null
 }
 
+function syncResponsiveLayout() {
+  if (typeof window === 'undefined') return
+
+  const nextIsCompactLayout = window.innerWidth <= 960
+  isCompactLayout.value = nextIsCompactLayout
+
+  // 작은 화면에서는 패널을 접어 채팅 영역을 먼저 보여줍니다.
+  if (!nextIsCompactLayout) {
+    isSidebarOpen.value = false
+    isAnalyticsPanelOpen.value = false
+  }
+}
+
+function toggleSidebarPanel() {
+  if (!isSidebarOpen.value) {
+    isAnalyticsPanelOpen.value = false
+  }
+
+  isSidebarOpen.value = !isSidebarOpen.value
+}
+
+function closeSidebarPanel() {
+  isSidebarOpen.value = false
+}
+
+function toggleAnalyticsPanel() {
+  if (!isAnalyticsPanelOpen.value) {
+    isSidebarOpen.value = false
+  }
+
+  isAnalyticsPanelOpen.value = !isAnalyticsPanelOpen.value
+}
+
+function closeAnalyticsPanel() {
+  isAnalyticsPanelOpen.value = false
+}
+
 function previewSharedAnalysis() {
   if (!sharedAnalysis.value) return
   openAnalysisPreview(sharedAnalysis.value)
@@ -267,6 +307,10 @@ watch(activeSessionId, () => {
 })
 
 watch(currentScreen, async (screen) => {
+  if (isCompactLayout.value && screen !== 'dashboard') {
+    isAnalyticsPanelOpen.value = false
+  }
+
   if (screen === 'datasets' && datasetsLibrary.value.length === 0) {
     await loadDatasets()
   }
@@ -278,6 +322,8 @@ watch(currentScreen, (screen) => {
 
 onMounted(async () => {
   const controller = new AbortController()
+  syncResponsiveLayout()
+  window.addEventListener('resize', syncResponsiveLayout)
   restoreSidebarWidth()
   restoreAnalyticsPaneWidth()
   bindAuthListeners()
@@ -302,25 +348,44 @@ onMounted(async () => {
     }
   }
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncResponsiveLayout)
+})
 </script>
 
 <template>
   <div class="portal-layout" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
-    <PortalSidebar
-      :sidebar="{ ...shellSidebar, recentSessions }"
-      :active-screen="currentScreen"
-      :active-session-id="activeSessionId"
-      :connection-status="connectionStatus"
-      :auth-status="authStatus"
-      :is-connecting="isConnecting"
-      :is-disconnecting="isDisconnecting"
-      @primary-action="handleScreenChange"
-      @create-session="handleCreateSession"
-      @connect-open-ai="connectOpenAi"
-      @disconnect-open-ai="logoutOpenAi"
-      @open-help="openHelpDialog"
-      @select-session="(sessionId) => selectSession(sessionId, 'dashboard')"
-    />
+    <aside
+      class="portal-sidebar-shell"
+      :class="{
+        'portal-sidebar-shell--compact': isCompactLayout,
+        'portal-sidebar-shell--open': isSidebarOpen,
+      }"
+    >
+      <div v-if="isCompactLayout" class="mobile-panel-header">
+        <strong>메뉴</strong>
+        <button type="button" class="mobile-panel-close" @click="closeSidebarPanel">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      <PortalSidebar
+        :sidebar="{ ...shellSidebar, recentSessions }"
+        :active-screen="currentScreen"
+        :active-session-id="activeSessionId"
+        :connection-status="connectionStatus"
+        :auth-status="authStatus"
+        :is-connecting="isConnecting"
+        :is-disconnecting="isDisconnecting"
+        @primary-action="(screen) => { closeSidebarPanel(); void handleScreenChange(screen) }"
+        @create-session="() => { closeSidebarPanel(); void handleCreateSession() }"
+        @connect-open-ai="connectOpenAi"
+        @disconnect-open-ai="logoutOpenAi"
+        @open-help="() => { closeSidebarPanel(); openHelpDialog() }"
+        @select-session="(sessionId) => { closeSidebarPanel(); void selectSession(sessionId, 'dashboard') }"
+      />
+    </aside>
 
     <button
       class="page-pane-resizer"
@@ -333,6 +398,22 @@ onMounted(async () => {
     </button>
 
     <div class="portal-main-shell">
+      <div v-if="isCompactLayout" class="portal-mobile-toolbar">
+        <button type="button" class="portal-mobile-toolbar__button" @click="toggleSidebarPanel">
+          <span class="material-symbols-outlined">menu_open</span>
+          <span>좌측 패널</span>
+        </button>
+        <button
+          v-if="currentScreen === 'dashboard'"
+          type="button"
+          class="portal-mobile-toolbar__button"
+          @click="toggleAnalyticsPanel"
+        >
+          <span class="material-symbols-outlined">bar_chart</span>
+          <span>시각화 패널</span>
+        </button>
+      </div>
+
       <div v-if="authError || exportMessage" class="portal-status-messages">
         <p v-if="authError" class="auth-error">{{ authError }}</p>
         <p v-if="exportMessage" class="export-message">{{ exportMessage }}</p>
@@ -357,6 +438,8 @@ onMounted(async () => {
           :chat-error="chatError"
           :upload-error="uploadError"
           :analytics-error="analyticsError"
+          :is-compact-layout="isCompactLayout"
+          :is-analytics-panel-open="isAnalyticsPanelOpen"
           :can-export-report="canExportReport"
           :pending-attachment-name="pendingAttachment?.name ?? null"
           :pending-attachment-meta="pendingAttachment ? `${formatFileSize(pendingAttachment.size)} · 메시지와 함께 전송` : null"
@@ -369,6 +452,7 @@ onMounted(async () => {
           @toggle-fullscreen="toggleAnalyticsFullscreen"
           @export-report="exportAnalyticsReport"
           @share-report="shareAnalyticsReport"
+          @close-analytics-panel="closeAnalyticsPanel"
         />
 
         <PortalSessionHub
@@ -457,6 +541,8 @@ onMounted(async () => {
         </div>
       </section>
     </div>
+
+    <div v-if="isCompactLayout && isSidebarOpen" class="mobile-panel-backdrop" @click="closeSidebarPanel"></div>
   </div>
 </template>
 
@@ -501,6 +587,65 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
   overflow: hidden;
+}
+
+.portal-sidebar-shell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.portal-mobile-toolbar {
+  display: flex;
+  gap: 10px;
+}
+
+.portal-mobile-toolbar__button,
+.mobile-panel-close {
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-primary-strong);
+  font: inherit;
+}
+
+.portal-mobile-toolbar__button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mobile-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.mobile-panel-header strong {
+  color: var(--color-primary-strong);
+  font-size: 0.95rem;
+}
+
+.mobile-panel-close {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.mobile-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  background: rgba(15, 23, 42, 0.28);
 }
 
 .portal-status-messages {
@@ -664,9 +809,32 @@ onMounted(async () => {
     display: none;
   }
 
+  .portal-sidebar-shell {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    bottom: 16px;
+    z-index: 12;
+    width: min(320px, calc(100vw - 32px));
+    padding: 14px;
+    border-radius: 24px;
+    background: rgba(245, 247, 251, 0.96);
+    box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
+    transform: translateX(calc(-100% - 24px));
+    transition: transform 220ms ease;
+  }
+
+  .portal-sidebar-shell--open {
+    transform: translateX(0);
+  }
+
   .portal-main-shell,
   .portal-screen-shell {
     overflow: visible;
+  }
+
+  .portal-mobile-toolbar {
+    flex-wrap: wrap;
   }
 
   .portal-overlay {
