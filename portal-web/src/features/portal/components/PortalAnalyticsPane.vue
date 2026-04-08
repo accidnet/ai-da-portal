@@ -10,7 +10,6 @@ import type {
   AnalyticsSummaryCard,
   AnalyticsTablePayload,
   DatasetAsset,
-  DatasetPreview,
   WorkspacePayload,
   WorkspaceSectionPayload,
 } from '../types'
@@ -40,8 +39,6 @@ const backendTables = computed(() => props.analyticsPayload?.tables ?? [])
 const backendDatasetProfile = computed(
   () => props.datasetAsset?.profile ?? normalizeDatasetProfile(props.analyticsPayload?.dataset_profile),
 )
-const backendDatasetPreview = computed(() => props.datasetAsset?.preview ?? null)
-const hasDatasetPreview = computed(() => (backendDatasetPreview.value?.rows?.length ?? 0) > 0)
 
 const fallbackWorkspace = computed<WorkspacePayload | null>(() => {
   if (!props.analyticsPayload) return null
@@ -83,15 +80,11 @@ function normalizeDatasetProfile(payload: AnalyticsPayload['dataset_profile'] | 
   }
 }
 
-function previewRows(preview: DatasetPreview | null): Array<Record<string, string | number | null>> {
-  return preview?.rows ?? []
-}
-
 function hasSectionContent(section: WorkspaceSectionPayload): boolean {
   if (section.kind === 'summary_cards') return summaryCardsForSection(section).length > 0
   if (section.kind === 'chart') return Boolean(chartForSection(section))
   if (section.kind === 'table') return Boolean(tableForSection(section))
-  return Boolean(backendDatasetProfile.value || hasDatasetPreview.value)
+  return Boolean(backendDatasetProfile.value)
 }
 
 function summaryCardsForSection(section: WorkspaceSectionPayload): AnalyticsSummaryCard[] {
@@ -211,7 +204,7 @@ function visualizationComponent(section: WorkspaceSectionPayload) {
         </table>
       </section>
 
-      <section v-else-if="section.kind === 'dataset_profile' && (backendDatasetProfile || hasDatasetPreview)" class="panel-card dataset-card">
+      <section v-else-if="section.kind === 'dataset_profile' && backendDatasetProfile" class="panel-card dataset-card">
         <header class="dataset-card__header">
           <div>
             <p>{{ section.title ?? '데이터 스냅샷' }}</p>
@@ -237,21 +230,6 @@ function visualizationComponent(section: WorkspaceSectionPayload) {
             <span>{{ column.dtype }} · 결측 {{ Math.round(column.nullRatio * 100) }}%</span>
             <small v-if="column.sampleValues.length">예시값: {{ column.sampleValues.join(', ') }}</small>
           </article>
-        </div>
-
-        <div v-if="hasDatasetPreview && backendDatasetPreview" class="dataset-preview">
-          <table>
-            <thead>
-              <tr>
-                <th v-for="column in backendDatasetPreview.columns" :key="column">{{ column }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, rowIndex) in previewRows(backendDatasetPreview)" :key="rowIndex">
-                <td v-for="column in backendDatasetPreview.columns" :key="column">{{ row[column] }}</td>
-              </tr>
-            </tbody>
-          </table>
         </div>
 
         <div v-if="backendDatasetProfile?.suggestedPrompts.length" class="prompt-list">
@@ -494,23 +472,19 @@ function visualizationComponent(section: WorkspaceSectionPayload) {
   background: #a25918;
 }
 
-.table-card table,
-.dataset-preview table {
+.table-card table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 16px;
 }
 
 .table-card th,
-.table-card td,
-.dataset-preview th,
-.dataset-preview td {
+.table-card td {
   padding: 14px 0;
   border-bottom: 1px solid var(--color-border);
 }
 
-.table-card th,
-.dataset-preview th {
+.table-card th {
   color: var(--color-text-soft);
   font-size: 0.7rem;
   letter-spacing: 0.12em;

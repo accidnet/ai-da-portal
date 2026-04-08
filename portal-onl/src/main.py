@@ -8,11 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.router import api_router
 from core.config import get_settings
 from core.logging import configure_logging
+from infrastructure.db.session import init_database
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    init_database()
     yield
 
 

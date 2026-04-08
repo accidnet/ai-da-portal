@@ -31,7 +31,11 @@ class Settings(BaseSettings):
         ]
     )
 
-    database_url: str = "sqlite:///./db"
+    project_root: Path = Path(__file__).resolve().parents[2]
+    data_dir: Path = Path(__file__).resolve().parents[2] / "data"
+    database_url: str = (
+        f"sqlite:///{(Path(__file__).resolve().parents[2] / 'data' / 'portal-onl.db').as_posix()}"
+    )
     storage_root: str = "storage"
     uploads_dir: str = "storage/uploads"
 

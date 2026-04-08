@@ -1,12 +1,11 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
 import { createAnalysis, sendChatInteraction, sendChatMessage, type ChatInteractionResponse } from '../../../shared/api/portalApi'
-import type { ChatMessage } from '../types'
+import type { ChatMessage, MessageAttachmentPreview } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
 import {
   buildReportContent,
   createAttachmentPreview,
-  formatFileSize,
   isUploadableDatasetFile,
   normalizeAssistantMessage,
   sanitizeFileNameSegment,
@@ -96,14 +95,6 @@ export function usePortalInteractions(options: {
     const userMessageEntry: ChatMessage = {
       role: 'user',
       text: userMessage,
-      attachmentPreview: attachedFile
-        ? {
-            filename: attachedFile.name,
-            meta: `${formatFileSize(attachedFile.size)} · 업로드 중`,
-            columns: [],
-            rows: [],
-          }
-        : undefined,
     }
     sessionState.messages = [...sessionState.messages, userMessageEntry]
     isSending.value = true
@@ -130,21 +121,16 @@ export function usePortalInteractions(options: {
         updateSessionTitleLocally(sessionId, nextSessionTitle)
       }
 
+      let attachmentPreview: MessageAttachmentPreview | undefined
+
       if (interactionResponse?.dataset) {
         const uploadedDataset = interactionResponse.dataset
         const dataset = mapDatasetAsset(uploadedDataset)
         sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
-        sessionState.messages = sessionState.messages.map((entry) =>
-          entry === userMessageEntry
-            ? {
-                ...entry,
-                attachmentPreview: createAttachmentPreview(
-                  uploadedDataset.detail.filename,
-                  attachedFile?.size ?? 0,
-                  uploadedDataset.preview,
-                ),
-              }
-            : entry,
+        attachmentPreview = createAttachmentPreview(
+          uploadedDataset.detail.filename,
+          attachedFile?.size ?? 0,
+          uploadedDataset.preview,
         )
         await loadDatasets()
       }
@@ -155,6 +141,7 @@ export function usePortalInteractions(options: {
           role: 'assistant',
           author: 'AI 데이터 분석가',
           text: normalizeAssistantMessage(response.assistant_message),
+          attachmentPreview,
         },
       ]
       sessionState.analyticsPayload = response.analytics
