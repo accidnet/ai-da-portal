@@ -21,7 +21,7 @@
 
 사전 준비:
 
-- `portal-onl`: `uv sync`
+- `portal-onl`: `python -m venv. venv && uv sync`
 - `portal-web`: `cd portal-web && npm install`
 
 ### 프론트엔드 실행
