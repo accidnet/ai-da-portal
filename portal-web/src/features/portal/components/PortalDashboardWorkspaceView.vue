@@ -27,6 +27,8 @@ defineProps<{
   chatError: string | null
   uploadError: string | null
   analyticsError: string | null
+  isCompactLayout: boolean
+  isAnalyticsPanelOpen: boolean
   canExportReport: boolean
   pendingAttachmentName: string | null
   pendingAttachmentMeta: string | null
@@ -42,6 +44,7 @@ const emit = defineEmits<{
   toggleFullscreen: []
   exportReport: []
   shareReport: []
+  closeAnalyticsPanel: []
 }>()
 </script>
 
@@ -51,6 +54,7 @@ const emit = defineEmits<{
     :class="{
       'portal-main-grid--resizing': isResizingAnalyticsPane,
       'portal-main-grid--analytics-fullscreen': isAnalyticsFullscreen,
+      'portal-main-grid--compact': isCompactLayout,
     }"
     :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
   >
@@ -70,21 +74,38 @@ const emit = defineEmits<{
     <button class="pane-resizer" type="button" aria-label="분석 패널 너비 조절" @pointerdown="(event) => emit('resizeStart', event)">
       <span></span>
     </button>
-    <PortalAnalyticsPane
-      :analytics="shellAnalytics"
-      :analytics-payload="analyticsPayload"
-      :workspace-payload="workspacePayload"
-      :dataset-asset="activeDataset"
-      :is-loading="isSending || isUploading || isRunningAnalysis"
-      :error-message="analyticsError"
-      :is-fullscreen="isAnalyticsFullscreen"
-      :export-disabled="!canExportReport"
-      :share-disabled="!canExportReport"
-      @prompt-click="(prompt) => emit('promptClick', prompt)"
-      @toggle-fullscreen="emit('toggleFullscreen')"
-      @export-report="emit('exportReport')"
-      @share-report="emit('shareReport')"
-    />
+    <div
+      class="analytics-panel-shell"
+      :class="{
+        'analytics-panel-shell--compact': isCompactLayout,
+        'analytics-panel-shell--open': isAnalyticsPanelOpen,
+      }"
+    >
+      <div v-if="isCompactLayout" class="analytics-panel-header">
+        <strong>시각화 패널</strong>
+        <button type="button" class="analytics-panel-close" @click="emit('closeAnalyticsPanel')">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      <PortalAnalyticsPane
+        :analytics="shellAnalytics"
+        :analytics-payload="analyticsPayload"
+        :workspace-payload="workspacePayload"
+        :dataset-asset="activeDataset"
+        :is-loading="isSending || isUploading || isRunningAnalysis"
+        :error-message="analyticsError"
+        :is-fullscreen="isAnalyticsFullscreen"
+        :export-disabled="!canExportReport"
+        :share-disabled="!canExportReport"
+        @prompt-click="(prompt) => emit('promptClick', prompt)"
+        @toggle-fullscreen="emit('toggleFullscreen')"
+        @export-report="emit('exportReport')"
+        @share-report="emit('shareReport')"
+      />
+    </div>
+
+    <div v-if="isCompactLayout && isAnalyticsPanelOpen" class="analytics-panel-backdrop" @click="emit('closeAnalyticsPanel')"></div>
   </div>
 </template>
 
@@ -100,9 +121,14 @@ const emit = defineEmits<{
 }
 
 .portal-main-grid :deep(.conversation-shell),
-.portal-main-grid :deep(.analytics-shell) {
+.portal-main-grid :deep(.analytics-shell),
+.analytics-panel-shell {
   min-height: 0;
   height: 100%;
+}
+
+.analytics-panel-shell {
+  min-width: 0;
 }
 
 .portal-main-grid--resizing {
@@ -140,6 +166,39 @@ const emit = defineEmits<{
   display: none;
 }
 
+.analytics-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.analytics-panel-header strong {
+  color: var(--color-primary-strong);
+  font-size: 0.95rem;
+}
+
+.analytics-panel-close {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-primary-strong);
+  cursor: pointer;
+}
+
+.analytics-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  background: rgba(15, 23, 42, 0.28);
+}
+
 @media (max-width: 1280px) {
   .portal-main-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -148,6 +207,32 @@ const emit = defineEmits<{
 
   .pane-resizer {
     display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .portal-main-grid--compact {
+    position: relative;
+    display: block;
+  }
+
+  .portal-main-grid--compact .analytics-panel-shell {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 12;
+    width: min(420px, calc(100vw - 32px));
+    padding: 14px;
+    border-radius: 24px;
+    background: rgba(245, 247, 251, 0.96);
+    box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
+    transform: translateX(calc(100% + 24px));
+    transition: transform 220ms ease;
+  }
+
+  .portal-main-grid--compact .analytics-panel-shell--open {
+    transform: translateX(0);
   }
 }
 </style>
