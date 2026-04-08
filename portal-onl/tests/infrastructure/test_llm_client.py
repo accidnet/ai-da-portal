@@ -307,3 +307,45 @@ def test_llm_client_generate_json_reads_output_json_content() -> None:
         "title": "Workspace",
         "sections": [],
     }
+
+
+def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
+    http_client = RecordingHttpClient(
+        {
+            "id": "resp_123",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "ok"}],
+                }
+            ],
+        }
+    )
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        http_client=http_client,
+    )
+
+    payload = client.create_response(
+        instructions="system",
+        input=[
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "분석해줘"}],
+            }
+        ],
+        tools=[{"type": "function", "name": "run_portal_analysis"}],
+        tool_choice="auto",
+        previous_response_id="resp_prev",
+        reasoning={"effort": "medium"},
+        parallel_tool_calls=False,
+        max_output_tokens=900,
+    )
+
+    assert payload["id"] == "resp_123"
+    assert http_client.calls[0]["headers"]["Accept"] == "application/json"
+    assert http_client.calls[0]["json"]["stream"] is False
+    assert http_client.calls[0]["json"]["tool_choice"] == "auto"
+    assert http_client.calls[0]["json"]["previous_response_id"] == "resp_prev"
+    assert http_client.calls[0]["json"]["parallel_tool_calls"] is False

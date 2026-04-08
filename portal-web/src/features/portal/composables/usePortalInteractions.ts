@@ -141,6 +141,8 @@ export function usePortalInteractions(options: {
           role: 'assistant',
           author: 'AI 데이터 분석가',
           text: normalizeAssistantMessage(response.assistant_message),
+          route: response.route,
+          usedTools: response.used_tools,
           attachmentPreview,
         },
       ]

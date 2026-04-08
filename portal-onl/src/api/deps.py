@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from agents.graph import build_agent_graph
+from agents.graph import AgentGraph, build_agent_graph
 from core.config import Settings, get_settings
 from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
 from domain.analyses.service import AnalysisService
@@ -54,10 +54,13 @@ def get_message_service() -> MessageService:
     return MessageService(
         llm_client=get_llm_client(),
         dataset_service=get_dataset_service(),
-        analysis_service=get_analysis_service(),
         session_service=get_session_service(),
     )
 
 
-def get_agent_runtime() -> object:
-    return build_agent_graph()
+def get_agent_runtime() -> AgentGraph:
+    return build_agent_graph(
+        llm_client=get_llm_client(),
+        dataset_service=get_dataset_service(),
+        analysis_service=get_analysis_service(),
+    )

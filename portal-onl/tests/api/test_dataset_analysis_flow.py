@@ -1,14 +1,17 @@
 from io import BytesIO
 from textwrap import dedent
+from typing import cast
 
 from fastapi.testclient import TestClient
 
 from api.deps import (
     get_analysis_service,
+    get_agent_runtime,
     get_dataset_service,
     get_message_service,
     get_session_service,
 )
+from domain.analyses.schemas import AnalysisRequest
 from domain.messages.service import MessageService
 from infrastructure.llm.client import LlmClient
 from main import app
@@ -56,6 +59,11 @@ class FakeLlmClient(LlmClient):
     ) -> str:
         del dataset_ids
         if "세션 제목 생성기" in system:
+            lowered = user_message.lower()
+            if "marketing_metrics.csv" in lowered:
+                return "marketing_metrics.csv"
+            if "marketing dataset" in lowered:
+                return "Marketing performance review"
             return "마케팅 지표 상관분석"
         return f"GPT reply: {user_message[:80]}"
 
@@ -97,9 +105,83 @@ def _override_message_service() -> MessageService:
     return MessageService(
         llm_client=FakeLlmClient(),
         dataset_service=get_dataset_service(),
-        analysis_service=get_analysis_service(),
         session_service=get_session_service(),
     )
+
+
+class FakeAgentRuntime:
+    def __init__(self, *, include_message: bool = True) -> None:
+        self._include_message = include_message
+
+    def invoke(self, state: dict[str, object]) -> dict[str, object]:
+        message = str(state.get("message", ""))
+        dataset_ids = [
+            *cast(list[str], state.get("dataset_ids", [])),
+            *cast(list[str], state.get("session_dataset_ids", [])),
+        ]
+        resolved_dataset_id = dataset_ids[0] if dataset_ids else None
+
+        if resolved_dataset_id is None:
+            result = {
+                "route": "conversation",
+                "resolved_dataset_id": None,
+                "used_tools": [],
+            }
+            if self._include_message:
+                result["assistant_message"] = f"GPT reply: {message[:80]}"
+            return result
+
+        analysis_type = _infer_analysis_type(message)
+        route = (
+            "dataset_analysis"
+            if analysis_type == "dataset_profile"
+            else "analysis_request"
+        )
+        detail = get_analysis_service().create(
+            AnalysisRequest(
+                session_id=str(state.get("session_id", "test-session")),
+                dataset_id=resolved_dataset_id,
+                analysis_type=analysis_type,
+                prompt=message,
+            )
+        )
+        result = {
+            "route": route,
+            "analysis_type": analysis_type,
+            "resolved_dataset_id": resolved_dataset_id,
+            "analytics": detail.analytics,
+            "workspace": detail.workspace,
+            "used_tools": ["run_portal_analysis"],
+        }
+        if self._include_message:
+            result["assistant_message"] = f"GPT reply: {message[:80]}"
+        return result
+
+
+def _infer_analysis_type(message: str) -> str:
+    lowered = message.lower()
+    if (
+        "상관" in lowered
+        or "correlation" in lowered
+        or "correlat" in lowered
+        or "relationship" in lowered
+    ):
+        return "correlation"
+    if "추세" in lowered or "trend" in lowered or "월별" in lowered:
+        return "trend"
+    if "이상" in lowered or "anomaly" in lowered or "outlier" in lowered:
+        return "anomaly_detection"
+    if "비중" in lowered or "도넛" in lowered or "채널별" in lowered:
+        return "grouped_aggregation"
+    if "분석" in lowered or "analysis" in lowered:
+        return "descriptive_summary"
+    if "컬럼" in lowered or "profile" in lowered or "미리보기" in lowered:
+        return "dataset_profile"
+    return "descriptive_summary"
+
+
+def _override_agent_runtime() -> FakeAgentRuntime:
+    return FakeAgentRuntime()
 
 
 def test_uploaded_dataset_preview_profile_and_list() -> None:
@@ -205,6 +287,7 @@ def test_dataset_upload_accepts_optional_session_id_and_links_snapshot() -> None
 
 def test_analysis_and_chat_use_uploaded_dataset() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -249,6 +332,8 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
         assert chat_body["workspace"] is not None
         assert chat_body["workspace"]["template_id"] == "correlation_focus"
         assert chat_body["assistant_message"].startswith("GPT reply:")
+        assert chat_body["route"] == "analysis_request"
+        assert chat_body["used_tools"] == ["run_portal_analysis"]
         assert chat_body["session_title"] == "Marketing performance review"
         assert chat_body["analytics"]["summary_cards"]
         assert chat_body["analytics"]["charts"][0]["id"] == "correlation_scatter"
@@ -257,6 +342,7 @@ def test_analysis_and_chat_use_uploaded_dataset() -> None:
 
 def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -273,6 +359,8 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat_body["analytics"] is not None
         assert chat_body["workspace"] is not None
         assert chat_body["assistant_message"].startswith("GPT reply:")
+        assert chat_body["route"] == "analysis_request"
+        assert chat_body["used_tools"] == ["run_portal_analysis"]
         assert chat_body["session_title"] == "마케팅 지표 상관분석"
         assert chat_body["analytics"]["charts"]
         assert chat_body["analytics"]["charts"][0]["id"] == "correlation_scatter"
@@ -282,6 +370,7 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
 
 def test_analysis_workspace_supports_trend_and_anomaly_templates() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -316,6 +405,7 @@ def test_analysis_workspace_supports_trend_and_anomaly_templates() -> None:
 
 def test_chat_selects_donut_for_share_questions() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -333,6 +423,8 @@ def test_chat_selects_donut_for_share_questions() -> None:
         assert body["analytics"] is not None
         assert body["analytics"]["charts"][0]["id"] == "share_donut"
         assert body["analytics"]["charts"][0]["type"] == "donut"
+        assert body["route"] == "analysis_request"
+        assert body["used_tools"] == ["run_portal_analysis"]
         assert body["analytics"]["charts"][0]["x"]
         assert body["analytics"]["charts"][0]["series"][0]["data"]
 
@@ -341,6 +433,7 @@ def test_chat_selects_donut_for_share_questions() -> None:
 
 def test_chat_interaction_accepts_file_and_message_together() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     csv_content = dedent(
         """
         date,channel,spend,new_users
@@ -382,6 +475,8 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         assert body["workspace"] is not None
         assert body["analytics"]["summary_cards"]
         assert body["assistant_message"].startswith("GPT reply:")
+        assert body["route"] == "analysis_request"
+        assert body["used_tools"] == ["run_portal_analysis"]
         assert body["session_title"] == "marketing_metrics.csv"
 
         snapshot = client.get("/api/v1/sessions/interaction-session/snapshot")
@@ -398,6 +493,7 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
 
 def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -411,7 +507,6 @@ def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
             },
         )
         assert analysis.status_code == 202
-        analysis_body = analysis.json()
 
         chat = client.post(
             "/api/v1/chat/messages",
@@ -433,6 +528,8 @@ def test_session_snapshot_hydrates_messages_datasets_and_workspace() -> None:
         assert len(snapshot_body["messages"]) == 2
         assert snapshot_body["messages"][0]["role"] == "user"
         assert snapshot_body["messages"][1]["role"] == "assistant"
+        assert snapshot_body["messages"][1]["route"] == "analysis_request"
+        assert snapshot_body["messages"][1]["used_tools"] == ["run_portal_analysis"]
         assert snapshot_body["datasets"][0]["detail"]["id"] == dataset["id"]
         assert snapshot_body["datasets"][0]["preview"]["columns"] == [
             "date",
@@ -456,7 +553,6 @@ def _override_message_service_with_title_failure() -> MessageService:
     return MessageService(
         llm_client=FailingTitleOnlyClient(),
         dataset_service=get_dataset_service(),
-        analysis_service=get_analysis_service(),
         session_service=get_session_service(),
     )
 
@@ -472,31 +568,15 @@ class FailingTitleOnlyClient(FakeLlmClient):
         return super().generate(system, user_message, dataset_ids)
 
 
-class EnvelopeOnlyClient(FakeLlmClient):
-    def generate(
-        self, system: str, user_message: str, dataset_ids: list[str] | None = None
-    ) -> str:
-        if "세션 제목 생성기" in system:
-            return super().generate(system, user_message, dataset_ids)
-        return (
-            '{"id":"resp_046a","object":"response","created_at":1775562359,'
-            '"status":"completed","output":[],"response":{"output":[]}}'
-        )
-
-
-def _override_message_service_with_envelope_only_client() -> MessageService:
-    return MessageService(
-        llm_client=EnvelopeOnlyClient(),
-        dataset_service=get_dataset_service(),
-        analysis_service=get_analysis_service(),
-        session_service=get_session_service(),
-    )
+def _override_agent_runtime_without_message() -> FakeAgentRuntime:
+    return FakeAgentRuntime(include_message=False)
 
 
 def test_chat_generates_fallback_session_title_when_llm_title_fails() -> None:
     app.dependency_overrides[get_message_service] = (
         _override_message_service_with_title_failure
     )
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/chat/messages",
@@ -522,9 +602,8 @@ def test_chat_generates_fallback_session_title_when_llm_title_fails() -> None:
 
 
 def test_chat_uses_analysis_fallback_when_llm_returns_response_envelope() -> None:
-    app.dependency_overrides[get_message_service] = (
-        _override_message_service_with_envelope_only_client
-    )
+    app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime_without_message
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 
@@ -541,6 +620,8 @@ def test_chat_uses_analysis_fallback_when_llm_returns_response_envelope() -> Non
         body = response.json()
         assert body["analytics"] is not None
         assert body["assistant_message"].startswith("백엔드 분석은 완료됐어요.")
+        assert body["route"] == "analysis_request"
+        assert body["used_tools"] == ["run_portal_analysis"]
         assert '"object":"response"' not in body["assistant_message"]
 
     app.dependency_overrides.clear()

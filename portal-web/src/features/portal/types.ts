@@ -84,6 +84,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   author?: string
   text: string
+  route?: 'conversation' | 'dataset_analysis' | 'analysis_request'
+  usedTools?: string[]
   codeBlock?: MessageCodeBlock
   bullets?: MessageListItem[]
   attachmentPreview?: MessageAttachmentPreview

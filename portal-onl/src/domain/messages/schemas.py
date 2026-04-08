@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 
+from agents.state import AgentRoute
 from domain.datasets.schemas import (
     DatasetDetail,
     DatasetPreviewResponse,
@@ -18,6 +19,8 @@ class ChatResponse(BaseModel):
     session_id: str
     session_title: str
     assistant_message: str
+    route: AgentRoute = "conversation"
+    used_tools: list[str] = Field(default_factory=list)
     status: ReasoningStatus = "completed"
     analytics: AnalyticsPayload | None = None
     workspace: WorkspacePayload | None = None

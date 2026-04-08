@@ -4,6 +4,7 @@ import re
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from agents.state import AgentRoute
 from domain.shared import AnalyticsPayload
 from domain.sessions.schemas import (
     SessionCreateRequest,
@@ -201,6 +202,8 @@ class SessionService:
         session_id: str,
         user_message: str,
         assistant_message: str,
+        route: AgentRoute,
+        used_tools: list[str],
         dataset_ids: list[str],
         analytics: AnalyticsPayload | None,
         workspace: WorkspacePayload | None,
@@ -220,6 +223,8 @@ class SessionService:
                     role="assistant",
                     text=assistant_message,
                     created_at=now,
+                    route=route,
+                    used_tools=used_tools,
                 ),
             ]
         )

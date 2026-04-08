@@ -1,6 +1,8 @@
 import json
 import logging
 import re
+from collections.abc import Iterable
+from typing import cast
 
 import httpx
 
@@ -36,19 +38,7 @@ class LlmClient:
             tools=["dataset_context"] if dataset_ids else [],
         )
 
-        if self._settings.openai_api_key:
-            return self._generate_with_api_key(prompt)
-
-        access_token = self._auth_service.get_access_token()
-        if not access_token:
-            raise LlmClientError(
-                "No OpenAI credentials are available. Connect ChatGPT or configure OPENAI_API_KEY."
-            )
-
-        account_id = self._auth_service.get_account_id()
-        headers = self._build_oauth_headers(
-            access_token=access_token, account_id=account_id
-        )
+        endpoint, headers = self._resolve_endpoint_and_headers()
         payload = {
             "model": self._settings.llm_model,
             "store": False,
@@ -58,7 +48,7 @@ class LlmClient:
         }
 
         return self._request_response(
-            endpoint=self._settings.openai_codex_api_endpoint,
+            endpoint=endpoint,
             headers=headers,
             payload=payload,
         )
@@ -71,12 +61,48 @@ class LlmClient:
         )
         return self._extract_json_object(raw)
 
-    def _generate_with_api_key(self, prompt: StructuredPrompt) -> str:
-        headers = {
-            "Accept": "text/event-stream",
-            "Authorization": f"Bearer {self._settings.openai_api_key}",
-            "Content-Type": "application/json",
+    def create_response(
+        self,
+        *,
+        input: list[dict[str, object]],
+        instructions: str | None = None,
+        tools: list[dict[str, object]] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+        previous_response_id: str | None = None,
+        reasoning: dict[str, object] | None = None,
+        parallel_tool_calls: bool | None = None,
+        max_output_tokens: int | None = None,
+    ) -> dict[str, object]:
+        endpoint, headers = self._resolve_endpoint_and_headers(accept="application/json")
+        payload = {
+            "model": self._settings.llm_model,
+            "store": False,
+            "stream": False,
+            "input": input,
         }
+        if instructions:
+            payload["instructions"] = instructions
+        if tools:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+        if previous_response_id:
+            payload["previous_response_id"] = previous_response_id
+        if reasoning:
+            payload["reasoning"] = reasoning
+        if parallel_tool_calls is not None:
+            payload["parallel_tool_calls"] = parallel_tool_calls
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+
+        return self._request_json_response(
+            endpoint=endpoint,
+            headers=headers,
+            payload=payload,
+        )
+
+    def _generate_with_api_key(self, prompt: StructuredPrompt) -> str:
+        endpoint, headers = self._resolve_endpoint_and_headers()
         payload = {
             "model": self._settings.llm_model,
             "store": False,
@@ -86,16 +112,45 @@ class LlmClient:
         }
 
         return self._request_response(
-            endpoint="https://api.openai.com/v1/responses",
+            endpoint=endpoint,
             headers=headers,
             payload=payload,
         )
 
+    def _resolve_endpoint_and_headers(
+        self, *, accept: str = "text/event-stream"
+    ) -> tuple[str, dict[str, str]]:
+        if self._settings.openai_api_key:
+            return (
+                "https://api.openai.com/v1/responses",
+                {
+                    "Accept": accept,
+                    "Authorization": f"Bearer {self._settings.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+        access_token = self._auth_service.get_access_token()
+        if not access_token:
+            raise LlmClientError(
+                "No OpenAI credentials are available. Connect ChatGPT or configure OPENAI_API_KEY."
+            )
+
+        account_id = self._auth_service.get_account_id()
+        return (
+            self._settings.openai_codex_api_endpoint,
+            self._build_oauth_headers(
+                access_token=access_token,
+                account_id=account_id,
+                accept=accept,
+            ),
+        )
+
     def _build_oauth_headers(
-        self, *, access_token: str, account_id: str | None
+        self, *, access_token: str, account_id: str | None, accept: str
     ) -> dict[str, str]:
         headers = {
-            "Accept": "text/event-stream",
+            "Accept": accept,
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
@@ -136,8 +191,8 @@ class LlmClient:
             raise LlmClientError(
                 f"OpenAI request failed: {detail or str(exc)}"
             ) from exc
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
-            response = exc.response if isinstance(exc, httpx.HTTPError) else None
+        except httpx.HTTPError as exc:
+            response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
             if response is not None:
                 content_type = response.headers.get("content-type", "unknown")
                 body_excerpt = response.text.strip()[:400]
@@ -146,9 +201,35 @@ class LlmClient:
                     f"content-type={content_type}; body={body_excerpt or '[empty]'}"
                 ) from exc
             raise LlmClientError("OpenAI response could not be processed.") from exc
+        except (ValueError, KeyError) as exc:
+            raise LlmClientError("OpenAI response could not be processed.") from exc
         finally:
             if should_close:
                 client.close()
+
+    def _request_json_response(
+        self, *, endpoint: str, headers: dict[str, str], payload: dict[str, object]
+    ) -> dict[str, object]:
+        client = self._http_client or httpx.Client(timeout=30.0)
+        should_close = self._http_client is None
+        try:
+            response = client.post(endpoint, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip() if exc.response is not None else str(exc)
+            raise LlmClientError(
+                f"OpenAI request failed: {detail or str(exc)}"
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LlmClientError("OpenAI JSON response could not be processed.") from exc
+        finally:
+            if should_close:
+                client.close()
+
+        if not isinstance(data, dict):
+            raise LlmClientError("OpenAI JSON response was not an object.")
+        return data
 
     def _build_input(self, user_message: str) -> list[dict[str, object]]:
         return [
@@ -169,7 +250,9 @@ class LlmClient:
         content_type = response.headers.get("content-type", "")
         if "text/event-stream" in content_type:
             logger.debug("Parsing event-stream response via iter_lines")
-            return self._extract_stream_output_from_lines(response.iter_lines())
+            return self._extract_stream_output_from_lines(
+                cast(Iterable[str], response.iter_lines())
+            )
 
         raw_text = response.read().decode("utf-8", errors="replace")
         logger.debug(
@@ -209,7 +292,7 @@ class LlmClient:
         sse_prefixes = ("data:", "event:", "id:", ":")
         return any(line.startswith(sse_prefixes) for line in lines)
 
-    def _extract_stream_output_from_lines(self, lines: object) -> str | None:
+    def _extract_stream_output_from_lines(self, lines: Iterable[str]) -> str | None:
         deltas: list[str] = []
         final_text: str | None = None
 

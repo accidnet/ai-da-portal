@@ -101,6 +101,8 @@ export interface SessionSnapshotMessageResponse {
   role: 'user' | 'assistant'
   author?: string | null
   text?: string | null
+  route?: 'conversation' | 'dataset_analysis' | 'analysis_request' | null
+  used_tools?: string[] | null
   content?: string | null
   bullets?: Array<{ text?: string | null } | string> | null
   code_block?: {
@@ -128,6 +130,8 @@ export interface ChatResponse {
   session_id: string
   session_title?: string | null
   assistant_message: string
+   route: 'conversation' | 'dataset_analysis' | 'analysis_request'
+   used_tools: string[]
   status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
   analytics: {
     summary_cards: Array<{

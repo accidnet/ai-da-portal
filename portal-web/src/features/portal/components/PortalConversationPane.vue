@@ -105,6 +105,19 @@ function renderMarkdown(value: string): string {
   return blocks.join('')
 }
 
+function formatRouteLabel(route?: 'conversation' | 'dataset_analysis' | 'analysis_request'): string | null {
+  if (route === 'dataset_analysis') return 'Route: Dataset Context'
+  if (route === 'analysis_request') return 'Route: Analysis'
+  if (route === 'conversation') return 'Route: Conversation'
+  return null
+}
+
+function formatToolLabel(toolName: string): string {
+  if (toolName === 'inspect_dataset_context') return 'Tool: Inspect Dataset'
+  if (toolName === 'run_portal_analysis') return 'Tool: Run Analysis'
+  return `Tool: ${toolName}`
+}
+
 function submit() {
   const message = draft.value.trim()
   if ((!message && !props.attachedFileName) || props.sendDisabled) {
@@ -215,6 +228,15 @@ onMounted(() => {
           </div>
 
           <div class="message-text" v-html="renderMarkdown(message.text)"></div>
+
+          <div v-if="message.route || message.usedTools?.length" class="message-meta-chips">
+            <span v-if="message.route" class="message-meta-chip message-meta-chip--route">
+              {{ formatRouteLabel(message.route) }}
+            </span>
+            <span v-for="tool in message.usedTools ?? []" :key="tool" class="message-meta-chip">
+              {{ formatToolLabel(tool) }}
+            </span>
+          </div>
 
           <div v-if="message.attachmentPreview" class="message-attachment-preview">
             <div class="message-attachment-preview__header">
@@ -495,6 +517,33 @@ onMounted(() => {
   color: var(--color-primary);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.message-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.message-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(24, 74, 140, 0.14);
+  border-radius: 999px;
+  color: var(--color-primary-strong);
+  background: rgba(24, 74, 140, 0.06);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.message-meta-chip--route {
+  color: #0f5f4d;
+  background: rgba(16, 124, 97, 0.1);
+  border-color: rgba(16, 124, 97, 0.18);
 }
 
 .message-attachment-preview {

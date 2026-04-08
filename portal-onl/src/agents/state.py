@@ -1,5 +1,7 @@
 from typing import Literal, TypedDict
 
+from domain.shared import AnalyticsPayload, WorkspacePayload
+
 AgentRoute = Literal["conversation", "dataset_analysis", "analysis_request"]
 
 
@@ -7,5 +9,13 @@ class AgentState(TypedDict, total=False):
     session_id: str
     message: str
     dataset_ids: list[str]
+    session_dataset_ids: list[str]
     route: AgentRoute
     plan: list[str]
+    assistant_message: str
+    analytics: AnalyticsPayload | None
+    workspace: WorkspacePayload | None
+    resolved_dataset_id: str | None
+    analysis_type: str | None
+    response_id: str | None
+    used_tools: list[str]

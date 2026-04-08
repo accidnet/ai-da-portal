@@ -92,6 +92,8 @@ export function mapSnapshotMessage(payload: SessionSnapshotMessageResponse): Cha
     role: payload.role,
     author: payload.author ?? (payload.role === 'assistant' ? 'AI 데이터 분석가' : undefined),
     text,
+    route: payload.route ?? undefined,
+    usedTools: payload.used_tools ?? [],
     bullets,
     codeBlock: codeContent
       ? {
