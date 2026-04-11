@@ -79,7 +79,8 @@ class AgentGraph:
 
             break
 
-        raise LlmClientError("Agent graph did not produce a final assistant message.")
+        working_state.setdefault("route", "conversation")
+        return working_state
 
     def _system_prompt(self) -> str:
         return (
@@ -221,7 +222,8 @@ class AgentGraph:
         self, state: AgentState, arguments: dict[str, object]
     ) -> dict[str, object]:
         dataset_id = self._resolve_dataset_id(
-            state=state, preferred_dataset_id=self._read_string(arguments.get("dataset_id"))
+            state=state,
+            preferred_dataset_id=self._read_string(arguments.get("dataset_id")),
         )
         if dataset_id is None:
             return {
@@ -230,21 +232,25 @@ class AgentGraph:
                 "available_dataset_ids": self._available_dataset_ids(state),
             }
 
-        include_preview = self._read_bool(arguments.get("include_preview"), default=True)
-        include_profile = self._read_bool(arguments.get("include_profile"), default=True)
+        include_preview = self._read_bool(
+            arguments.get("include_preview"), default=True
+        )
+        include_profile = self._read_bool(
+            arguments.get("include_profile"), default=True
+        )
         payload: dict[str, object] = {
             "ok": True,
             "dataset_id": dataset_id,
             "available_dataset_ids": self._available_dataset_ids(state),
         }
         if include_profile:
-            payload["profile"] = self._dataset_service.get_profile(dataset_id).model_dump(
-                mode="json"
-            )
+            payload["profile"] = self._dataset_service.get_profile(
+                dataset_id
+            ).model_dump(mode="json")
         if include_preview:
-            payload["preview"] = self._dataset_service.get_preview(dataset_id).model_dump(
-                mode="json"
-            )
+            payload["preview"] = self._dataset_service.get_preview(
+                dataset_id
+            ).model_dump(mode="json")
         state["resolved_dataset_id"] = dataset_id
         return payload
 

@@ -2,9 +2,10 @@ import json
 import logging
 import re
 from collections.abc import Iterable
-from typing import cast
+from typing import Any, cast
 
 import httpx
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from core.config import Settings
 from domain.auth.service import OpenAiAuthService
@@ -24,10 +25,12 @@ class LlmClient:
         settings: Settings,
         auth_service: OpenAiAuthService,
         http_client: httpx.Client | None = None,
+        openai_client: object | None = None,
     ) -> None:
         self._settings = settings
         self._auth_service = auth_service
         self._http_client = http_client
+        self._openai_client = openai_client
 
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
@@ -37,21 +40,22 @@ class LlmClient:
             user=user_message,
             tools=["dataset_context"] if dataset_ids else [],
         )
-
-        endpoint, headers = self._resolve_endpoint_and_headers()
         payload = {
             "model": self._settings.llm_model,
             "store": False,
-            "stream": True,
-            "instructions": prompt.system,
             "input": self._build_input(prompt.user),
+            "instructions": prompt.system,
         }
 
-        return self._request_response(
-            endpoint=endpoint,
-            headers=headers,
-            payload=payload,
-        )
+        response = self._responses_create(payload=payload, stream=self._uses_oauth())
+        if self._uses_oauth():
+            output = self._extract_stream_output(response)
+        else:
+            output = self._extract_output_text(self._coerce_dict(response))
+
+        if output:
+            return output
+        raise LlmClientError("OpenAI returned no assistant text.")
 
     def generate_json(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
@@ -73,11 +77,10 @@ class LlmClient:
         parallel_tool_calls: bool | None = None,
         max_output_tokens: int | None = None,
     ) -> dict[str, object]:
-        endpoint, headers = self._resolve_endpoint_and_headers(accept="application/json")
-        payload = {
+        use_oauth = self._uses_oauth()
+        payload: dict[str, object] = {
             "model": self._settings.llm_model,
             "store": False,
-            "stream": False,
             "input": input,
         }
         if instructions:
@@ -92,43 +95,29 @@ class LlmClient:
             payload["reasoning"] = reasoning
         if parallel_tool_calls is not None:
             payload["parallel_tool_calls"] = parallel_tool_calls
-        if max_output_tokens is not None:
+        if max_output_tokens is not None and not use_oauth:
             payload["max_output_tokens"] = max_output_tokens
 
-        return self._request_json_response(
-            endpoint=endpoint,
-            headers=headers,
-            payload=payload,
-        )
-
-    def _generate_with_api_key(self, prompt: StructuredPrompt) -> str:
-        endpoint, headers = self._resolve_endpoint_and_headers()
-        payload = {
-            "model": self._settings.llm_model,
-            "store": False,
-            "stream": True,
-            "instructions": prompt.system,
-            "input": self._build_input(prompt.user),
-        }
-
-        return self._request_response(
-            endpoint=endpoint,
-            headers=headers,
-            payload=payload,
-        )
-
-    def _resolve_endpoint_and_headers(
-        self, *, accept: str = "text/event-stream"
-    ) -> tuple[str, dict[str, str]]:
-        if self._settings.openai_api_key:
-            return (
-                "https://api.openai.com/v1/responses",
-                {
-                    "Accept": accept,
-                    "Authorization": f"Bearer {self._settings.openai_api_key}",
-                    "Content-Type": "application/json",
-                },
+        response = self._responses_create(payload=payload, stream=use_oauth)
+        if use_oauth:
+            return self._normalize_response_payload(
+                self._extract_stream_response_payload(response)
             )
+        return self._normalize_response_payload(self._coerce_dict(response))
+
+    def _uses_oauth(self) -> bool:
+        return not bool(self._settings.openai_api_key)
+
+    def _get_openai_client(self) -> object:
+        if self._openai_client is not None:
+            return self._openai_client
+
+        if self._settings.openai_api_key:
+            self._openai_client = OpenAI(
+                api_key=self._settings.openai_api_key,
+                http_client=self._http_client,
+            )
+            return self._openai_client
 
         access_token = self._auth_service.get_access_token()
         if not access_token:
@@ -137,99 +126,58 @@ class LlmClient:
             )
 
         account_id = self._auth_service.get_account_id()
-        return (
-            self._settings.openai_codex_api_endpoint,
-            self._build_oauth_headers(
-                access_token=access_token,
-                account_id=account_id,
-                accept=accept,
-            ),
-        )
-
-    def _build_oauth_headers(
-        self, *, access_token: str, account_id: str | None, accept: str
-    ) -> dict[str, str]:
-        headers = {
-            "Accept": accept,
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
+        default_headers: dict[str, str] = {}
         if account_id:
-            headers["ChatGPT-Account-Id"] = account_id
+            default_headers["ChatGPT-Account-Id"] = account_id
 
-        return headers
+        self._openai_client = OpenAI(
+            api_key=access_token,
+            base_url=self._settings.openai_codex_api_endpoint.removesuffix(
+                "/responses"
+            ),
+            default_headers=default_headers or None,
+            http_client=self._http_client,
+        )
+        return self._openai_client
 
-    def _request_response(
-        self, *, endpoint: str, headers: dict[str, str], payload: dict[str, object]
-    ) -> str:
-        client = self._http_client or httpx.Client(timeout=30.0)
-        should_close = self._http_client is None
+    def _responses_create(self, *, payload: dict[str, object], stream: bool) -> object:
+        client = self._get_openai_client()
+        logger.debug(
+            "Sending LLM request via SDK stream=%s model=%s",
+            stream,
+            payload.get("model"),
+        )
         try:
-            logger.debug(
-                "Sending LLM request to %s with model %s",
-                endpoint,
-                payload.get("model"),
-            )
-            with client.stream(
-                "POST",
-                endpoint,
-                headers=headers,
-                json=payload,
-            ) as response:
-                logger.debug(
-                    "Received LLM response status=%s content-type=%s",
-                    response.status_code,
-                    response.headers.get("content-type", ""),
-                )
-                response.raise_for_status()
-                output = self._extract_streaming_or_json_response(response)
-                if output:
-                    return output
-                raise LlmClientError("OpenAI returned no assistant text.")
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text.strip() if exc.response is not None else str(exc)
+            return cast(Any, client).responses.create(**payload, stream=stream)
+        except APIStatusError as exc:
+            detail = self._extract_api_error_detail(exc)
             raise LlmClientError(
                 f"OpenAI request failed: {detail or str(exc)}"
             ) from exc
-        except httpx.HTTPError as exc:
-            response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
-            if response is not None:
-                content_type = response.headers.get("content-type", "unknown")
-                body_excerpt = response.text.strip()[:400]
-                raise LlmClientError(
-                    "OpenAI response could not be processed. "
-                    f"content-type={content_type}; body={body_excerpt or '[empty]'}"
-                ) from exc
+        except (APIConnectionError, APITimeoutError) as exc:
             raise LlmClientError("OpenAI response could not be processed.") from exc
-        except (ValueError, KeyError) as exc:
+        except Exception as exc:  # pragma: no cover - SDK-specific fallback
             raise LlmClientError("OpenAI response could not be processed.") from exc
-        finally:
-            if should_close:
-                client.close()
 
-    def _request_json_response(
-        self, *, endpoint: str, headers: dict[str, str], payload: dict[str, object]
-    ) -> dict[str, object]:
-        client = self._http_client or httpx.Client(timeout=30.0)
-        should_close = self._http_client is None
-        try:
-            response = client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text.strip() if exc.response is not None else str(exc)
-            raise LlmClientError(
-                f"OpenAI request failed: {detail or str(exc)}"
-            ) from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise LlmClientError("OpenAI JSON response could not be processed.") from exc
-        finally:
-            if should_close:
-                client.close()
+    def _extract_api_error_detail(self, exc: APIStatusError) -> str:
+        response = getattr(exc, "response", None)
+        if response is None:
+            return str(exc)
 
-        if not isinstance(data, dict):
-            raise LlmClientError("OpenAI JSON response was not an object.")
-        return data
+        data = getattr(response, "json", None)
+        if callable(data):
+            try:
+                payload = data()
+            except Exception:  # pragma: no cover - defensive logging path
+                payload = None
+            if payload is not None:
+                return json.dumps(payload, ensure_ascii=False)
+
+        text = getattr(response, "text", None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
+        return str(exc)
 
     def _build_input(self, user_message: str) -> list[dict[str, object]]:
         return [
@@ -244,82 +192,35 @@ class LlmClient:
             }
         ]
 
-    def _extract_streaming_or_json_response(
-        self, response: httpx.Response
-    ) -> str | None:
-        content_type = response.headers.get("content-type", "")
-        if "text/event-stream" in content_type:
-            logger.debug("Parsing event-stream response via iter_lines")
-            return self._extract_stream_output_from_lines(
-                cast(Iterable[str], response.iter_lines())
+    def _extract_stream_output(self, stream: object) -> str | None:
+        final_response = self._get_final_response_payload(stream)
+        if final_response is not None:
+            output = self._extract_output_text(
+                final_response, allow_raw_json_fallback=False
             )
+            if output:
+                self._close_stream(stream)
+                return output.strip() or None
 
-        raw_text = response.read().decode("utf-8", errors="replace")
-        logger.debug(
-            "Parsing non-event-stream response body excerpt=%r", raw_text[:300]
-        )
-        if not raw_text.strip():
-            logger.error(
-                "Empty LLM response body status=%s content-type=%s headers=%s",
-                response.status_code,
-                content_type,
-                dict(response.headers),
-            )
-            raise LlmClientError(
-                "OpenAI returned an empty response body. "
-                f"content-type={content_type or 'unknown'}"
-            )
-        if self._looks_like_sse(raw_text):
-            logger.debug("Detected SSE-style payload without text/event-stream header")
-            return self._extract_stream_output_text(raw_text)
-
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            logger.error(
-                "Failed to decode non-SSE LLM response as JSON content-type=%s body_excerpt=%r",
-                content_type,
-                raw_text[:500],
-            )
-            raise exc
-        return self._extract_output_text(data)
-
-    def _looks_like_sse(self, raw_text: str) -> bool:
-        lines = [line.strip() for line in raw_text.splitlines()[:12] if line.strip()]
-        if not lines:
-            return False
-
-        sse_prefixes = ("data:", "event:", "id:", ":")
-        return any(line.startswith(sse_prefixes) for line in lines)
-
-    def _extract_stream_output_from_lines(self, lines: Iterable[str]) -> str | None:
         deltas: list[str] = []
         final_text: str | None = None
 
-        for raw_line in lines:
-            if not isinstance(raw_line, str):
-                continue
+        try:
+            for event in cast(Iterable[object], stream):
+                event_payload = self._event_to_dict(event)
+                extracted = self._extract_text_from_event(event_payload)
+                if extracted is None:
+                    continue
 
-            logger.debug("SSE line: %r", raw_line[:300])
-
-            parsed = self._parse_sse_data_line(raw_line)
-            if parsed is None:
-                continue
-
-            event, done = parsed
-            if done:
-                break
-
-            extracted = self._extract_text_from_event(event)
-            if extracted is None:
-                continue
-
-            text, is_final = extracted
-            if text:
+                text, is_final = extracted
+                if not text:
+                    continue
                 if is_final:
                     final_text = text
                 else:
                     deltas.append(text)
+        finally:
+            self._close_stream(stream)
 
         if final_text:
             return final_text.strip() or None
@@ -327,8 +228,92 @@ class LlmClient:
             return "".join(deltas).strip() or None
         return None
 
-    def _extract_stream_output_text(self, stream_text: str) -> str | None:
-        return self._extract_stream_output_from_lines(stream_text.splitlines())
+    def _extract_stream_response_payload(self, stream: object) -> dict[str, object]:
+        final_response = self._get_final_response_payload(stream)
+        if final_response is not None:
+            self._close_stream(stream)
+            return final_response
+
+        try:
+            for event in cast(Iterable[object], stream):
+                event_payload = self._event_to_dict(event)
+                if event_payload.get("type") != "response.completed":
+                    continue
+                response_payload = self._coerce_optional_dict(
+                    event_payload.get("response")
+                )
+                if response_payload is not None:
+                    return response_payload
+        finally:
+            self._close_stream(stream)
+
+        raise LlmClientError("OpenAI returned no structured response payload.")
+
+    def _get_final_response_payload(self, stream: object) -> dict[str, object] | None:
+        get_final_response = getattr(stream, "get_final_response", None)
+        if not callable(get_final_response):
+            return None
+
+        try:
+            final_response = get_final_response()
+        except Exception:
+            return None
+        return self._coerce_optional_dict(final_response)
+
+    def _close_stream(self, stream: object) -> None:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            close()
+
+    def _event_to_dict(self, event: object) -> dict[str, object]:
+        payload = self._coerce_optional_dict(event)
+        if payload is not None:
+            return payload
+
+        event_type = getattr(event, "type", None)
+        if isinstance(event_type, str):
+            return {"type": event_type}
+        return {}
+
+    def _coerce_dict(self, value: object) -> dict[str, object]:
+        payload = self._coerce_optional_dict(value)
+        if payload is None:
+            raise LlmClientError("OpenAI JSON response was not an object.")
+        return payload
+
+    def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
+        if isinstance(value, dict):
+            return cast(dict[str, object], value)
+
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump(mode="python")
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            dumped = to_dict()
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        return None
+
+    def _normalize_response_payload(
+        self, response: dict[str, object]
+    ) -> dict[str, object]:
+        nested_response = self._coerce_optional_dict(response.get("response"))
+        normalized = nested_response if nested_response is not None else dict(response)
+
+        output_text = normalized.get("output_text")
+        if not isinstance(output_text, str) or not output_text.strip():
+            extracted = self._extract_output_text(
+                normalized, allow_raw_json_fallback=False
+            )
+            if extracted:
+                normalized["output_text"] = extracted
+
+        return normalized
 
     def _extract_json_object(self, raw_text: str) -> dict[str, object]:
         normalized = raw_text.strip()
@@ -367,29 +352,6 @@ class LlmClient:
 
         return payload
 
-    def _parse_sse_data_line(
-        self, raw_line: str
-    ) -> tuple[dict[str, object], bool] | None:
-        line = raw_line.strip()
-        if not line.startswith("data:"):
-            return None
-
-        payload = line[5:].strip()
-        if not payload:
-            return None
-        if payload == "[DONE]":
-            return ({}, True)
-
-        try:
-            event = json.loads(payload)
-        except ValueError:
-            return None
-
-        if not isinstance(event, dict):
-            return None
-
-        return (event, False)
-
     def _extract_text_from_event(
         self, event: dict[str, object]
     ) -> tuple[str, bool] | None:
@@ -401,7 +363,7 @@ class LlmClient:
             delta = event.get("delta") or event.get("text")
             if isinstance(delta, str) and delta:
                 logger.debug(
-                    "Captured SSE delta event=%s len=%s", event_type, len(delta)
+                    "Captured SDK stream delta event=%s len=%s", event_type, len(delta)
                 )
                 return (delta, False)
 
@@ -412,31 +374,28 @@ class LlmClient:
             text = event.get("text") or event.get("delta")
             if isinstance(text, str) and text:
                 logger.debug(
-                    "Captured SSE final event=%s len=%s", event_type, len(text)
+                    "Captured SDK stream final event=%s len=%s", event_type, len(text)
                 )
                 return (text, True)
 
         if event_type == "response.completed":
-            response_payload = event.get("response")
-            if isinstance(response_payload, dict):
+            response_payload = self._coerce_optional_dict(event.get("response"))
+            if response_payload is not None:
                 completed = self._extract_output_text(
                     response_payload, allow_raw_json_fallback=False
                 )
                 if completed:
-                    logger.debug("Captured response.completed len=%s", len(completed))
                     return (completed, True)
 
-        message = event.get("message")
-        if isinstance(message, dict):
+        message = self._coerce_optional_dict(event.get("message"))
+        if message is not None:
             content = message.get("content")
             if isinstance(content, str) and content.strip():
-                logger.debug("Captured message.content len=%s", len(content.strip()))
                 return (content.strip(), True)
 
         completed = self._extract_output_text(event)
         if completed and not completed.startswith("{"):
             return (completed, True)
-
         return None
 
     def _extract_output_text(
@@ -446,8 +405,8 @@ class LlmClient:
         if isinstance(output_text, str) and output_text.strip():
             return output_text.strip()
 
-        nested_response = data.get("response")
-        if isinstance(nested_response, dict):
+        nested_response = self._coerce_optional_dict(data.get("response"))
+        if nested_response is not None:
             nested_text = self._extract_output_text(
                 nested_response, allow_raw_json_fallback=False
             )
@@ -458,19 +417,21 @@ class LlmClient:
         if isinstance(output, list):
             collected: list[str] = []
             for item in output:
-                if not isinstance(item, dict):
+                item_payload = self._coerce_optional_dict(item)
+                if item_payload is None:
                     continue
-                content = item.get("content")
+                content = item_payload.get("content")
                 if not isinstance(content, list):
                     continue
                 for entry in content:
-                    if not isinstance(entry, dict):
+                    entry_payload = self._coerce_optional_dict(entry)
+                    if entry_payload is None:
                         continue
-                    text = entry.get("text")
+                    text = entry_payload.get("text")
                     if isinstance(text, str) and text.strip():
                         collected.append(text.strip())
                         continue
-                    json_value = entry.get("json")
+                    json_value = entry_payload.get("json")
                     if isinstance(json_value, dict):
                         collected.append(json.dumps(json_value, ensure_ascii=False))
             if collected:
@@ -478,20 +439,22 @@ class LlmClient:
 
         choices = data.get("choices")
         if isinstance(choices, list) and choices:
-            first_choice = choices[0]
-            if isinstance(first_choice, dict):
-                message = first_choice.get("message")
-                if isinstance(message, dict):
+            first_choice = self._coerce_optional_dict(choices[0])
+            if first_choice is not None:
+                message = self._coerce_optional_dict(first_choice.get("message"))
+                if message is not None:
                     content = message.get("content")
                     if isinstance(content, str) and content.strip():
                         return content.strip()
                     if isinstance(content, list):
                         parts: list[str] = []
                         for item in content:
-                            if isinstance(item, dict) and isinstance(
-                                item.get("text"), str
-                            ):
-                                parts.append(item["text"].strip())
+                            item_payload = self._coerce_optional_dict(item)
+                            if item_payload is None:
+                                continue
+                            text = item_payload.get("text")
+                            if isinstance(text, str) and text.strip():
+                                parts.append(text.strip())
                         if parts:
                             return "\n\n".join(parts)
 

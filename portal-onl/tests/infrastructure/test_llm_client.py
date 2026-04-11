@@ -1,6 +1,9 @@
-import httpx
+from typing import Any
+
+import pytest
 
 from core.config import Settings
+from infrastructure.llm import client as llm_client_module
 from infrastructure.llm.client import LlmClient, LlmClientError
 
 
@@ -18,65 +21,91 @@ class FakeAuthService:
         return self._account_id
 
 
-class RecordingHttpClient:
+class FakeModel:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    def model_dump(self, mode: str = "python") -> dict[str, object]:
+        assert mode == "python"
+        return self._payload
+
+
+class FakeStream:
+    def __init__(
+        self, events: list[object], final_response: dict[str, object] | None = None
+    ) -> None:
+        self._events = events
+        self._final_response = final_response
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def close(self) -> None:
+        self.closed = True
+
+    def get_final_response(self) -> FakeModel:
+        if self._final_response is None:
+            raise RuntimeError("final response is not configured")
+        return FakeModel(self._final_response)
+
+
+class FakeResponsesApi:
     def __init__(
         self,
-        response_json: dict[str, object] | None = None,
         *,
-        response_text: str | None = None,
-        content_type: str = "application/json",
+        response_payload: dict[str, object] | None = None,
+        stream_events: list[object] | None = None,
+        stream_final_response: dict[str, object] | None = None,
     ) -> None:
-        self.response_json = response_json
-        self.response_text = response_text
-        self.content_type = content_type
+        self.response_payload = response_payload or {}
+        self.stream_events = stream_events or []
+        self.stream_final_response = stream_final_response
         self.calls: list[dict[str, object]] = []
 
-    def post(self, url: str, **kwargs):  # type: ignore[no-untyped-def]
-        self.calls.append({"url": url, **kwargs})
-        if self.response_text is not None:
-            return httpx.Response(
-                status_code=200,
-                request=httpx.Request("POST", url),
-                text=self.response_text,
-                headers={"content-type": self.content_type},
-            )
-        return httpx.Response(
-            status_code=200,
-            request=httpx.Request("POST", url),
-            json=self.response_json,
-            headers={"content-type": self.content_type},
-        )
-
-    def stream(self, method: str, url: str, **kwargs):  # type: ignore[no-untyped-def]
-        assert method == "POST"
-        response = self.post(url, **kwargs)
-
-        class _StreamContext:
-            def __enter__(self_inner):
-                return response
-
-            def __exit__(self_inner, exc_type, exc, tb):
-                return False
-
-        return _StreamContext()
+    def create(self, **kwargs: Any) -> object:
+        self.calls.append(kwargs)
+        if kwargs.get("stream"):
+            return FakeStream(self.stream_events, self.stream_final_response)
+        return FakeModel(self.response_payload)
 
 
-def test_llm_client_uses_responses_api_when_api_key_is_configured() -> None:
-    http_client = RecordingHttpClient({"output_text": "hello from api key"})
+class FakeOpenAIClient:
+    def __init__(self, responses_api: FakeResponsesApi) -> None:
+        self.responses = responses_api
+
+
+class RecordingOpenAIFactory:
+    def __init__(self, client: FakeOpenAIClient) -> None:
+        self._client = client
+        self.calls: list[dict[str, object]] = []
+
+    def __call__(self, **kwargs: Any) -> FakeOpenAIClient:
+        self.calls.append(kwargs)
+        return self._client
+
+
+def test_llm_client_uses_responses_api_when_api_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(response_payload={"output_text": "hello from api key"})
+    )
+    factory = RecordingOpenAIFactory(sdk_client)
+    monkeypatch.setattr(llm_client_module, "OpenAI", factory)
+
     client = LlmClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
-        http_client=http_client,
     )
 
     reply = client.generate(system="system", user_message="user prompt")
 
     assert reply == "hello from api key"
-    assert http_client.calls[0]["url"] == "https://api.openai.com/v1/responses"
-    assert http_client.calls[0]["headers"]["Authorization"] == "Bearer test-key"
-    assert http_client.calls[0]["json"]["store"] is False
-    assert http_client.calls[0]["json"]["stream"] is True
-    assert http_client.calls[0]["json"]["input"] == [
+    assert factory.calls[0]["api_key"] == "test-key"
+    assert sdk_client.responses.calls[0]["stream"] is False
+    assert sdk_client.responses.calls[0]["store"] is False
+    assert sdk_client.responses.calls[0]["input"] == [
         {
             "role": "user",
             "content": [{"type": "input_text", "text": "user prompt"}],
@@ -84,12 +113,23 @@ def test_llm_client_uses_responses_api_when_api_key_is_configured() -> None:
     ]
 
 
-def test_llm_client_uses_chatgpt_oauth_token_when_available() -> None:
-    http_client = RecordingHttpClient({"output_text": "hello from oauth"})
+def test_llm_client_uses_chatgpt_oauth_token_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(
+            stream_events=[
+                {"type": "response.output_text.delta", "delta": "hello"},
+                {"type": "response.output_text.delta", "delta": " from oauth"},
+            ]
+        )
+    )
+    factory = RecordingOpenAIFactory(sdk_client)
+    monkeypatch.setattr(llm_client_module, "OpenAI", factory)
+
     client = LlmClient(
         settings=Settings(),
         auth_service=FakeAuthService(access_token="oauth-token", account_id="acct-123"),
-        http_client=http_client,
     )
 
     reply = client.generate(
@@ -97,17 +137,10 @@ def test_llm_client_uses_chatgpt_oauth_token_when_available() -> None:
     )
 
     assert reply == "hello from oauth"
-    assert http_client.calls[0]["url"] == Settings().openai_codex_api_endpoint
-    assert http_client.calls[0]["headers"]["Authorization"] == "Bearer oauth-token"
-    assert http_client.calls[0]["headers"]["ChatGPT-Account-Id"] == "acct-123"
-    assert http_client.calls[0]["json"]["store"] is False
-    assert http_client.calls[0]["json"]["stream"] is True
-    assert http_client.calls[0]["json"]["input"] == [
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": "user prompt"}],
-        }
-    ]
+    assert factory.calls[0]["api_key"] == "oauth-token"
+    assert factory.calls[0]["base_url"] == "https://chatgpt.com/backend-api/codex"
+    assert factory.calls[0]["default_headers"] == {"ChatGPT-Account-Id": "acct-123"}
+    assert sdk_client.responses.calls[0]["stream"] is True
 
 
 def test_llm_client_raises_when_no_credentials_are_available() -> None:
@@ -116,30 +149,23 @@ def test_llm_client_raises_when_no_credentials_are_available() -> None:
         auth_service=FakeAuthService(),
     )
 
-    try:
+    with pytest.raises(LlmClientError, match="No OpenAI credentials"):
         client.generate(system="system", user_message="user prompt")
-    except LlmClientError as exc:
-        assert "No OpenAI credentials" in str(exc)
-    else:
-        raise AssertionError("Expected LlmClientError")
 
 
 def test_llm_client_parses_streaming_response_events() -> None:
-    stream_text = "\n".join(
-        [
-            'data: {"type":"response.output_text.delta","delta":"Hello"}',
-            'data: {"type":"response.output_text.delta","delta":" world"}',
-            "data: [DONE]",
-        ]
-    )
-    http_client = RecordingHttpClient(
-        response_text=stream_text,
-        content_type="text/event-stream",
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(
+            stream_events=[
+                {"type": "response.output_text.delta", "delta": "Hello"},
+                {"type": "response.output_text.delta", "delta": " world"},
+            ]
+        )
     )
     client = LlmClient(
-        settings=Settings(openai_api_key="test-key"),
-        auth_service=FakeAuthService(),
-        http_client=http_client,
+        settings=Settings(),
+        auth_service=FakeAuthService(access_token="oauth-token"),
+        openai_client=sdk_client,
     )
 
     reply = client.generate(system="system", user_message="user prompt")
@@ -147,68 +173,25 @@ def test_llm_client_parses_streaming_response_events() -> None:
     assert reply == "Hello world"
 
 
-def test_llm_client_parses_sse_even_without_event_stream_header() -> None:
-    stream_text = (
-        'data: {"type":"response.output_text.delta","delta":"Hello again"}\n\n'
-    )
-    http_client = RecordingHttpClient(
-        response_text=stream_text,
-        content_type="text/plain",
-    )
-    client = LlmClient(
-        settings=Settings(openai_api_key="test-key"),
-        auth_service=FakeAuthService(),
-        http_client=http_client,
-    )
-
-    reply = client.generate(system="system", user_message="user prompt")
-
-    assert reply == "Hello again"
-
-
-def test_llm_client_detects_sse_when_event_line_comes_first() -> None:
-    stream_text = "\n".join(
-        [
-            "event: response.output_text.delta",
-            'data: {"type":"response.output_text.delta","delta":"Hello via event"}',
-            "",
-        ]
-    )
-    http_client = RecordingHttpClient(
-        response_text=stream_text,
-        content_type="text/plain",
-    )
-    client = LlmClient(
-        settings=Settings(openai_api_key="test-key"),
-        auth_service=FakeAuthService(),
-        http_client=http_client,
-    )
-
-    reply = client.generate(system="system", user_message="user prompt")
-
-    assert reply == "Hello via event"
-
-
 def test_llm_client_prefers_done_text_over_response_completed_wrapper() -> None:
-    stream_text = "\n".join(
-        [
-            "event: response.output_text.done",
-            'data: {"type":"response.output_text.done","text":"실제 분석 결과입니다."}',
-            "",
-            "event: response.completed",
-            'data: {"type":"response.completed","response":{"id":"resp_1","object":"response","output":[]}}',
-            "",
-            "data: [DONE]",
-        ]
-    )
-    http_client = RecordingHttpClient(
-        response_text=stream_text,
-        content_type="text/plain",
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(
+            stream_events=[
+                {
+                    "type": "response.output_text.done",
+                    "text": "실제 분석 결과입니다.",
+                },
+                {
+                    "type": "response.completed",
+                    "response": {"id": "resp_1", "output": []},
+                },
+            ]
+        )
     )
     client = LlmClient(
-        settings=Settings(openai_api_key="test-key"),
-        auth_service=FakeAuthService(),
-        http_client=http_client,
+        settings=Settings(),
+        auth_service=FakeAuthService(access_token="oauth-token"),
+        openai_client=sdk_client,
     )
 
     reply = client.generate(system="system", user_message="user prompt")
@@ -217,26 +200,28 @@ def test_llm_client_prefers_done_text_over_response_completed_wrapper() -> None:
 
 
 def test_llm_client_generate_json_unwraps_nested_response_payload() -> None:
-    http_client = RecordingHttpClient(
-        {
-            "id": "wrapper-1",
-            "response": {
-                "output": [
-                    {
-                        "content": [
-                            {
-                                "text": '{"template_id":"chart_focus","title":"Workspace","sections":[]}'
-                            }
-                        ]
-                    }
-                ]
-            },
-        }
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(
+            response_payload={
+                "id": "wrapper-1",
+                "response": {
+                    "output": [
+                        {
+                            "content": [
+                                {
+                                    "text": '{"template_id":"chart_focus","title":"Workspace","sections":[]}'
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        )
     )
     client = LlmClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
-        http_client=http_client,
+        openai_client=sdk_client,
     )
 
     payload = client.generate_json(system="system", user_message="user prompt")
@@ -249,26 +234,28 @@ def test_llm_client_generate_json_unwraps_nested_response_payload() -> None:
 
 
 def test_llm_client_generate_unwraps_nested_response_payload() -> None:
-    http_client = RecordingHttpClient(
-        {
-            "id": "wrapper-1",
-            "response": {
-                "output": [
-                    {
-                        "content": [
-                            {
-                                "text": "실제 LLM 분석 응답입니다.",
-                            }
-                        ]
-                    }
-                ]
-            },
-        }
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(
+            response_payload={
+                "id": "wrapper-1",
+                "response": {
+                    "output": [
+                        {
+                            "content": [
+                                {
+                                    "text": "실제 LLM 분석 응답입니다.",
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        )
     )
     client = LlmClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
-        http_client=http_client,
+        openai_client=sdk_client,
     )
 
     reply = client.generate(system="system", user_message="user prompt")
@@ -277,27 +264,29 @@ def test_llm_client_generate_unwraps_nested_response_payload() -> None:
 
 
 def test_llm_client_generate_json_reads_output_json_content() -> None:
-    http_client = RecordingHttpClient(
-        {
-            "output": [
-                {
-                    "content": [
-                        {
-                            "json": {
-                                "template_id": "chart_focus",
-                                "title": "Workspace",
-                                "sections": [],
+    sdk_client = FakeOpenAIClient(
+        FakeResponsesApi(
+            response_payload={
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "json": {
+                                    "template_id": "chart_focus",
+                                    "title": "Workspace",
+                                    "sections": [],
+                                }
                             }
-                        }
-                    ]
-                }
-            ]
-        }
+                        ]
+                    }
+                ]
+            }
+        )
     )
     client = LlmClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
-        http_client=http_client,
+        openai_client=sdk_client,
     )
 
     payload = client.generate_json(system="system", user_message="user prompt")
@@ -310,8 +299,8 @@ def test_llm_client_generate_json_reads_output_json_content() -> None:
 
 
 def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
-    http_client = RecordingHttpClient(
-        {
+    responses_api = FakeResponsesApi(
+        response_payload={
             "id": "resp_123",
             "output": [
                 {
@@ -321,10 +310,11 @@ def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
             ],
         }
     )
+    sdk_client = FakeOpenAIClient(responses_api)
     client = LlmClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
-        http_client=http_client,
+        openai_client=sdk_client,
     )
 
     payload = client.create_response(
@@ -344,8 +334,77 @@ def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
     )
 
     assert payload["id"] == "resp_123"
-    assert http_client.calls[0]["headers"]["Accept"] == "application/json"
-    assert http_client.calls[0]["json"]["stream"] is False
-    assert http_client.calls[0]["json"]["tool_choice"] == "auto"
-    assert http_client.calls[0]["json"]["previous_response_id"] == "resp_prev"
-    assert http_client.calls[0]["json"]["parallel_tool_calls"] is False
+    assert responses_api.calls[0]["stream"] is False
+    assert responses_api.calls[0]["tool_choice"] == "auto"
+    assert responses_api.calls[0]["previous_response_id"] == "resp_prev"
+    assert responses_api.calls[0]["parallel_tool_calls"] is False
+
+
+def test_llm_client_create_response_unwraps_nested_response_payload() -> None:
+    responses_api = FakeResponsesApi(
+        response_payload={
+            "id": "wrapper-1",
+            "response": {
+                "id": "resp_123",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    }
+                ],
+            },
+        }
+    )
+    sdk_client = FakeOpenAIClient(responses_api)
+    client = LlmClient(
+        settings=Settings(openai_api_key="test-key"),
+        auth_service=FakeAuthService(),
+        openai_client=sdk_client,
+    )
+
+    payload = client.create_response(
+        input=[
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "분석해줘"}],
+            }
+        ]
+    )
+
+    assert payload["id"] == "resp_123"
+    assert payload["output_text"] == "ok"
+
+
+def test_llm_client_create_response_uses_streaming_for_oauth_codex() -> None:
+    responses_api = FakeResponsesApi(
+        stream_events=[],
+        stream_final_response={
+            "id": "resp_123",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "ok"}],
+                }
+            ],
+        },
+    )
+    sdk_client = FakeOpenAIClient(responses_api)
+    client = LlmClient(
+        settings=Settings(),
+        auth_service=FakeAuthService(access_token="oauth-token", account_id="acct-123"),
+        openai_client=sdk_client,
+    )
+
+    payload = client.create_response(
+        instructions="system",
+        input=[
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "분석해줘"}],
+            }
+        ],
+    )
+
+    assert payload["id"] == "resp_123"
+    assert responses_api.calls[0]["stream"] is True
+    assert "max_output_tokens" not in responses_api.calls[0]

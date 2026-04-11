@@ -114,7 +114,10 @@ def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
                     }
                 ],
             },
-            {"id": "resp_2", "output_text": "데이터셋은 12행 2열이고 sales 컬럼이 있습니다."},
+            {
+                "id": "resp_2",
+                "output_text": "데이터셋은 12행 2열이고 sales 컬럼이 있습니다.",
+            },
         ]
     )
     graph = AgentGraph(
@@ -132,7 +135,9 @@ def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
         }
     )
 
-    assert result["assistant_message"] == "데이터셋은 12행 2열이고 sales 컬럼이 있습니다."
+    assert (
+        result["assistant_message"] == "데이터셋은 12행 2열이고 sales 컬럼이 있습니다."
+    )
     assert result["route"] == "dataset_analysis"
     assert result["resolved_dataset_id"] == "dataset-1"
     assert result["used_tools"] == ["inspect_dataset_context"]
@@ -157,7 +162,10 @@ def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
                         }
                     ],
                 },
-                {"id": "resp_2", "output_text": "추세 분석을 완료했고 매출이 증가하고 있어요."},
+                {
+                    "id": "resp_2",
+                    "output_text": "추세 분석을 완료했고 매출이 증가하고 있어요.",
+                },
             ]
         ),
         dataset_service=FakeDatasetService(),
@@ -179,3 +187,23 @@ def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
     assert result["analytics"] is not None
     assert result["workspace"] is not None
     assert analysis_service.calls[0].analysis_type == "trend"
+
+
+def test_agent_graph_returns_state_when_no_final_message_is_present() -> None:
+    graph = AgentGraph(
+        llm_client=FakeLlmClient([{"id": "resp_1", "output": []}]),
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    result = graph.invoke(
+        {
+            "session_id": "session-1",
+            "message": "파일 분석해줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    assert result["route"] == "conversation"
+    assert "assistant_message" not in result
