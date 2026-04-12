@@ -48,6 +48,8 @@ class SessionMessageOrm(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     route: Mapped[str | None] = mapped_column(String(32), nullable=True)
     used_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
+    plan: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
+    plan_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

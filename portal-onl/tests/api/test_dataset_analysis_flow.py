@@ -152,6 +152,11 @@ class FakeAgentRuntime:
             "analytics": detail.analytics,
             "workspace": detail.workspace,
             "used_tools": ["run_portal_analysis"],
+            "plan": [
+                {"step": "데이터셋 선택", "status": "completed"},
+                {"step": "분석 실행", "status": "completed"},
+            ],
+            "plan_explanation": "분석 요청 처리 계획",
         }
         if self._include_message:
             result["assistant_message"] = f"GPT reply: {message[:80]}"

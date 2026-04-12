@@ -184,6 +184,11 @@ def test_session_and_messages_persist_in_sqlite() -> None:
             assistant_message="첫 번째 답변",
             route="conversation",
             used_tools=["llm"],
+            plan=[
+                {"step": "질문 파악", "status": "completed"},
+                {"step": "답변 작성", "status": "completed"},
+            ],
+            plan_explanation="간단한 응답 흐름",
             dataset_ids=[],
             analytics=None,
             workspace=None,
@@ -198,6 +203,11 @@ def test_session_and_messages_persist_in_sqlite() -> None:
             "첫 번째 질문",
             "첫 번째 답변",
         ]
+        assert body["messages"][1]["plan"] == [
+            {"step": "질문 파악", "status": "completed"},
+            {"step": "답변 작성", "status": "completed"},
+        ]
+        assert body["messages"][1]["plan_explanation"] == "간단한 응답 흐름"
         assert body["session"]["message_count"] == 2
 
         with SessionLocal() as db:
@@ -207,3 +217,8 @@ def test_session_and_messages_persist_in_sqlite() -> None:
                 db.query(SessionMessageOrm).filter_by(session_id=session_id).all()
             )
             assert len(stored_messages) == 2
+            assert stored_messages[1].plan == [
+                {"step": "질문 파악", "status": "completed"},
+                {"step": "답변 작성", "status": "completed"},
+            ]
+            assert stored_messages[1].plan_explanation == "간단한 응답 흐름"

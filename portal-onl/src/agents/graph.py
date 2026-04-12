@@ -2,12 +2,13 @@ import json
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from agents.prompt_loader import render_prompt
+from agents.prompt_loader import load_prompt
 from agents.state import AgentState
 from domain.analyses.schemas import AnalysisRequest
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from infrastructure.llm.client import LlmClient, LlmClientError
+from tools import update_plan
 
 
 @dataclass(slots=True)
@@ -84,7 +85,7 @@ class AgentGraph:
         return working_state
 
     def _system_prompt(self) -> str:
-        return render_prompt("orchestrator_system.j2")
+        return load_prompt("orchestrator_system.j2")
 
     def _build_initial_input(self, state: AgentState) -> list[dict[str, object]]:
         payload = {
@@ -128,6 +129,7 @@ class AgentGraph:
 
     def _tool_definitions(self) -> list[dict[str, object]]:
         return [
+            update_plan.tool_definition(),
             {
                 "type": "function",
                 "name": "inspect_dataset_context",
@@ -201,6 +203,8 @@ class AgentGraph:
         self, state: AgentState, function_call: _FunctionCall
     ) -> dict[str, object]:
         state["used_tools"] = [*state.get("used_tools", []), function_call.name]
+        if function_call.name == "update_plan":
+            return update_plan.execute(state, function_call.arguments)
         if function_call.name == "inspect_dataset_context":
             state["route"] = "dataset_analysis"
             return self._inspect_dataset_context(state, function_call.arguments)

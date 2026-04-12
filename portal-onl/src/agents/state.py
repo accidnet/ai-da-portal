@@ -5,13 +5,19 @@ from domain.shared import AnalyticsPayload, WorkspacePayload
 AgentRoute = Literal["conversation", "dataset_analysis", "analysis_request"]
 
 
+class PlanStep(TypedDict):
+    step: str
+    status: Literal["pending", "in_progress", "completed"]
+
+
 class AgentState(TypedDict, total=False):
     session_id: str
     message: str
     dataset_ids: list[str]
     session_dataset_ids: list[str]
     route: AgentRoute
-    plan: list[str]
+    plan: list[PlanStep]
+    plan_explanation: str | None
     assistant_message: str
     analytics: AnalyticsPayload | None
     workspace: WorkspacePayload | None

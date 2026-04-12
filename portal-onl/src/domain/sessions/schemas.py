@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from agents.state import AgentRoute
+from agents.state import AgentRoute, PlanStep
 from domain.datasets.schemas import (
     DatasetDetail,
     DatasetPreviewResponse,
@@ -48,6 +48,8 @@ class SessionMessage(BaseModel):
     created_at: datetime
     route: AgentRoute | None = None
     used_tools: list[str] = Field(default_factory=list)
+    plan: list[PlanStep] = Field(default_factory=list)
+    plan_explanation: str | None = None
 
 
 class SessionSnapshotDataset(BaseModel):

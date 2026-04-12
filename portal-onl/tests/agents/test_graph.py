@@ -207,3 +207,52 @@ def test_agent_graph_returns_state_when_no_final_message_is_present() -> None:
 
     assert result["route"] == "conversation"
     assert "assistant_message" not in result
+
+
+def test_agent_graph_allows_update_plan_tool() -> None:
+    llm_client = FakeLlmClient(
+        [
+            {
+                "id": "resp_1",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "update_plan",
+                        "arguments": (
+                            '{"explanation":"분석 전에 단계 정리","plan":[{"step":"데이터셋 확인","status":"completed"},{"step":"추세 분석 실행","status":"in_progress"}]}'
+                        ),
+                    }
+                ],
+            },
+            {
+                "id": "resp_2",
+                "output_text": "먼저 데이터셋을 확인했고, 이제 추세 분석을 진행하겠습니다.",
+            },
+        ]
+    )
+    graph = AgentGraph(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    result = graph.invoke(
+        {
+            "session_id": "session-1",
+            "message": "분석 순서를 정리해줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    assert (
+        result["assistant_message"]
+        == "먼저 데이터셋을 확인했고, 이제 추세 분석을 진행하겠습니다."
+    )
+    assert result["used_tools"] == ["update_plan"]
+    assert result["plan_explanation"] == "분석 전에 단계 정리"
+    assert result["plan"] == [
+        {"step": "데이터셋 확인", "status": "completed"},
+        {"step": "추세 분석 실행", "status": "in_progress"},
+    ]

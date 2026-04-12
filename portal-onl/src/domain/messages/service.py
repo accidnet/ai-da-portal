@@ -61,7 +61,11 @@ class MessageService:
         assistant_message = state.get("assistant_message", "").strip()
         analytics = state.get("analytics")
         workspace = state.get("workspace")
-        used_tools = [tool for tool in state.get("used_tools", []) if isinstance(tool, str)]
+        used_tools = [
+            tool for tool in state.get("used_tools", []) if isinstance(tool, str)
+        ]
+        plan = list(state.get("plan", []))
+        plan_explanation = state.get("plan_explanation")
         logger.debug(
             "Agent graph completed session_id=%s route=%s tools=%s has_analytics=%s",
             payload.session_id,
@@ -87,6 +91,10 @@ class MessageService:
             assistant_message=assistant_message,
             route=route,
             used_tools=used_tools,
+            plan=plan,
+            plan_explanation=plan_explanation
+            if isinstance(plan_explanation, str)
+            else None,
             dataset_ids=snapshot_dataset_ids,
             analytics=analytics,
             workspace=workspace,
@@ -98,6 +106,10 @@ class MessageService:
             assistant_message=assistant_message,
             route=route,
             used_tools=used_tools,
+            plan=plan,
+            plan_explanation=plan_explanation
+            if isinstance(plan_explanation, str)
+            else None,
             analytics=analytics,
             workspace=workspace,
         )

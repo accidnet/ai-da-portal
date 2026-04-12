@@ -234,6 +234,8 @@ class SessionService:
         assistant_message: str,
         route: AgentRoute,
         used_tools: list[str],
+        plan: list[dict[str, str]],
+        plan_explanation: str | None,
         dataset_ids: list[str],
         analytics: AnalyticsPayload | None,
         workspace: WorkspacePayload | None,
@@ -257,6 +259,8 @@ class SessionService:
                         created_at=now,
                         route=route,
                         used_tools=used_tools,
+                        plan=plan,
+                        plan_explanation=plan_explanation,
                     ),
                 ]
             )
@@ -482,6 +486,8 @@ class SessionService:
             created_at=self._coerce_datetime(message.created_at),
             route=message.route,
             used_tools=message.used_tools or [],
+            plan=message.plan or [],
+            plan_explanation=message.plan_explanation,
         )
 
     def _build_analytics(
