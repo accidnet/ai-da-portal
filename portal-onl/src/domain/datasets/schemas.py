@@ -9,7 +9,7 @@ class DatasetDetail(BaseModel):
     id: str
     filename: str
     content_type: str | None = None
-    storage_path: str
+    storage_path: str | None = None
     created_at: datetime
 
 

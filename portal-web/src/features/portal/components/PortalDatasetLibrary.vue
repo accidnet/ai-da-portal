@@ -27,7 +27,7 @@ const filteredDatasets = computed(() => {
   const keyword = props.searchQuery.trim().toLowerCase()
   const filtered = keyword
     ? props.datasets.filter((dataset) => {
-        const haystacks = [dataset.filename, dataset.contentType ?? '', dataset.storagePath]
+        const haystacks = [dataset.filename, dataset.contentType ?? '', dataset.storagePath ?? '']
         return haystacks.some((value) => value.toLowerCase().includes(keyword))
       })
     : props.datasets

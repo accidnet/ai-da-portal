@@ -187,12 +187,14 @@ def _override_agent_runtime() -> FakeAgentRuntime:
 def test_uploaded_dataset_preview_profile_and_list() -> None:
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
+        assert dataset["storage_path"] is None
 
         listed = client.get("/api/v1/datasets")
         assert listed.status_code == 200
         listed_item = next(
             item for item in listed.json() if item["id"] == dataset["id"]
         )
+        assert listed_item["storage_path"] is None
         assert listed_item["row_count"] == 12
         assert listed_item["column_count"] == 4
         assert listed_item["linked_session_count"] == 0
@@ -603,7 +605,9 @@ def test_chat_generates_fallback_session_title_when_llm_title_fails() -> None:
 
 def test_chat_uses_analysis_fallback_when_llm_returns_response_envelope() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
-    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime_without_message
+    app.dependency_overrides[get_agent_runtime] = (
+        _override_agent_runtime_without_message
+    )
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
 

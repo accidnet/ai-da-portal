@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
 from fastapi import UploadFile
 
-from core.config import get_settings
 from domain.datasets.preview import build_preview_from_dataframe
 from domain.datasets.profiling import build_profile_from_dataframe
 from domain.datasets.schemas import (
@@ -17,7 +17,6 @@ from domain.datasets.schemas import (
     DatasetSummary,
 )
 from domain.sessions.service import SessionService
-from infrastructure.storage.files import save_upload_file
 
 
 class DatasetService:
@@ -28,18 +27,15 @@ class DatasetService:
     async def upload(
         self, file: UploadFile, session_id: str | None = None
     ) -> DatasetDetail:
-        settings = get_settings()
         dataset_id = str(uuid4())
         suffix = Path(file.filename or "dataset.csv").suffix
-        storage_path = f"{settings.uploads_dir}/{dataset_id}{suffix}"
-        await save_upload_file(file=file, destination=Path(storage_path))
-
-        dataframe = self._load_dataframe(Path(storage_path), suffix=suffix)
+        content = await file.read()
+        dataframe = self._load_dataframe(content, suffix=suffix)
         detail = DatasetDetail(
             id=dataset_id,
             filename=file.filename or "dataset.csv",
             content_type=file.content_type,
-            storage_path=storage_path,
+            storage_path=None,
             created_at=datetime.now(UTC),
         )
         self._datasets[dataset_id] = _DatasetRecord(detail=detail, dataframe=dataframe)
@@ -86,14 +82,10 @@ class DatasetService:
         ).detail.id
 
     def delete(self, dataset_id: str) -> DatasetDeleteResponse:
-        record = self._get_record(dataset_id)
         linked_sessions = self._linked_sessions(dataset_id)
         if linked_sessions:
             raise ValueError("Dataset is still linked to one or more sessions.")
         del self._datasets[dataset_id]
-        storage_path = Path(record.detail.storage_path)
-        if storage_path.exists():
-            storage_path.unlink()
         return DatasetDeleteResponse(id=dataset_id, deleted=True)
 
     def _get_record(self, dataset_id: str) -> "_DatasetRecord":
@@ -120,18 +112,23 @@ class DatasetService:
             return []
         return self._session_service.list_linked_sessions(dataset_id)
 
-    def _load_dataframe(self, path: Path, suffix: str) -> pd.DataFrame:
+    def _load_dataframe(self, content: bytes, suffix: str) -> pd.DataFrame:
         normalized_suffix = suffix.lower()
+        buffer = BytesIO(content)
         if normalized_suffix in {".csv", ".txt"}:
-            dataframe = pd.read_csv(path)
+            dataframe = pd.read_csv(buffer)
         if normalized_suffix in {".tsv"}:
-            dataframe = pd.read_csv(path, sep="\t")
+            buffer.seek(0)
+            dataframe = pd.read_csv(buffer, sep="\t")
         if normalized_suffix in {".xlsx", ".xls"}:
-            dataframe = pd.read_excel(path)
+            buffer.seek(0)
+            dataframe = pd.read_excel(buffer)
         if normalized_suffix in {".json"}:
-            dataframe = pd.read_json(path)
+            buffer.seek(0)
+            dataframe = pd.read_json(buffer)
         if normalized_suffix not in {".csv", ".txt", ".tsv", ".xlsx", ".xls", ".json"}:
-            dataframe = pd.read_csv(path)
+            buffer.seek(0)
+            dataframe = pd.read_csv(buffer)
         return self._infer_datetime_columns(dataframe)
 
     def _infer_datetime_columns(self, dataframe: pd.DataFrame) -> pd.DataFrame:

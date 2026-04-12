@@ -7,5 +7,5 @@ class Dataset:
     id: str
     filename: str
     content_type: str | None
-    storage_path: str
+    storage_path: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))

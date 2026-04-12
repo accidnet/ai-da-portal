@@ -28,7 +28,7 @@ export interface DatasetLibraryItem {
   id: string
   filename: string
   contentType: string | null
-  storagePath: string
+  storagePath: string | null
   createdAt: string
   rowCount: number
   columnCount: number
