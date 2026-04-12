@@ -5,6 +5,9 @@ from sqlalchemy.orm import sessionmaker
 
 from core.config import get_settings
 from infrastructure.db.base import Base
+from infrastructure.db import models as db_models
+
+del db_models
 
 settings = get_settings()
 

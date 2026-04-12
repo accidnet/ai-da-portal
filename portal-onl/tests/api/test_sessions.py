@@ -3,6 +3,9 @@ from textwrap import dedent
 
 from fastapi.testclient import TestClient
 
+from api.deps import get_session_service
+from infrastructure.db.session import SessionLocal
+from infrastructure.db.models import SessionMessageOrm, SessionOrm
 from main import app
 
 
@@ -165,3 +168,42 @@ def test_session_update_attach_detach_and_delete_flow() -> None:
 
         missing = client.get(f"/api/v1/sessions/{session['id']}")
         assert missing.status_code == 404
+
+
+def test_session_and_messages_persist_in_sqlite() -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/sessions", json={"title": "SQLite persistence session"}
+        )
+        assert created.status_code == 201
+        session_id = created.json()["id"]
+
+        get_session_service().record_chat(
+            session_id=session_id,
+            user_message="첫 번째 질문",
+            assistant_message="첫 번째 답변",
+            route="conversation",
+            used_tools=["llm"],
+            dataset_ids=[],
+            analytics=None,
+            workspace=None,
+        )
+
+        get_session_service.cache_clear()
+
+        snapshot = client.get(f"/api/v1/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        body = snapshot.json()
+        assert [message["text"] for message in body["messages"]] == [
+            "첫 번째 질문",
+            "첫 번째 답변",
+        ]
+        assert body["session"]["message_count"] == 2
+
+        with SessionLocal() as db:
+            session = db.get(SessionOrm, session_id)
+            assert session is not None
+            stored_messages = (
+                db.query(SessionMessageOrm).filter_by(session_id=session_id).all()
+            )
+            assert len(stored_messages) == 2

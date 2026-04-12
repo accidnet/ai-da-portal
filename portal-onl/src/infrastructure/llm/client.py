@@ -142,11 +142,7 @@ class LlmClient:
 
     def _responses_create(self, *, payload: dict[str, object], stream: bool) -> object:
         client = self._get_openai_client()
-        logger.debug(
-            "Sending LLM request via SDK stream=%s model=%s",
-            stream,
-            payload.get("model"),
-        )
+
         try:
             return cast(Any, client).responses.create(**payload, stream=stream)
         except APIStatusError as exc:
@@ -266,6 +262,7 @@ class LlmClient:
             close()
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
+        logger.debug(f"스트리밍 결과 확인:\n{event}")
         payload = self._coerce_optional_dict(event)
         if payload is not None:
             return payload

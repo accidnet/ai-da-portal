@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import re
 from typing import TYPE_CHECKING
@@ -19,6 +18,15 @@ from domain.sessions.schemas import (
     SessionUpdateRequest,
 )
 from domain.shared import WorkspacePayload
+from infrastructure.db.models import (
+    SessionDatasetLinkOrm,
+    SessionMessageOrm,
+    SessionOrm,
+)
+from infrastructure.db.session import SessionLocal
+
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 if TYPE_CHECKING:
     from domain.datasets.service import DatasetService
@@ -33,168 +41,190 @@ class SessionService:
     )
 
     def __init__(self) -> None:
-        now = datetime.now(UTC)
-        self._sessions: dict[str, _SessionRecord] = {
-            "demo-session": _SessionRecord(
-                detail=SessionDetail(
-                    id="demo-session",
-                    title="Marketing performance review",
-                    created_at=now,
-                    updated_at=now,
-                    preferred_dataset_id=None,
-                    message_count=0,
-                    dataset_count=0,
-                    last_dataset=None,
-                )
-            )
-        }
+        self._ensure_seed_session()
 
     def create(self, payload: SessionCreateRequest) -> SessionDetail:
-        now = datetime.now(UTC)
         session_id = str(uuid4())
-        session = SessionDetail(
-            id=session_id,
-            title=payload.title,
-            created_at=now,
-            updated_at=now,
-            preferred_dataset_id=None,
-            message_count=0,
-            dataset_count=0,
-            last_dataset=None,
-        )
-        self._sessions[session_id] = _SessionRecord(detail=session)
-        return session
+        now = datetime.now(UTC)
+        with SessionLocal() as db:
+            session = SessionOrm(
+                id=session_id,
+                title=self._normalize_title(payload.title) or "New analysis session",
+                preferred_dataset_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+            return self._build_session_detail(session, dataset_service=None)
 
     def ensure_session(
         self, session_id: str, *, title: str | None = None
     ) -> SessionDetail:
-        record = self._sessions.get(session_id)
-        if record is not None:
-            return record.detail
-
-        now = datetime.now(UTC)
-        session = SessionDetail(
-            id=session_id,
-            title=self._normalize_title(title) or f"Session {session_id[:8]}",
-            created_at=now,
-            updated_at=now,
-            preferred_dataset_id=None,
-            message_count=0,
-            dataset_count=0,
-            last_dataset=None,
-        )
-        self._sessions[session_id] = _SessionRecord(detail=session)
-        return session
+        with SessionLocal() as db:
+            session = self._get_session(db, session_id)
+            if session is None:
+                now = datetime.now(UTC)
+                session = SessionOrm(
+                    id=session_id,
+                    title=self._normalize_title(title) or f"Session {session_id[:8]}",
+                    preferred_dataset_id=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(session)
+                db.commit()
+                db.refresh(session)
+            return self._build_session_detail(session, dataset_service=None)
 
     def list_sessions(self, dataset_service: "DatasetService") -> list[SessionSummary]:
-        return sorted(
-            [
-                self._build_session_detail(record, dataset_service)
-                for record in self._sessions.values()
-            ],
-            key=lambda session: session.updated_at,
-            reverse=True,
-        )
+        with SessionLocal() as db:
+            sessions = db.scalars(
+                select(SessionOrm)
+                .options(
+                    selectinload(SessionOrm.messages),
+                    selectinload(SessionOrm.dataset_links),
+                )
+                .order_by(SessionOrm.updated_at.desc())
+            ).all()
+            return [
+                self._build_session_detail(session, dataset_service)
+                for session in sessions
+            ]
 
     def get(self, session_id: str) -> SessionDetail:
-        return self._get_record(session_id).detail
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            return self._build_session_detail(session, dataset_service=None)
 
     def get_dataset_ids(self, session_id: str) -> list[str]:
-        record = self._sessions.get(session_id)
-        if record is None:
-            return []
-        return list(record.dataset_ids)
+        with SessionLocal() as db:
+            session = self._get_session(db, session_id)
+            if session is None:
+                return []
+            self._load_relationships(db, session)
+            return [link.dataset_id for link in session.dataset_links]
 
     def update(self, session_id: str, payload: SessionUpdateRequest) -> SessionDetail:
-        record = self._get_record(session_id)
         updates = payload.model_dump(exclude_unset=True)
         if not updates:
             raise ValueError(
                 "At least one of 'title' or 'preferred_dataset_id' must be provided."
             )
 
-        detail_updates: dict[str, str | None] = {}
-        if "title" in updates:
-            normalized_title = self._normalize_title(payload.title)
-            if normalized_title is None:
-                raise ValueError("Session title must not be empty.")
-            detail_updates["title"] = normalized_title
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            self._load_relationships(db, session)
 
-        if "preferred_dataset_id" in updates:
-            preferred_dataset_id = payload.preferred_dataset_id
-            if (
-                preferred_dataset_id is not None
-                and preferred_dataset_id not in record.dataset_ids
-            ):
-                raise ValueError(
-                    "Preferred dataset must already be linked to the session."
-                )
-            detail_updates["preferred_dataset_id"] = preferred_dataset_id
+            if "title" in updates:
+                normalized_title = self._normalize_title(payload.title)
+                if normalized_title is None:
+                    raise ValueError("Session title must not be empty.")
+                session.title = normalized_title
 
-        record.detail = record.detail.model_copy(update=detail_updates)
-        self._touch(record)
-        return record.detail
+            if "preferred_dataset_id" in updates:
+                preferred_dataset_id = payload.preferred_dataset_id
+                linked_dataset_ids = {link.dataset_id for link in session.dataset_links}
+                if (
+                    preferred_dataset_id is not None
+                    and preferred_dataset_id not in linked_dataset_ids
+                ):
+                    raise ValueError(
+                        "Preferred dataset must already be linked to the session."
+                    )
+                session.preferred_dataset_id = preferred_dataset_id
+
+            session.updated_at = datetime.now(UTC)
+            db.commit()
+            db.refresh(session)
+            self._load_relationships(db, session)
+            return self._build_session_detail(session, dataset_service=None)
 
     def update_title_if_default(self, session_id: str, title: str) -> SessionDetail:
-        record = self._get_or_create_record(session_id)
-        normalized_title = self._normalize_title(title)
-        if normalized_title is None:
-            return record.detail
-        if not self.is_auto_title_candidate(record.detail.title):
-            return record.detail
+        with SessionLocal() as db:
+            session = self._get_or_create_session(db, session_id)
+            normalized_title = self._normalize_title(title)
+            if normalized_title is None:
+                return self._build_session_detail(session, dataset_service=None)
+            if not self.is_auto_title_candidate(session.title):
+                return self._build_session_detail(session, dataset_service=None)
 
-        record.detail = record.detail.model_copy(update={"title": normalized_title})
-        self._touch(record)
-        return record.detail
+            session.title = normalized_title
+            session.updated_at = datetime.now(UTC)
+            db.commit()
+            db.refresh(session)
+            return self._build_session_detail(session, dataset_service=None)
 
     def delete(self, session_id: str) -> SessionDeleteResponse:
-        self._get_record(session_id)
-        del self._sessions[session_id]
-        return SessionDeleteResponse(id=session_id, deleted=True)
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            db.delete(session)
+            db.commit()
+            return SessionDeleteResponse(id=session_id, deleted=True)
 
     def attach_dataset(
         self, session_id: str, dataset_id: str, *, title: str | None = None
     ) -> SessionDatasetLinkResponse:
-        record = self._get_or_create_record(session_id, title=title)
-        now = datetime.now(UTC)
-        self._merge_dataset_ids(record, [dataset_id], now=now)
-        self._sync_preferred_dataset(record)
-        self._touch(record, now=now)
-        return SessionDatasetLinkResponse(
-            session_id=session_id,
-            dataset_ids=list(record.dataset_ids),
-        )
+        with SessionLocal() as db:
+            session = self._get_or_create_session(db, session_id, title=title)
+            self._load_relationships(db, session)
+            now = datetime.now(UTC)
+            self._merge_dataset_ids(session, [dataset_id], now=now)
+            self._sync_preferred_dataset(session)
+            session.updated_at = now
+            db.commit()
+            db.refresh(session)
+            self._load_relationships(db, session)
+            return SessionDatasetLinkResponse(
+                session_id=session_id,
+                dataset_ids=[link.dataset_id for link in session.dataset_links],
+            )
 
     def detach_dataset(
         self, session_id: str, dataset_id: str
     ) -> SessionDatasetLinkResponse:
-        record = self._get_record(session_id)
-        if dataset_id in record.dataset_ids:
-            record.dataset_ids = [
-                item for item in record.dataset_ids if item != dataset_id
-            ]
-            record.dataset_timestamps.pop(dataset_id, None)
-            if record.detail.preferred_dataset_id == dataset_id:
-                replacement_dataset_id = (
-                    record.dataset_ids[0] if record.dataset_ids else None
-                )
-                record.detail = record.detail.model_copy(
-                    update={"preferred_dataset_id": replacement_dataset_id}
-                )
-            self._touch(record)
-        return SessionDatasetLinkResponse(
-            session_id=session_id,
-            dataset_ids=list(record.dataset_ids),
-        )
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            self._load_relationships(db, session)
+            link = next(
+                (
+                    item
+                    for item in session.dataset_links
+                    if item.dataset_id == dataset_id
+                ),
+                None,
+            )
+            if link is not None:
+                db.delete(link)
+                db.flush()
+                self._load_relationships(db, session)
+                if session.preferred_dataset_id == dataset_id:
+                    session.preferred_dataset_id = (
+                        session.dataset_links[0].dataset_id
+                        if session.dataset_links
+                        else None
+                    )
+                session.updated_at = datetime.now(UTC)
+                db.commit()
+                db.refresh(session)
+                self._load_relationships(db, session)
+            return SessionDatasetLinkResponse(
+                session_id=session_id,
+                dataset_ids=[link.dataset_id for link in session.dataset_links],
+            )
 
     def list_linked_sessions(self, dataset_id: str) -> list[tuple[str, datetime]]:
-        linked_sessions: list[tuple[str, datetime]] = []
-        for session_id, record in self._sessions.items():
-            linked_at = record.dataset_timestamps.get(dataset_id)
-            if linked_at is not None:
-                linked_sessions.append((session_id, linked_at))
-        linked_sessions.sort(key=lambda item: item[1], reverse=True)
-        return linked_sessions
+        with SessionLocal() as db:
+            links = db.scalars(
+                select(SessionDatasetLinkOrm)
+                .where(SessionDatasetLinkOrm.dataset_id == dataset_id)
+                .order_by(SessionDatasetLinkOrm.linked_at.desc())
+            ).all()
+            return [
+                (link.session_id, self._coerce_datetime(link.linked_at))
+                for link in links
+            ]
 
     def record_chat(
         self,
@@ -208,33 +238,36 @@ class SessionService:
         analytics: AnalyticsPayload | None,
         workspace: WorkspacePayload | None,
     ) -> None:
-        record = self._get_or_create_record(session_id)
-        now = datetime.now(UTC)
-        record.messages.extend(
-            [
-                SessionMessage(
-                    id=str(uuid4()),
-                    role="user",
-                    text=user_message,
-                    created_at=now,
-                ),
-                SessionMessage(
-                    id=str(uuid4()),
-                    role="assistant",
-                    text=assistant_message,
-                    created_at=now,
-                    route=route,
-                    used_tools=used_tools,
-                ),
-            ]
-        )
-        self._merge_dataset_ids(record, dataset_ids, now=now)
-        self._sync_preferred_dataset(record)
-        if analytics is not None:
-            record.analytics = analytics
-        if workspace is not None:
-            record.workspace = workspace
-        self._touch(record, now=now)
+        with SessionLocal() as db:
+            session = self._get_or_create_session(db, session_id)
+            self._load_relationships(db, session)
+            now = datetime.now(UTC)
+            session.messages.extend(
+                [
+                    SessionMessageOrm(
+                        id=str(uuid4()),
+                        role="user",
+                        text=user_message,
+                        created_at=now,
+                    ),
+                    SessionMessageOrm(
+                        id=str(uuid4()),
+                        role="assistant",
+                        text=assistant_message,
+                        created_at=now,
+                        route=route,
+                        used_tools=used_tools,
+                    ),
+                ]
+            )
+            self._merge_dataset_ids(session, dataset_ids, now=now)
+            self._sync_preferred_dataset(session)
+            if analytics is not None:
+                session.analytics = analytics.model_dump(mode="json")
+            if workspace is not None:
+                session.workspace = workspace.model_dump(mode="json")
+            session.updated_at = now
+            db.commit()
 
     def record_analysis(
         self,
@@ -245,81 +278,91 @@ class SessionService:
         workspace: WorkspacePayload | None,
         title: str | None = None,
     ) -> None:
-        record = self._get_or_create_record(session_id, title=title)
-        now = datetime.now(UTC)
-        self._merge_dataset_ids(
-            record,
-            [dataset_id] if dataset_id else [],
-            now=now,
-        )
-        self._sync_preferred_dataset(record)
-        if workspace is not None:
-            record.workspace = workspace
-        if analytics is not None:
-            record.analytics = analytics
-        self._touch(record, now=now)
+        with SessionLocal() as db:
+            session = self._get_or_create_session(db, session_id, title=title)
+            self._load_relationships(db, session)
+            now = datetime.now(UTC)
+            self._merge_dataset_ids(
+                session,
+                [dataset_id] if dataset_id else [],
+                now=now,
+            )
+            self._sync_preferred_dataset(session)
+            if workspace is not None:
+                session.workspace = workspace.model_dump(mode="json")
+            if analytics is not None:
+                session.analytics = analytics.model_dump(mode="json")
+            session.updated_at = now
+            db.commit()
 
     def get_snapshot(
         self, session_id: str, dataset_service: "DatasetService"
     ) -> SessionSnapshotResponse:
-        record = self._get_record(session_id)
-        datasets: list[SessionSnapshotDataset] = []
-        for dataset_id in record.dataset_ids:
-            try:
-                datasets.append(
-                    SessionSnapshotDataset(
-                        detail=dataset_service.get(dataset_id),
-                        preview=dataset_service.get_preview(dataset_id),
-                        profile=dataset_service.get_profile(dataset_id),
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            self._load_relationships(db, session)
+            datasets: list[SessionSnapshotDataset] = []
+            for link in session.dataset_links:
+                try:
+                    datasets.append(
+                        SessionSnapshotDataset(
+                            detail=dataset_service.get(link.dataset_id),
+                            preview=dataset_service.get_preview(link.dataset_id),
+                            profile=dataset_service.get_profile(link.dataset_id),
+                        )
                     )
-                )
-            except KeyError:
-                continue
+                except KeyError:
+                    continue
 
-        return SessionSnapshotResponse(
-            session=self._build_session_detail(record, dataset_service),
-            messages=list(record.messages),
-            dataset_ids=list(record.dataset_ids),
-            datasets=datasets,
-            analytics=record.analytics,
-            workspace=record.workspace,
-        )
-
-    def _get_record(self, session_id: str) -> "_SessionRecord":
-        record = self._sessions.get(session_id)
-        if record is None:
-            raise KeyError(session_id)
-        return record
-
-    def _get_or_create_record(
-        self, session_id: str, *, title: str | None = None
-    ) -> "_SessionRecord":
-        record = self._sessions.get(session_id)
-        if record is not None:
-            return record
-
-        self.ensure_session(session_id, title=title)
-        return self._sessions[session_id]
-
-    def _touch(self, record: "_SessionRecord", *, now: datetime | None = None) -> None:
-        timestamp = now or datetime.now(UTC)
-        record.detail = record.detail.model_copy(update={"updated_at": timestamp})
+            return SessionSnapshotResponse(
+                session=self._build_session_detail(session, dataset_service),
+                messages=[self._build_message(message) for message in session.messages],
+                dataset_ids=[link.dataset_id for link in session.dataset_links],
+                datasets=datasets,
+                analytics=self._build_analytics(session.analytics),
+                workspace=self._build_workspace(session.workspace),
+            )
 
     def _merge_dataset_ids(
         self,
-        record: "_SessionRecord",
+        session: SessionOrm,
         incoming_ids: list[str],
         *,
         now: datetime,
     ) -> None:
-        merged: list[str] = []
-        for dataset_id in [*incoming_ids, *record.dataset_ids]:
-            if dataset_id and dataset_id not in merged:
-                merged.append(dataset_id)
-        for dataset_id in incoming_ids:
-            if dataset_id:
-                record.dataset_timestamps[dataset_id] = now
-        record.dataset_ids = merged
+        unique_incoming_ids = [dataset_id for dataset_id in incoming_ids if dataset_id]
+        existing_links = {link.dataset_id: link for link in session.dataset_links}
+
+        for dataset_id in unique_incoming_ids:
+            link = existing_links.get(dataset_id)
+            if link is None:
+                session.dataset_links.append(
+                    SessionDatasetLinkOrm(dataset_id=dataset_id, linked_at=now)
+                )
+                continue
+            link.linked_at = now
+
+        ordered_dataset_ids: list[str] = []
+        for dataset_id in [
+            *unique_incoming_ids,
+            *[link.dataset_id for link in session.dataset_links],
+        ]:
+            if dataset_id not in ordered_dataset_ids:
+                ordered_dataset_ids.append(dataset_id)
+
+        ordered_links: list[SessionDatasetLinkOrm] = []
+        for dataset_id in ordered_dataset_ids:
+            link = next(
+                (
+                    item
+                    for item in session.dataset_links
+                    if item.dataset_id == dataset_id
+                ),
+                None,
+            )
+            if link is not None:
+                ordered_links.append(link)
+        session.dataset_links[:] = ordered_links
 
     def _normalize_title(self, title: str | None) -> str | None:
         if title is None:
@@ -337,47 +380,125 @@ class SessionService:
             pattern.fullmatch(normalized) for pattern in self._DEFAULT_TITLE_PATTERNS
         )
 
-    def _sync_preferred_dataset(self, record: "_SessionRecord") -> None:
-        if record.detail.preferred_dataset_id is None and record.dataset_ids:
-            record.detail = record.detail.model_copy(
-                update={"preferred_dataset_id": record.dataset_ids[0]}
-            )
-
     def _build_session_detail(
-        self, record: "_SessionRecord", dataset_service: "DatasetService"
+        self, session: SessionOrm, dataset_service: "DatasetService | None"
     ) -> SessionDetail:
-        last_dataset = self._build_last_dataset(record, dataset_service)
-        return record.detail.model_copy(
-            update={
-                "message_count": len(record.messages),
-                "dataset_count": len(record.dataset_ids),
-                "last_dataset": last_dataset,
-            }
+        last_dataset = self._build_last_dataset(session, dataset_service)
+        return SessionDetail(
+            id=session.id,
+            title=session.title,
+            created_at=self._coerce_datetime(session.created_at),
+            updated_at=self._coerce_datetime(session.updated_at),
+            preferred_dataset_id=session.preferred_dataset_id,
+            message_count=len(session.messages),
+            dataset_count=len(session.dataset_links),
+            last_dataset=last_dataset,
         )
 
     def hydrate_session_detail(
         self, session_id: str, dataset_service: "DatasetService"
     ) -> SessionDetail:
-        return self._build_session_detail(self._get_record(session_id), dataset_service)
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            self._load_relationships(db, session)
+            return self._build_session_detail(session, dataset_service)
 
     def _build_last_dataset(
-        self, record: "_SessionRecord", dataset_service: "DatasetService"
+        self, session: SessionOrm, dataset_service: "DatasetService | None"
     ) -> SessionLastDataset | None:
-        if not record.dataset_ids:
+        if dataset_service is None or not session.dataset_links:
             return None
-        last_dataset_id = record.dataset_ids[0]
+        last_dataset_id = session.dataset_links[0].dataset_id
         try:
             dataset = dataset_service.get(last_dataset_id)
         except KeyError:
             return None
         return SessionLastDataset(id=dataset.id, filename=dataset.filename)
 
+    def _ensure_seed_session(self) -> None:
+        with SessionLocal() as db:
+            if self._get_session(db, "demo-session") is not None:
+                return
+            now = datetime.now(UTC)
+            db.add(
+                SessionOrm(
+                    id="demo-session",
+                    title="Marketing performance review",
+                    preferred_dataset_id=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            db.commit()
 
-@dataclass(slots=True)
-class _SessionRecord:
-    detail: SessionDetail
-    messages: list[SessionMessage] = field(default_factory=list)
-    dataset_ids: list[str] = field(default_factory=list)
-    dataset_timestamps: dict[str, datetime] = field(default_factory=dict)
-    analytics: AnalyticsPayload | None = None
-    workspace: WorkspacePayload | None = None
+    def _get_session(self, db, session_id: str) -> SessionOrm | None:
+        return db.scalar(
+            select(SessionOrm)
+            .options(
+                selectinload(SessionOrm.messages),
+                selectinload(SessionOrm.dataset_links),
+            )
+            .where(SessionOrm.id == session_id)
+        )
+
+    def _get_session_or_raise(self, db, session_id: str) -> SessionOrm:
+        session = self._get_session(db, session_id)
+        if session is None:
+            raise KeyError(session_id)
+        return session
+
+    def _get_or_create_session(
+        self, db, session_id: str, *, title: str | None = None
+    ) -> SessionOrm:
+        session = self._get_session(db, session_id)
+        if session is not None:
+            return session
+
+        now = datetime.now(UTC)
+        session = SessionOrm(
+            id=session_id,
+            title=self._normalize_title(title) or f"Session {session_id[:8]}",
+            preferred_dataset_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(session)
+        db.flush()
+        self._load_relationships(db, session)
+        return session
+
+    def _load_relationships(self, db, session: SessionOrm) -> None:
+        db.refresh(session, attribute_names=["messages", "dataset_links"])
+
+    def _sync_preferred_dataset(self, session: SessionOrm) -> None:
+        if session.preferred_dataset_id is None and session.dataset_links:
+            session.preferred_dataset_id = session.dataset_links[0].dataset_id
+
+    def _build_message(self, message: SessionMessageOrm) -> SessionMessage:
+        return SessionMessage(
+            id=message.id,
+            role=message.role,
+            text=message.text,
+            created_at=self._coerce_datetime(message.created_at),
+            route=message.route,
+            used_tools=message.used_tools or [],
+        )
+
+    def _build_analytics(
+        self, payload: dict[str, object] | None
+    ) -> AnalyticsPayload | None:
+        if payload is None:
+            return None
+        return AnalyticsPayload.model_validate(payload)
+
+    def _build_workspace(
+        self, payload: dict[str, object] | None
+    ) -> WorkspacePayload | None:
+        if payload is None:
+            return None
+        return WorkspacePayload.model_validate(payload)
+
+    def _coerce_datetime(self, value: datetime) -> datetime:
+        if value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=UTC)
