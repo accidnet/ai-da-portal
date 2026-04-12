@@ -5,6 +5,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from core.paths import DATA_DIR, ROOT_DIR
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -31,11 +33,9 @@ class Settings(BaseSettings):
         ]
     )
 
-    project_root: Path = Path(__file__).resolve().parents[2]
-    data_dir: Path = Path(__file__).resolve().parents[2] / "data"
-    database_url: str = (
-        f"sqlite:///{(Path(__file__).resolve().parents[2] / 'data' / 'portal-onl.db').as_posix()}"
-    )
+    project_root: Path = ROOT_DIR
+    data_dir: Path = DATA_DIR
+    database_url: str = f"sqlite:///{(DATA_DIR / 'portal-onl.db').as_posix()}"
     storage_root: str = "storage"
     uploads_dir: str = "storage/uploads"
 
