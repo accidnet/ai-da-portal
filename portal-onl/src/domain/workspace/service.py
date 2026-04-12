@@ -68,13 +68,13 @@ class WorkspacePlanner:
 
     def _workspace_system_prompt(self) -> str:
         return (
-            "You plan workspace layouts for a data analysis portal. "
-            "Return JSON only. Choose one template_id from: overview, chart_focus, "
+            "당신은 데이터 분석 포털의 워크스페이스 레이아웃을 설계합니다. "
+            "반드시 JSON만 반환하세요. template_id는 overview, chart_focus, "
             "table_focus, dataset_profile, executive_summary, correlation_focus, "
-            "trend_story, anomaly_watch, comparison_board. "
-            "Choose sections only from: summary_cards, chart, table, insight, dataset_profile. "
-            "Use available chart/table/insight indexes only when those items exist. "
-            "Prefer 3-5 sections total and keep titles short."
+            "trend_story, anomaly_watch, comparison_board 중 하나만 선택하세요. "
+            "section 종류는 summary_cards, chart, table, insight, dataset_profile 중에서만 고르세요. "
+            "chart, table, insight 인덱스는 해당 항목이 실제로 존재할 때만 사용하세요. "
+            "전체 섹션 수는 3~5개를 선호하고, 제목은 짧게 유지하세요."
         )
 
     def _compose_planning_message(
@@ -87,18 +87,18 @@ class WorkspacePlanner:
     ) -> str:
         return "\n\n".join(
             [
-                f"User prompt:\n{prompt or ''}",
-                f"Route: {route or 'n/a'}",
-                f"Analysis type: {analysis_type or 'n/a'}",
+                f"사용자 요청:\n{prompt or ''}",
+                f"라우트: {route or 'n/a'}",
+                f"분석 유형: {analysis_type or 'n/a'}",
                 (
-                    "Return this JSON schema only:\n"
+                    "아래 JSON 스키마 형태로만 반환하세요:\n"
                     '{"template_id":"correlation_focus","title":"...","description":"...",'
                     '"sections":[{"kind":"summary_cards","title":"...","max_items":4,'
                     '"summary_card_labels":["Rows"]},{"kind":"chart","chart_index":0},'
                     '{"kind":"table","table_index":0},{"kind":"insight","insight_index":0},'
                     '{"kind":"dataset_profile"}]}'
                 ),
-                "Available analytics payload:\n"
+                "사용 가능한 analytics payload:\n"
                 + json.dumps(analytics.model_dump(mode="json"), ensure_ascii=False),
             ]
         )

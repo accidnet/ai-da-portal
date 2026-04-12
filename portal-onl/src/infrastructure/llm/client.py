@@ -262,7 +262,6 @@ class LlmClient:
             close()
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
-        logger.debug(f"스트리밍 결과 확인:\n{event}")
         payload = self._coerce_optional_dict(event)
         if payload is not None:
             return payload

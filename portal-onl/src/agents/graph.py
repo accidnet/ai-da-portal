@@ -84,16 +84,16 @@ class AgentGraph:
 
     def _system_prompt(self) -> str:
         return (
-            "You are the single orchestration LLM for a data analysis portal. "
-            "Your job is to decide whether to continue reasoning privately, call a backend function, or answer the user directly. "
-            "Decision policy: "
-            "1) Respond directly without tools for greetings, UX guidance, conceptual explanations, follow-up wording changes, and general questions that do not require the portal's live dataset state. "
-            "2) Use inspect_dataset_context when the user asks what data is attached, what columns exist, row or null coverage, schema meaning, preview rows, or whether a dataset is suitable before analysis. "
-            "3) Use run_portal_analysis when the user asks for profiling, summary statistics, correlation, trend, forecasting, grouped comparison, anomaly detection, chart generation, or business interpretation grounded in uploaded data. "
-            "4) If the user asks to continue from prior analytical context and a dataset is available, prefer run_portal_analysis over a generic answer. "
-            "5) If no dataset is available for a data-grounded request, do not fabricate results; explain that the user should upload or attach a dataset. "
-            "6) Usually call at most one function first; only call another function if the first result shows it is still needed. "
-            "After tool results arrive, answer in concise Korean, explicitly tie claims to the returned tool output, and suggest the next useful analysis only when relevant."
+            "당신은 데이터 분석 포털의 단일 오케스트레이션 LLM입니다. "
+            "당신의 역할은 내부적으로 추론을 계속할지, 백엔드 함수를 호출할지, 또는 사용자에게 직접 답할지를 결정하는 것입니다. "
+            "의사결정 원칙: "
+            "1) 인사, UX 안내, 개념 설명, 표현 다듬기 요청, 그리고 포털의 실시간 데이터셋 상태가 필요 없는 일반 질문에는 도구 없이 직접 답하세요. "
+            "2) 사용자가 어떤 데이터가 연결되어 있는지, 어떤 컬럼이 있는지, 행 수나 결측 비율이 어떤지, 스키마 의미가 무엇인지, 미리보기 행을 보여달라고 하거나 분석 전에 데이터셋 적합성을 묻는 경우에는 inspect_dataset_context를 사용하세요. "
+            "3) 사용자가 업로드된 데이터를 근거로 프로파일링, 요약 통계, 상관관계, 추세, 예측, 그룹 비교, 이상치 탐지, 차트 생성, 비즈니스 해석을 요청하면 run_portal_analysis를 사용하세요. "
+            "4) 사용자가 이전 분석 맥락을 이어서 요청하고 사용 가능한 데이터셋이 있다면, 일반 답변보다 run_portal_analysis를 우선하세요. "
+            "5) 데이터 기반 요청인데 사용 가능한 데이터셋이 없다면 결과를 지어내지 말고, 사용자가 데이터셋을 업로드하거나 연결해야 한다고 설명하세요. "
+            "6) 보통 처음에는 함수 하나만 호출하세요. 첫 결과를 보고 정말 필요할 때만 다음 함수를 호출하세요. "
+            "도구 결과를 받은 뒤에는 간결한 한국어로 답하고, 주장마다 반환된 도구 출력에 근거를 명시하며, 관련이 있을 때만 다음에 해볼 만한 분석을 제안하세요."
         )
 
     def _build_initial_input(self, state: AgentState) -> list[dict[str, object]]:
@@ -128,7 +128,7 @@ class AgentGraph:
                     {
                         "type": "input_text",
                         "text": (
-                            "Route and tool planning context:\n"
+                            "라우팅 및 도구 계획 컨텍스트:\n"
                             + json.dumps(payload, ensure_ascii=False)
                         ),
                     }
@@ -142,23 +142,23 @@ class AgentGraph:
                 "type": "function",
                 "name": "inspect_dataset_context",
                 "description": (
-                    "Inspect an uploaded dataset profile and preview before answering questions about data structure, columns, quality, coverage, or available rows. Do not use this for actual analytical conclusions like correlation or trend analysis."
+                    "업로드된 데이터의 구조, 컬럼, 품질, 범위, 사용 가능한 행에 대한 질문에 답하기 전에 데이터셋 프로필과 미리보기를 확인합니다. 상관관계나 추세 분석 같은 실제 분석 결론에는 이 함수를 사용하지 마세요."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "dataset_id": {
                             "type": ["string", "null"],
-                            "description": "Specific dataset id to inspect. Use null to inspect the best available dataset.",
+                            "description": "확인할 특정 데이터셋 ID입니다. null이면 현재 사용할 수 있는 가장 적절한 데이터셋을 확인합니다.",
                         },
                         "include_preview": {
                             "type": "boolean",
-                            "description": "Whether to include tabular preview rows.",
+                            "description": "표 형태의 미리보기 행을 포함할지 여부입니다.",
                             "default": True,
                         },
                         "include_profile": {
                             "type": "boolean",
-                            "description": "Whether to include dataset profile statistics.",
+                            "description": "데이터셋 프로파일 통계를 포함할지 여부입니다.",
                             "default": True,
                         },
                     },
@@ -170,7 +170,7 @@ class AgentGraph:
                 "type": "function",
                 "name": "run_portal_analysis",
                 "description": (
-                    "Run backend dataset profiling or analysis and return structured results for the final answer. Use this whenever the answer must be grounded in calculations or visual summaries from uploaded data."
+                    "백엔드 데이터셋 프로파일링 또는 분석을 실행하고 최종 답변에 사용할 구조화된 결과를 반환합니다. 업로드된 데이터의 계산 결과나 시각 요약에 근거해야 하는 답변에는 이 함수를 사용하세요."
                 ),
                 "parameters": {
                     "type": "object",
@@ -178,7 +178,7 @@ class AgentGraph:
                         "route": {
                             "type": "string",
                             "enum": ["dataset_analysis", "analysis_request"],
-                            "description": "Use dataset_analysis for dataset overview/profile tasks, analysis_request for specific analytical questions.",
+                            "description": "데이터셋 개요나 프로파일 작업에는 dataset_analysis를, 구체적인 분석 질문에는 analysis_request를 사용합니다.",
                         },
                         "analysis_type": {
                             "type": "string",
@@ -190,15 +190,15 @@ class AgentGraph:
                                 "grouped_aggregation",
                                 "anomaly_detection",
                             ],
-                            "description": "Backend analysis type to execute.",
+                            "description": "실행할 백엔드 분석 유형입니다.",
                         },
                         "dataset_id": {
                             "type": ["string", "null"],
-                            "description": "Specific dataset id to analyze. Use null to resolve automatically.",
+                            "description": "분석할 특정 데이터셋 ID입니다. null이면 자동으로 결정합니다.",
                         },
                         "prompt": {
                             "type": ["string", "null"],
-                            "description": "Optional focused prompt for the analysis request.",
+                            "description": "분석 요청을 위한 선택적 추가 지시문입니다.",
                         },
                     },
                     "required": ["route", "analysis_type"],
