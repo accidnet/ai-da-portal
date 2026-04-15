@@ -48,6 +48,7 @@ class LlmClient:
         }
 
         response = self._responses_create(payload=payload, stream=self._uses_oauth())
+
         if self._uses_oauth():
             output = self._extract_stream_output(response)
         else:
@@ -231,8 +232,11 @@ class LlmClient:
             return final_response
 
         try:
+            i = 0
             for event in cast(Iterable[object], stream):
                 event_payload = self._event_to_dict(event)
+                print(f"{i}:::::::::", event_payload)
+                i+=1
                 if event_payload.get("type") != "response.completed":
                     continue
                 response_payload = self._coerce_optional_dict(

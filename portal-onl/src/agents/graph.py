@@ -34,24 +34,33 @@ class AgentGraph:
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
 
-        response = self._llm_client.create_response(
-            instructions=self._system_prompt(),
-            input=self._build_initial_input(working_state),
-            tools=self._tool_definitions(),
-            tool_choice="auto",
-            parallel_tool_calls=False,
-            reasoning={"effort": "medium"},
-            max_output_tokens=900,
-        )
+        max_iterations = 1
+        iteration_count = 0
+        next_input: list[dict[str, object]] = self._build_initial_input(working_state)
 
-        for _ in range(6):
+        while True:
+            if iteration_count >= max_iterations:
+                break
+            iteration_count += 1
+
+            response = self._llm_client.create_response(
+                instructions=self._system_prompt(),
+                previous_response_id=working_state.get("response_id"),
+                input=next_input,
+                tools=self._tool_definitions(),
+                tool_choice="auto",
+                parallel_tool_calls=False,
+                reasoning={"effort": "medium"},
+                max_output_tokens=900,
+            )
+
             response_id = response.get("id")
             if isinstance(response_id, str) and response_id:
                 working_state["response_id"] = response_id
 
             function_calls = self._extract_function_calls(response)
             if function_calls:
-                tool_outputs = [
+                next_input = [
                     {
                         "type": "function_call_output",
                         "call_id": function_call.call_id,
@@ -62,22 +71,13 @@ class AgentGraph:
                     }
                     for function_call in function_calls
                 ]
-                response = self._llm_client.create_response(
-                    previous_response_id=working_state.get("response_id"),
-                    input=tool_outputs,
-                    tools=self._tool_definitions(),
-                    tool_choice="auto",
-                    parallel_tool_calls=False,
-                    reasoning={"effort": "medium"},
-                    max_output_tokens=900,
-                )
                 continue
 
             assistant_message = self._extract_assistant_text(response)
             if assistant_message:
                 working_state["assistant_message"] = assistant_message
                 working_state.setdefault("route", "conversation")
-                return working_state
+                break
 
             break
 
@@ -85,7 +85,7 @@ class AgentGraph:
         return working_state
 
     def _system_prompt(self) -> str:
-        return load_prompt("orchestrator_system.j2")
+        return load_prompt("base.md")
 
     def _build_initial_input(self, state: AgentState) -> list[dict[str, object]]:
         payload = {
