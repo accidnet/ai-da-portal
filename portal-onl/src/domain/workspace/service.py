@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from agents.state import AgentRoute
 from domain.shared import AnalyticsPayload, WorkspacePayload, WorkspaceSectionPayload
 from infrastructure.llm.client import LlmClient, LlmClientError
+from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
 
 
 logger = logging.getLogger(__name__)
@@ -91,19 +92,19 @@ class WorkspacePlanner:
                     continue
 
                 event_type = payload.get("type")
-                if event_type in {"response.output_text.delta", "message.delta"}:
+                if RESPONSE_STREAMING_EVENTS.is_text_delta(event_type):
                     delta = payload.get("delta") or payload.get("text")
                     if isinstance(delta, str) and delta:
                         deltas.append(delta)
                     continue
 
-                if event_type in {"response.output_text.done", "message.completed"}:
+                if RESPONSE_STREAMING_EVENTS.is_text_done(event_type):
                     text = payload.get("text") or payload.get("delta")
                     if isinstance(text, str) and text.strip():
                         final_text = text.strip()
                     continue
 
-                if event_type == "response.completed":
+                if event_type == RESPONSE_STREAMING_EVENTS.response.completed:
                     response_payload = self._coerce_optional_dict(payload.get("response"))
                     if response_payload is None:
                         continue

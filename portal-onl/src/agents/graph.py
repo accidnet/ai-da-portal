@@ -9,6 +9,7 @@ from domain.analyses.schemas import AnalysisRequest
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from infrastructure.llm.client import LlmClient, LlmClientError
+from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
 from tools import update_plan
 
 
@@ -439,34 +440,31 @@ class AgentGraph:
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
 
-                if event_type == "response.completed" and response_payload is not None:
+                if (
+                    event_type == RESPONSE_STREAMING_EVENTS.response.completed
+                    and response_payload is not None
+                ):
                     return self._normalize_response_payload(response_payload)
 
-                if event_type in {"response.output_text.delta", "message.delta"}:
+                if RESPONSE_STREAMING_EVENTS.is_text_delta(event_type):
                     delta = payload.get("delta") or payload.get("text")
                     if isinstance(delta, str) and delta:
                         text_deltas.append(delta)
                     continue
 
-                if event_type in {"response.output_text.done", "message.completed"}:
+                if RESPONSE_STREAMING_EVENTS.is_text_done(event_type):
                     text = payload.get("text") or payload.get("delta")
                     if isinstance(text, str) and text.strip():
                         final_text = text.strip()
                     continue
 
-                if event_type in {
-                    "response.output_item.added",
-                    "response.output_item.done",
-                }:
+                if RESPONSE_STREAMING_EVENTS.is_output_item(event_type):
                     item = self._coerce_optional_dict(payload.get("item"))
                     if item is not None:
                         self._collect_stream_function_call(function_calls, item)
                     continue
 
-                if event_type in {
-                    "response.function_call_arguments.delta",
-                    "response.function_call_arguments.done",
-                }:
+                if RESPONSE_STREAMING_EVENTS.is_function_call_arguments(event_type):
                     self._append_function_call_arguments(function_calls, payload)
                     continue
         finally:
@@ -564,6 +562,8 @@ class AgentGraph:
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(event)
+        print("[PAYLOAD]")
+        print(payload)
         if payload is not None:
             return payload
 
