@@ -1,11 +1,14 @@
 from functools import lru_cache
 
+from fastapi import Depends
+
 from agents.graph import AgentGraph, build_agent_graph
 from core.config import Settings, get_settings
 from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from domain.messages.service import MessageService
+from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
 from infrastructure.llm.client import LlmClient
 
@@ -56,6 +59,12 @@ def get_message_service() -> MessageService:
         dataset_service=get_dataset_service(),
         session_service=get_session_service(),
     )
+
+
+def get_message_stream_service(
+    message_service: MessageService = Depends(get_message_service),
+) -> MessageStreamService:
+    return MessageStreamService(message_service=message_service)
 
 
 def get_agent_runtime() -> AgentGraph:

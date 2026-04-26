@@ -235,23 +235,6 @@ class AgentGraph:
             "requested_dataset_ids": state.get("dataset_ids", []),
             "session_dataset_ids": state.get("session_dataset_ids", []),
             "latest_dataset_id": self._dataset_service.get_latest_dataset_id(),
-            "routing_hints": {
-                "direct_reply_examples": [
-                    "안녕",
-                    "상관분석이 뭐야?",
-                    "방금 답변을 한 줄로 줄여줘",
-                ],
-                "inspect_dataset_context_examples": [
-                    "업로드된 파일 컬럼을 설명해줘",
-                    "결측치가 많은 열이 뭐야?",
-                    "데이터 미리보기를 보여줘",
-                ],
-                "run_portal_analysis_examples": [
-                    "매출 추세를 분석해줘",
-                    "광고비와 전환의 상관관계를 보여줘",
-                    "채널별 성과 비교 차트를 만들어줘",
-                ],
-            },
         }
         return [
             {
@@ -259,10 +242,7 @@ class AgentGraph:
                 "content": [
                     {
                         "type": "input_text",
-                        "text": (
-                            "라우팅 및 도구 계획 컨텍스트:\n"
-                            + json.dumps(payload, ensure_ascii=False)
-                        ),
+                        "text": (json.dumps(payload, ensure_ascii=False)),
                     }
                 ],
             }

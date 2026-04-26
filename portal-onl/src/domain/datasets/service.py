@@ -27,9 +27,19 @@ class DatasetService:
     async def upload(
         self, file: UploadFile, session_id: str | None = None
     ) -> DatasetDetail:
+        # dataset 고유 id 부여
         dataset_id = str(uuid4())
-        suffix = Path(file.filename or "dataset.csv").suffix
+
+        # filename 추출
+        filename = file.filename or "dataset.csv"
+
+        # suffix 추출
+        suffix = Path(filename).suffix
+
+        # file 읽기
         content = await file.read()
+
+        # dataframe으로 변환
         dataframe = self._load_dataframe(content, suffix=suffix)
         detail = DatasetDetail(
             id=dataset_id,
