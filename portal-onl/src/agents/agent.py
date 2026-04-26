@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
+from agents.stream_event_handlers import handle_stream_event
 from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
-from domain.analyses.schemas import AnalysisRequest
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.llm.client import LlmClient, LlmClientError
-from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
-from tools import registry, update_plan
+from tools import registry
+from tools.function_call_runtime import resolve_output_item_function_call
 
 
 @dataclass(slots=True)
@@ -111,6 +111,28 @@ class Agent:
                 break
             iteration_count += 1
 
+            stream_tool_outputs: list[dict[str, object]] = []
+
+            def on_output_item_function_call(
+                item: dict[str, object],
+            ) -> dict[str, object] | None:
+                nonlocal last_state_fingerprint
+
+                function_call_output, stream_event, next_fingerprint = (
+                    resolve_output_item_function_call(
+                        item=item,
+                        working_state=working_state,
+                        extract_function_calls=self._extract_function_calls,
+                        execute_function_call=self._execute_function_call,
+                        build_state_event=self._build_state_event,
+                        last_state_fingerprint=last_state_fingerprint,
+                    )
+                )
+                last_state_fingerprint = next_fingerprint
+                if function_call_output is not None:
+                    stream_tool_outputs.append(function_call_output)
+                return stream_event
+
             response_kwargs: dict[str, object] = {
                 "previous_response_id": working_state.get("response_id"),
                 "input": next_input,
@@ -124,12 +146,17 @@ class Agent:
                 response_kwargs["instructions"] = self._system_prompt()
 
             response = yield from self._stream_response_payload(
-                self._llm_client.create_response(**response_kwargs)
+                self._llm_client.create_response(**response_kwargs),
+                handle_output_item_function_call=on_output_item_function_call,
             )
 
             response_id = response.get("id")
             if isinstance(response_id, str) and response_id:
                 working_state["response_id"] = response_id
+
+            if stream_tool_outputs:
+                next_input = stream_tool_outputs
+                continue
 
             function_calls = self._extract_function_calls(response)
             if function_calls:
@@ -267,18 +294,25 @@ class Agent:
         self, state: AgentState, function_call: _FunctionCall
     ) -> dict[str, object]:
         state["used_tools"] = [*state.get("used_tools", []), function_call.name]
-        if function_call.name == "update_plan":
-            return update_plan.execute(state, function_call.arguments)
-        if function_call.name == "inspect_dataset_context":
-            state["route"] = "dataset_analysis"
-            state["status"] = "profiling"
-            return self._inspect_dataset_context(state, function_call.arguments)
-        if function_call.name == "run_portal_analysis":
-            state["status"] = "running_analysis"
-            return self._run_portal_analysis(state, function_call.arguments)
-        if function_call.name == "load_uploaded_dataset_file":
-            return self._load_uploaded_dataset_file(function_call.arguments)
-        return {"ok": False, "error": f"Unsupported tool: {function_call.name}"}
+        return registry.execute_tool(
+            function_call.name,
+            state,
+            function_call.arguments,
+            registry.ToolRuntimeContext(
+                dataset_service=self._dataset_service,
+                analysis_service=self._analysis_service,
+                resolve_dataset_id=lambda tool_state, preferred_dataset_id: self._resolve_dataset_id(
+                    state=tool_state,
+                    preferred_dataset_id=preferred_dataset_id,
+                ),
+                available_dataset_ids=self._available_dataset_ids,
+                read_string=self._read_string,
+                read_bool=lambda value, default: self._read_bool(
+                    value, default=default
+                ),
+                require_string=self._require_string,
+            ),
+        )
 
     def _build_state_event(self, state: AgentState) -> dict[str, object]:
         return {
@@ -307,144 +341,6 @@ class Agent:
             "analysis_type": snapshot["analysis_type"],
             "status": snapshot["status"],
         }
-
-    def _inspect_dataset_context(
-        self, state: AgentState, arguments: dict[str, object]
-    ) -> dict[str, object]:
-        dataset_id = self._resolve_dataset_id(
-            state=state,
-            preferred_dataset_id=self._read_string(arguments.get("dataset_id")),
-        )
-        if dataset_id is None:
-            return {
-                "ok": False,
-                "error": "No dataset is available.",
-                "available_dataset_ids": self._available_dataset_ids(state),
-            }
-
-        include_preview = self._read_bool(
-            arguments.get("include_preview"), default=True
-        )
-        include_profile = self._read_bool(
-            arguments.get("include_profile"), default=True
-        )
-        payload: dict[str, object] = {
-            "ok": True,
-            "dataset_id": dataset_id,
-            "available_dataset_ids": self._available_dataset_ids(state),
-        }
-        if include_profile:
-            payload["profile"] = self._dataset_service.get_profile(
-                dataset_id
-            ).model_dump(mode="json")
-        if include_preview:
-            payload["preview"] = self._dataset_service.get_preview(
-                dataset_id
-            ).model_dump(mode="json")
-        state["resolved_dataset_id"] = dataset_id
-        return payload
-
-    def _run_portal_analysis(
-        self, state: AgentState, arguments: dict[str, object]
-    ) -> dict[str, object]:
-        route = self._read_string(arguments.get("route")) or "analysis_request"
-        analysis_type = self._read_string(arguments.get("analysis_type"))
-        dataset_id = self._resolve_dataset_id(
-            state=state,
-            preferred_dataset_id=self._read_string(arguments.get("dataset_id")),
-        )
-        if dataset_id is None:
-            return {
-                "ok": False,
-                "route": route,
-                "analysis_type": analysis_type,
-                "error": "No dataset is available for analysis.",
-                "available_dataset_ids": self._available_dataset_ids(state),
-            }
-        if analysis_type is None:
-            return {
-                "ok": False,
-                "route": route,
-                "error": "analysis_type is required.",
-            }
-
-        resolved_analysis_type = cast(
-            Literal[
-                "dataset_profile",
-                "descriptive_summary",
-                "correlation",
-                "trend",
-                "grouped_aggregation",
-                "anomaly_detection",
-            ],
-            analysis_type,
-        )
-        prompt = self._read_string(arguments.get("prompt")) or self._require_string(
-            state, "message"
-        )
-        detail = self._analysis_service.create(
-            AnalysisRequest(
-                session_id=self._require_string(state, "session_id"),
-                dataset_id=dataset_id,
-                analysis_type=resolved_analysis_type,
-                prompt=prompt,
-            )
-        )
-        state["route"] = route  # type: ignore[assignment]
-        state["analysis_type"] = analysis_type
-        state["resolved_dataset_id"] = dataset_id
-        state["analytics"] = detail.analytics
-        state["workspace"] = detail.workspace
-
-        analytics = detail.analytics
-        workspace = detail.workspace
-        return {
-            "ok": True,
-            "route": route,
-            "analysis_type": analysis_type,
-            "dataset_id": dataset_id,
-            "analysis_id": detail.id,
-            "summary_cards": (
-                [card.model_dump(mode="json") for card in analytics.summary_cards[:4]]
-                if analytics is not None
-                else []
-            ),
-            "chart_titles": (
-                [chart.title for chart in analytics.charts[:3]]
-                if analytics is not None
-                else []
-            ),
-            "table_titles": (
-                [table.title for table in analytics.tables[:2]]
-                if analytics is not None
-                else []
-            ),
-            "insights": (
-                [insight.model_dump(mode="json") for insight in analytics.insights[:3]]
-                if analytics is not None
-                else []
-            ),
-            "workspace": workspace.model_dump(mode="json") if workspace else None,
-        }
-
-    def _load_uploaded_dataset_file(
-        self, arguments: dict[str, object]
-    ) -> dict[str, object]:
-        filename = self._read_string(arguments.get("filename"))
-        if filename is None:
-            return {"ok": False, "error": "filename is required."}
-
-        try:
-            payload = self._dataset_service.load_uploaded_file_by_filename(filename)
-        except FileNotFoundError:
-            return {
-                "ok": False,
-                "error": f"Uploaded file not found: {filename}",
-            }
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-
-        return {"ok": True, **payload}
 
     def _available_dataset_ids(self, state: AgentState) -> list[str]:
         combined = [
@@ -546,12 +442,19 @@ class Agent:
         return self._parse_stream_response(response)
 
     def _stream_response_payload(
-        self, response: object
+        self,
+        response: object,
+        handle_output_item_function_call=None,
     ) -> Generator[dict[str, object], None, dict[str, object]]:
         payload = self._coerce_optional_dict(response)
         if payload is not None:
             return self._normalize_response_payload(payload)
-        return (yield from self._parse_stream_response_events(response))
+        return (
+            yield from self._parse_stream_response_events(
+                response,
+                handle_output_item_function_call=handle_output_item_function_call,
+            )
+        )
 
     def _parse_stream_response(self, stream: object) -> dict[str, object]:
         parser = self._parse_stream_response_events(stream)
@@ -562,7 +465,7 @@ class Agent:
             return stop.value
 
     def _parse_stream_response_events(
-        self, stream: object
+        self, stream: object, handle_output_item_function_call=None
     ) -> Generator[dict[str, object], None, dict[str, object]]:
         response_id: str | None = None
         final_text: str | None = None
@@ -578,13 +481,16 @@ class Agent:
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
 
-                result = self._handle_stream_event(
+                result = handle_stream_event(
                     payload=payload,
                     response_id=response_id,
                     response_payload=response_payload,
                     function_calls=function_calls,
                     text_deltas=text_deltas,
                     final_text=final_text,
+                    coerce_optional_dict=self._coerce_optional_dict,
+                    normalize_response_payload=self._normalize_response_payload,
+                    handle_output_item_function_call=handle_output_item_function_call,
                 )
                 final_text = result["final_text"]
 
@@ -616,118 +522,6 @@ class Agent:
 
         return self._normalize_response_payload(normalized)
 
-    def _handle_stream_event(
-        self,
-        *,
-        payload: dict[str, object],
-        response_id: str | None,
-        response_payload: dict[str, object] | None,
-        function_calls: dict[str, dict[str, object]],
-        text_deltas: list[str],
-        final_text: str | None,
-    ) -> dict[str, object]:
-        event_type = payload.get("type")
-
-        # DEBUG를 위한 임시 출력
-        if event_type not in (
-            RESPONSE_STREAMING_EVENTS.response.created,
-            RESPONSE_STREAMING_EVENTS.response.completed,
-            RESPONSE_STREAMING_EVENTS.response.in_progress,
-        ):
-            from pprint import pprint
-
-            pprint("[TMP-TYPE]")
-            pprint(event_type)
-            print("[TMP-PAYLOAD]")
-            pprint(payload)
-            print("==" * 60)
-
-        if (
-            event_type == RESPONSE_STREAMING_EVENTS.response.completed
-            and response_payload is not None
-        ):
-            return {
-                "handled": True,
-                "yielded_event": None,
-                "completed_response": self._normalize_response_payload(
-                    response_payload
-                ),
-                "final_text": final_text,
-            }
-
-        if event_type in {
-            RESPONSE_STREAMING_EVENTS.response.output_text.delta,
-            RESPONSE_STREAMING_EVENTS.message.delta,
-        }:
-            delta = payload.get("delta") or payload.get("text")
-            if isinstance(delta, str) and delta:
-                text_deltas.append(delta)
-                return {
-                    "handled": True,
-                    "yielded_event": {
-                        "type": RESPONSE_STREAMING_EVENTS.response.output_text.delta,
-                        "delta": delta,
-                        "response_id": response_id,
-                    },
-                    "completed_response": None,
-                    "final_text": final_text,
-                }
-            return {
-                "handled": True,
-                "yielded_event": None,
-                "completed_response": None,
-                "final_text": final_text,
-            }
-
-        if event_type in {
-            RESPONSE_STREAMING_EVENTS.response.output_text.done,
-            RESPONSE_STREAMING_EVENTS.message.completed,
-        }:
-            text = payload.get("text") or payload.get("delta")
-            return {
-                "handled": True,
-                "yielded_event": None,
-                "completed_response": None,
-                "final_text": text.strip()
-                if isinstance(text, str) and text.strip()
-                else final_text,
-            }
-
-        if event_type in {
-            RESPONSE_STREAMING_EVENTS.response.output_item.added,
-            RESPONSE_STREAMING_EVENTS.response.output_item.done,
-        }:
-            item = self._coerce_optional_dict(payload.get("item"))
-            if item is not None:
-                self._collect_stream_function_call(function_calls, item)
-            return {
-                "handled": True,
-                "yielded_event": None,
-                "completed_response": None,
-                "final_text": final_text,
-            }
-
-        if event_type in {
-            RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
-            RESPONSE_STREAMING_EVENTS.response.function_call_arguments.done,
-        }:
-            function_call_event = self._append_function_call_arguments(
-                function_calls, payload
-            )
-            return {
-                "handled": True,
-                "yielded_event": function_call_event,
-                "completed_response": None,
-                "final_text": final_text,
-            }
-
-        return {
-            "handled": False,
-            "yielded_event": None,
-            "completed_response": None,
-            "final_text": final_text,
-        }
-
     def _build_stream_output(
         self,
         function_calls: dict[str, dict[str, object]],
@@ -747,78 +541,6 @@ class Agent:
                 }
             )
         return output
-
-    def _collect_stream_function_call(
-        self, function_calls: dict[str, dict[str, object]], item: dict[str, object]
-    ) -> None:
-        if item.get("type") != "function_call":
-            return
-
-        call_id = self._read_string(item.get("call_id"))
-        if call_id is None:
-            return
-
-        entry = function_calls.setdefault(
-            call_id,
-            {
-                "type": "function_call",
-                "call_id": call_id,
-                "name": self._read_string(item.get("name")) or "",
-                "arguments": "",
-            },
-        )
-
-        name = self._read_string(item.get("name"))
-        if name:
-            entry["name"] = name
-
-        arguments = item.get("arguments")
-        if isinstance(arguments, str):
-            entry["arguments"] = arguments
-
-    def _append_function_call_arguments(
-        self, function_calls: dict[str, dict[str, object]], event: dict[str, object]
-    ) -> dict[str, object] | None:
-        call_id = self._read_string(event.get("call_id")) or self._read_string(
-            event.get("item_id")
-        )
-        if call_id is None:
-            return None
-
-        entry = function_calls.setdefault(
-            call_id,
-            {
-                "type": "function_call",
-                "call_id": call_id,
-                "name": self._read_string(event.get("name")) or "",
-                "arguments": "",
-            },
-        )
-
-        name = self._read_string(event.get("name"))
-        if name:
-            entry["name"] = name
-
-        delta = event.get("delta")
-        arguments = event.get("arguments")
-        if isinstance(delta, str):
-            entry["arguments"] = f'{entry.get("arguments", "")}{delta}'
-        elif isinstance(arguments, str):
-            entry["arguments"] = arguments
-
-        streamed_event = {
-            "type": event.get("type"),
-            "call_id": call_id,
-            "name": entry.get("name") or None,
-            "response_id": event.get("response_id"),
-        }
-        if event.get("type") == RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta:
-            streamed_event["delta"] = delta if isinstance(delta, str) else ""
-        else:
-            streamed_event["arguments"] = (
-                entry.get("arguments") if isinstance(entry.get("arguments"), str) else ""
-            )
-        return streamed_event
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(event)

@@ -548,21 +548,10 @@ def test_agent_graph_stream_invoke_yields_function_call_argument_sub_messages() 
     except StopIteration as stop:
         result = stop.value
 
-    assert events[0] == {
-        "type": "response.function_call_arguments.delta",
-        "call_id": "call_1",
-        "name": "inspect_dataset_context",
-        "response_id": None,
-        "delta": '{"include_preview":',
-    }
-    assert events[1] == {
-        "type": "response.function_call_arguments.done",
-        "call_id": "call_1",
-        "name": "inspect_dataset_context",
-        "response_id": None,
-        "arguments": '{"include_preview":true}',
-    }
-    assert events[2]["type"] == "agent.state"
+    assert events[0]["type"] == "agent.state"
+    assert events[0]["state"]["route"] == "dataset_analysis"
+    assert events[0]["state"]["used_tools"] == ["inspect_dataset_context"]
+    assert events[0]["state"]["status"] == "profiling"
     assert result["assistant_message"] == "컨텍스트를 확인했습니다."
 
 
@@ -620,10 +609,9 @@ def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
     except StopIteration as stop:
         result = stop.value
 
-    assert events[0]["type"] == "response.function_call_arguments.done"
-    assert events[1]["type"] == "agent.state"
-    assert events[1]["state"]["route"] == "analysis_request"
-    assert events[1]["state"]["used_tools"] == ["run_portal_analysis"]
-    assert events[1]["state"]["status"] == "running_analysis"
-    assert events[1]["state"]["analytics"] is not None
+    assert events[0]["type"] == "agent.state"
+    assert events[0]["state"]["route"] == "analysis_request"
+    assert events[0]["state"]["used_tools"] == ["run_portal_analysis"]
+    assert events[0]["state"]["status"] == "running_analysis"
+    assert events[0]["state"]["analytics"] is not None
     assert result["assistant_message"] == "추세 분석을 완료했습니다."
