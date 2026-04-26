@@ -207,6 +207,11 @@ export interface ChatInteractionResponse extends ChatResponse {
   } | null
 }
 
+export interface StreamChatMessageOptions {
+  signal?: AbortSignal
+  onDelta?: (delta: string) => void
+}
+
 export interface AnalysisResponse {
   id: string
   session_id: string
@@ -458,6 +463,97 @@ export async function sendChatMessage(
   }
 
   return (await response.json()) as ChatResponse
+}
+
+export async function streamChatMessage(
+  payload: { sessionId: string; message: string; datasetIds?: string[] },
+  options: StreamChatMessageOptions = {},
+): Promise<ChatResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/x-ndjson',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      session_id: payload.sessionId,
+      message: payload.message,
+      dataset_ids: payload.datasetIds ?? [],
+    }),
+    signal: options.signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Chat stream request failed with status ${response.status}`)
+  }
+
+  if (!response.body) {
+    throw new Error('Chat stream response body is missing.')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let completedResponse: ChatResponse | null = null
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed) return
+
+    const event = JSON.parse(trimmed) as {
+      type?: string
+      delta?: string
+      detail?: string
+      response?: ChatResponse
+    }
+
+    if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+      options.onDelta?.(event.delta)
+      return
+    }
+
+    if (event.type === 'response.completed' && event.response) {
+      completedResponse = event.response
+      return
+    }
+
+    if (event.type === 'error') {
+      throw new Error(event.detail?.trim() || 'Chat stream failed.')
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+
+    let boundary = buffer.indexOf('\n')
+    while (boundary >= 0) {
+      const line = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 1)
+      processLine(line)
+      boundary = buffer.indexOf('\n')
+    }
+
+    if (done) break
+  }
+
+  if (buffer.trim()) {
+    processLine(buffer)
+  }
+
+  if (completedResponse) {
+    return completedResponse
+  }
+
+  throw new Error('Chat stream ended without a completed response.')
 }
 
 export async function sendChatInteraction(

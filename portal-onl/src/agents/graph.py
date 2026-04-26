@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -80,6 +80,66 @@ class AgentGraph:
                 working_state["assistant_message"] = assistant_message
                 working_state.setdefault("route", "conversation")
                 break
+
+            break
+
+        working_state.setdefault("route", "conversation")
+        return working_state
+
+    def stream_invoke(
+        self, state: AgentState
+    ) -> Generator[dict[str, object], None, AgentState]:
+        working_state = cast(AgentState, dict(state))
+        working_state.setdefault("used_tools", [])
+
+        response = yield from self._stream_response_payload(
+            self._llm_client.create_response(
+                instructions=self._system_prompt(),
+                input=self._build_initial_input(working_state),
+                tools=self._tool_definitions(),
+                tool_choice="auto",
+                parallel_tool_calls=False,
+                reasoning={"effort": "medium"},
+                max_output_tokens=900,
+            )
+        )
+
+        for _ in range(6):
+            response_id = response.get("id")
+            if isinstance(response_id, str) and response_id:
+                working_state["response_id"] = response_id
+
+            function_calls = self._extract_function_calls(response)
+            if function_calls:
+                tool_outputs = [
+                    {
+                        "type": "function_call_output",
+                        "call_id": function_call.call_id,
+                        "output": json.dumps(
+                            self._execute_function_call(working_state, function_call),
+                            ensure_ascii=False,
+                        ),
+                    }
+                    for function_call in function_calls
+                ]
+                response = yield from self._stream_response_payload(
+                    self._llm_client.create_response(
+                        previous_response_id=working_state.get("response_id"),
+                        input=tool_outputs,
+                        tools=self._tool_definitions(),
+                        tool_choice="auto",
+                        parallel_tool_calls=False,
+                        reasoning={"effort": "medium"},
+                        max_output_tokens=900,
+                    )
+                )
+                continue
+
+            assistant_message = self._extract_assistant_text(response)
+            if assistant_message:
+                working_state["assistant_message"] = assistant_message
+                working_state.setdefault("route", "conversation")
+                return working_state
 
             break
 
@@ -424,7 +484,25 @@ class AgentGraph:
             return self._normalize_response_payload(payload)
         return self._parse_stream_response(response)
 
+    def _stream_response_payload(
+        self, response: object
+    ) -> Generator[dict[str, object], None, dict[str, object]]:
+        payload = self._coerce_optional_dict(response)
+        if payload is not None:
+            return self._normalize_response_payload(payload)
+        return (yield from self._parse_stream_response_events(response))
+
     def _parse_stream_response(self, stream: object) -> dict[str, object]:
+        parser = self._parse_stream_response_events(stream)
+        try:
+            while True:
+                next(parser)
+        except StopIteration as stop:
+            return stop.value
+
+    def _parse_stream_response_events(
+        self, stream: object
+    ) -> Generator[dict[str, object], None, dict[str, object]]:
         response_id: str | None = None
         final_text: str | None = None
         text_deltas: list[str] = []
@@ -437,8 +515,10 @@ class AgentGraph:
                 event_type = payload.get("type")
 
                 response_payload = self._coerce_optional_dict(payload.get("response"))
+                from pprint import pprint
 
-                # TODO: response.created일 경우에는 추후 응답생성 시작을 알리는 용도로 프론트에 전달할 것
+                pprint("[TMP]")
+                pprint(response_payload)
 
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
@@ -456,6 +536,11 @@ class AgentGraph:
                     delta = payload.get("delta") or payload.get("text")
                     if isinstance(delta, str) and delta:
                         text_deltas.append(delta)
+                        yield {
+                            "type": RESPONSE_STREAMING_EVENTS.response.output_text.delta,
+                            "delta": delta,
+                            "response_id": response_id,
+                        }
                     continue
 
                 if (
@@ -576,11 +661,7 @@ class AgentGraph:
             entry["arguments"] = f'{entry.get("arguments", "")}{arguments}'
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
-        from pprint import pprint
-
         payload = self._coerce_optional_dict(event)
-        print("[PAYLOAD]")
-        pprint(payload)
         if payload is not None:
             return payload
 

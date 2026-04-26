@@ -1,6 +1,6 @@
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from typing import cast
 
 from fastapi import UploadFile
@@ -75,12 +75,6 @@ class MessageService:
             used_tools,
             analytics is not None,
         )
-        if not assistant_message:
-            assistant_message = self._fallback_assistant_message(
-                route=route,
-                analytics=analytics,
-                dataset_ids=payload.dataset_ids,
-            )
 
         snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
         resolved_dataset_id = state.get("resolved_dataset_id")
@@ -94,9 +88,9 @@ class MessageService:
             route=route,
             used_tools=used_tools,
             plan=plan,
-            plan_explanation=plan_explanation
-            if isinstance(plan_explanation, str)
-            else None,
+            plan_explanation=(
+                plan_explanation if isinstance(plan_explanation, str) else None
+            ),
             dataset_ids=snapshot_dataset_ids,
             analytics=analytics,
             workspace=workspace,
@@ -109,12 +103,86 @@ class MessageService:
             route=route,
             used_tools=used_tools,
             plan=plan,
-            plan_explanation=plan_explanation
-            if isinstance(plan_explanation, str)
-            else None,
+            plan_explanation=(
+                plan_explanation if isinstance(plan_explanation, str) else None
+            ),
             analytics=analytics,
             workspace=workspace,
         )
+
+    def stream_chat(
+        self, payload: ChatRequest, agent_runtime: AgentGraph
+    ) -> Generator[dict[str, object], None, None]:
+        agent_runtime = cast(AgentGraph, agent_runtime)
+        session = self._session_service.ensure_session(payload.session_id)
+        session_title = self._resolve_session_title(
+            session_id=payload.session_id,
+            current_title=session.title,
+            user_message=payload.message,
+        )
+        session_dataset_ids = self._session_service.get_dataset_ids(payload.session_id)
+        logger.debug(
+            "Streaming chat session_id=%s dataset_ids=%s session_dataset_ids=%s",
+            payload.session_id,
+            payload.dataset_ids,
+            session_dataset_ids,
+        )
+
+        state = yield from agent_runtime.stream_invoke(
+            {
+                "session_id": payload.session_id,
+                "message": payload.message,
+                "dataset_ids": payload.dataset_ids,
+                "session_dataset_ids": session_dataset_ids,
+            }
+        )
+
+        route = cast(AgentRoute, state.get("route", "conversation"))
+        assistant_message = state.get("assistant_message", "").strip()
+        analytics = state.get("analytics")
+        workspace = state.get("workspace")
+        used_tools = [
+            tool for tool in state.get("used_tools", []) if isinstance(tool, str)
+        ]
+        plan = list(state.get("plan", []))
+        plan_explanation = state.get("plan_explanation")
+
+        snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
+        resolved_dataset_id = state.get("resolved_dataset_id")
+        if resolved_dataset_id is not None:
+            snapshot_dataset_ids = [resolved_dataset_id, *snapshot_dataset_ids]
+
+        self._session_service.record_chat(
+            session_id=payload.session_id,
+            user_message=payload.message,
+            assistant_message=assistant_message,
+            route=route,
+            used_tools=used_tools,
+            plan=plan,
+            plan_explanation=(
+                plan_explanation if isinstance(plan_explanation, str) else None
+            ),
+            dataset_ids=snapshot_dataset_ids,
+            analytics=analytics,
+            workspace=workspace,
+        )
+
+        yield {
+            "type": RESPONSE_STREAMING_EVENTS.response.completed,
+            "response": ChatResponse(
+                session_id=payload.session_id,
+                session_title=session_title,
+                assistant_message=assistant_message,
+                route=route,
+                used_tools=used_tools,
+                plan=plan,
+                plan_explanation=(
+                    plan_explanation if isinstance(plan_explanation, str) else None
+                ),
+                analytics=analytics,
+                workspace=workspace,
+            ).model_dump(mode="json"),
+        }
 
     async def handle_chat_interaction(
         self,
@@ -224,7 +292,9 @@ class MessageService:
                     continue
 
                 if event_type == RESPONSE_STREAMING_EVENTS.response.completed:
-                    response_payload = self._coerce_optional_dict(payload.get("response"))
+                    response_payload = self._coerce_optional_dict(
+                        payload.get("response")
+                    )
                     if response_payload is None:
                         continue
                     completed = self._extract_output_text(response_payload)
@@ -307,22 +377,3 @@ class MessageService:
         if len(cleaned) <= 30:
             return cleaned
         return f"{cleaned[:29].rstrip()}…"
-
-    def _fallback_assistant_message(
-        self,
-        *,
-        route: str,
-        analytics: AnalyticsPayload | None,
-        dataset_ids: list[str],
-    ) -> str:
-        if analytics is not None and analytics.insights:
-            lead = analytics.insights[0].body
-            return f"백엔드 분석은 완료됐어요. {lead}"
-
-        if dataset_ids and route == "dataset_analysis":
-            return "파일을 받아서 기본 프로파일링을 완료했어요. 오른쪽 Workspace에서 데이터 개요를 확인해보세요."
-
-        if route == "analysis_request":
-            return "요청한 분석을 실행했어요. 오른쪽 Workspace에 결과 카드와 표를 반영했습니다."
-
-        return "요청을 처리했어요. 추가로 궁금한 점이나 더 보고 싶은 분석이 있으면 이어서 입력해 주세요."

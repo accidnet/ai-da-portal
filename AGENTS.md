@@ -18,15 +18,18 @@
 
 ### `portal-web/src`
 
-- Vue 3, TypeScript, Vite 기반 프론트엔드 변경을 담당
-- UI 구현, 라우팅, 상태 관리, 컴포넌트 구조, API 연동, 프론트엔드 빌드 오류 해결을 우선 책임 범위로 봄
+- Vue 3, TypeScript, Vite 기반 프론트엔드
 
 ### `portal-onl/src`
 
 - 모든 실행에는 `portal-onl/.venv` 가상환경을 활성화 후 실행할 것
 - `uv add`로 라이브러리 설치
   - 단, `torch`관련 라이브러리는 `uv pip install`로 할 것
+<<<<<<< HEAD
 - 기본적으로는 \_를 붙여 private을 나타내며, 확장, 외부호출, 공통의 가능성이 있을 경우에는 \_를 제거하여 개발
+=======
+- 기본적으로는 \_를 클래스 및 함수에 붙여 private함을 나타내고, 외부에서 사용할 가능성이 있을 경우에만 \_를 제거하도록 한다
+>>>>>>> b845dfb (streaming 형식으로 return 방법 변경 (SSE))
 
 ## 커밋 및 PR 규칙
 

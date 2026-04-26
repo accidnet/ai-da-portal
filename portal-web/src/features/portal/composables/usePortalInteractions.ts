@@ -1,6 +1,6 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
-import { createAnalysis, sendChatInteraction, sendChatMessage, type ChatInteractionResponse } from '../../../shared/api/portalApi'
+import { createAnalysis, sendChatInteraction, streamChatMessage, type ChatInteractionResponse } from '../../../shared/api/portalApi'
 import type { ChatMessage, MessageAttachmentPreview } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
 import {
@@ -100,6 +100,18 @@ export function usePortalInteractions(options: {
     isSending.value = true
     isSendingInteraction.value = Boolean(attachedFile)
     pendingAttachment.value = null
+    const assistantMessageIndex = sessionState.messages.length
+
+    if (!attachedFile) {
+      sessionState.messages = [
+        ...sessionState.messages,
+        {
+          role: 'assistant',
+          author: 'AI 데이터 분석가',
+          text: '',
+        },
+      ]
+    }
 
     try {
       const response = attachedFile
@@ -109,10 +121,23 @@ export function usePortalInteractions(options: {
             datasetIds: sessionState.datasets.map((dataset) => dataset.id),
             file: attachedFile,
           })
-        : await sendChatMessage({
+        : await streamChatMessage({
             sessionId,
             message: userMessage,
             datasetIds: sessionState.datasets.map((dataset) => dataset.id),
+          }, {
+            onDelta(delta) {
+              const current = sessionState.messages[assistantMessageIndex]
+              if (!current || current.role !== 'assistant') return
+              sessionState.messages = sessionState.messages.map((entry, index) =>
+                index === assistantMessageIndex
+                  ? {
+                      ...entry,
+                      text: `${entry.text}${delta}`,
+                    }
+                  : entry,
+              )
+            },
           })
       const interactionResponse = attachedFile ? (response as ChatInteractionResponse) : null
       const nextSessionTitle = response.session_title?.trim()
@@ -135,17 +160,20 @@ export function usePortalInteractions(options: {
         await loadDatasets()
       }
 
-      sessionState.messages = [
-        ...sessionState.messages,
-        {
-          role: 'assistant',
-          author: 'AI 데이터 분석가',
-          text: normalizeAssistantMessage(response.assistant_message),
-          route: response.route,
-          usedTools: response.used_tools,
-          attachmentPreview,
-        },
-      ]
+      const assistantMessage = {
+        role: 'assistant' as const,
+        author: 'AI 데이터 분석가',
+        text: normalizeAssistantMessage(response.assistant_message),
+        route: response.route,
+        usedTools: response.used_tools,
+        attachmentPreview,
+      }
+
+      sessionState.messages = attachedFile
+        ? [...sessionState.messages, assistantMessage]
+        : sessionState.messages.map((entry, index) =>
+            index === assistantMessageIndex ? assistantMessage : entry,
+          )
       sessionState.analyticsPayload = response.analytics
       sessionState.workspacePayload = response.workspace
       syncSessionSummaryWithState(sessionId)
@@ -155,6 +183,11 @@ export function usePortalInteractions(options: {
           ? error.message
           : '메시지를 보내지 못했어요. ChatGPT 연결과 백엔드 상태를 확인해 주세요.'
       pendingAttachment.value = attachedFile
+      if (!attachedFile) {
+        sessionState.messages = sessionState.messages.filter(
+          (_, index) => index !== assistantMessageIndex,
+        )
+      }
     } finally {
       isSending.value = false
       isSendingInteraction.value = false

@@ -28,6 +28,25 @@ const canSend = computed(
   () => (draft.value.trim().length > 0 || Boolean(props.attachedFileName)) && !props.sendDisabled,
 )
 
+const inlineThinkingMessageIndex = computed(() => {
+  if (!props.conversation.isThinking) return -1
+  const lastIndex = props.conversation.messages.length - 1
+  if (lastIndex < 0) return -1
+
+  const lastMessage = props.conversation.messages[lastIndex]
+  if (lastMessage.role !== 'assistant') return -1
+  if (lastMessage.text.trim()) return -1
+  return lastIndex
+})
+
+function shouldRenderInlineThinking(index: number): boolean {
+  return inlineThinkingMessageIndex.value === index
+}
+
+const shouldRenderThinkingRow = computed(
+  () => Boolean(props.conversation.isThinking) && inlineThinkingMessageIndex.value < 0,
+)
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -227,7 +246,14 @@ onMounted(() => {
             <span>{{ message.author }}</span>
           </div>
 
-          <div class="message-text" v-html="renderMarkdown(message.text)"></div>
+          <div v-if="message.text.trim()" class="message-text" v-html="renderMarkdown(message.text)"></div>
+
+          <div v-else-if="shouldRenderInlineThinking(index)" class="thinking-row thinking-row--inline" aria-live="polite">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>{{ conversation.thinkingLabel }}</strong>
+          </div>
 
           <div v-if="message.route || message.usedTools?.length" class="message-meta-chips">
             <span v-if="message.route" class="message-meta-chip message-meta-chip--route">
@@ -279,7 +305,7 @@ onMounted(() => {
         </div>
       </article>
 
-      <div v-if="conversation.isThinking" class="thinking-row" aria-live="polite">
+      <div v-if="shouldRenderThinkingRow" class="thinking-row" aria-live="polite">
         <span></span>
         <span></span>
         <span></span>
@@ -652,6 +678,10 @@ onMounted(() => {
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.thinking-row--inline {
+  min-height: 28px;
 }
 
 .thinking-row span {

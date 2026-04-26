@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from textwrap import dedent
 from typing import cast
@@ -161,6 +162,16 @@ class FakeAgentRuntime:
         if self._include_message:
             result["assistant_message"] = f"GPT reply: {message[:80]}"
         return result
+
+    def stream_invoke(self, state: dict[str, object]):  # type: ignore[no-untyped-def]
+        message = str(state.get("message", ""))
+        reply = f"GPT reply: {message[:80]}"
+        midpoint = max(1, len(reply) // 2)
+        yield {"type": "response.output_text.delta", "delta": reply[:midpoint]}
+        yield {"type": "response.output_text.delta", "delta": reply[midpoint:]}
+        completed_state = self.invoke(state)
+        completed_state["assistant_message"] = reply
+        return completed_state
 
 
 def _infer_analysis_type(message: str) -> str:
@@ -372,6 +383,29 @@ def test_chat_supports_korean_analysis_prompts_with_uploaded_dataset() -> None:
         assert chat_body["analytics"]["charts"]
         assert chat_body["analytics"]["charts"][0]["id"] == "correlation_scatter"
         assert chat_body["analytics"]["charts"][0]["type"] == "scatter"
+    app.dependency_overrides.clear()
+
+
+def test_chat_stream_returns_output_text_deltas_and_completed_payload() -> None:
+    app.dependency_overrides[get_message_service] = _override_message_service
+    app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/chat/messages/stream",
+            json={
+                "session_id": "stream-session",
+                "message": "스트리밍 응답을 보여줘",
+                "dataset_ids": [],
+            },
+        )
+
+        assert response.status_code == 202
+        events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+        assert events[0]["type"] == "response.output_text.delta"
+        assert events[1]["type"] == "response.output_text.delta"
+        assert events[-1]["type"] == "response.completed"
+        assert events[-1]["response"]["assistant_message"] == "GPT reply: 스트리밍 응답을 보여줘"
+
     app.dependency_overrides.clear()
 
 

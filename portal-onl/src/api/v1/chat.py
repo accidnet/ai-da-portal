@@ -1,7 +1,9 @@
 import logging
 import json
+from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from api.deps import get_agent_runtime, get_message_service
 from domain.messages.schemas import ChatInteractionResponse, ChatRequest, ChatResponse
@@ -38,6 +40,43 @@ def send_message(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+
+
+@router.post(
+    "/messages/stream",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def stream_message(
+    payload: ChatRequest,
+    service: MessageService = Depends(get_message_service),
+    agent_runtime: object = Depends(get_agent_runtime),
+) -> StreamingResponse:
+    def event_stream() -> Generator[str, None, None]:
+        try:
+            logger.debug(
+                "Streaming chat request received session_id=%s message_len=%s dataset_count=%s",
+                payload.session_id,
+                len(payload.message),
+                len(payload.dataset_ids),
+            )
+            for event in service.stream_chat(payload=payload, agent_runtime=agent_runtime):
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except LlmClientError as exc:
+            logger.exception(
+                "Streaming chat request failed session_id=%s dataset_count=%s",
+                payload.session_id,
+                len(payload.dataset_ids),
+            )
+            yield (
+                json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False)
+                + "\n"
+            )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
 
 
 @router.post(

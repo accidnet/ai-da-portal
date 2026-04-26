@@ -327,3 +327,56 @@ def test_agent_graph_parses_stream_events_and_executes_tool() -> None:
     assert llm_client.calls[1]["previous_response_id"] == "resp_1"
     assert first_stream.closed is True
     assert second_stream.closed is True
+
+
+def test_agent_graph_stream_invoke_yields_output_text_deltas() -> None:
+    llm_client = FakeLlmClient(
+        [
+            FakeStream(
+                [
+                    {"type": "response.created", "response": {"id": "resp_1"}},
+                    {"type": "response.output_text.delta", "delta": "안녕"},
+                    {"type": "response.output_text.delta", "delta": "하세요"},
+                    {
+                        "type": "response.output_text.done",
+                        "text": "안녕하세요",
+                    },
+                ]
+            )
+        ]
+    )
+    graph = AgentGraph(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    stream = graph.stream_invoke(
+        {
+            "session_id": "session-1",
+            "message": "인사해줘",
+            "dataset_ids": [],
+            "session_dataset_ids": [],
+        }
+    )
+
+    events: list[dict[str, object]] = []
+    try:
+        while True:
+            events.append(next(stream))
+    except StopIteration as stop:
+        result = stop.value
+
+    assert events == [
+        {
+            "type": "response.output_text.delta",
+            "delta": "안녕",
+            "response_id": "resp_1",
+        },
+        {
+            "type": "response.output_text.delta",
+            "delta": "하세요",
+            "response_id": "resp_1",
+        },
+    ]
+    assert result["assistant_message"] == "안녕하세요"
