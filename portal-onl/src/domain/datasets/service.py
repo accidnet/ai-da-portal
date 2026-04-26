@@ -7,6 +7,7 @@ from uuid import uuid4
 import pandas as pd
 from fastapi import UploadFile
 
+from core.paths import UPLOADED_DATASETS_DIR
 from domain.datasets.preview import build_preview_from_dataframe
 from domain.datasets.profiling import build_profile_from_dataframe
 from domain.datasets.schemas import (
@@ -17,6 +18,7 @@ from domain.datasets.schemas import (
     DatasetSummary,
 )
 from domain.sessions.service import SessionService
+from tools.dataframe_loader import load_dataframe
 
 
 class DatasetService:
@@ -39,13 +41,15 @@ class DatasetService:
         # file 읽기
         content = await file.read()
 
+        storage_path = self._store_uploaded_file(dataset_id, filename, content)
+
         # dataframe으로 변환
         dataframe = self._load_dataframe(content, suffix=suffix)
         detail = DatasetDetail(
             id=dataset_id,
             filename=file.filename or "dataset.csv",
             content_type=file.content_type,
-            storage_path=None,
+            storage_path=str(storage_path),
             created_at=datetime.now(UTC),
         )
         self._datasets[dataset_id] = _DatasetRecord(detail=detail, dataframe=dataframe)
@@ -91,6 +95,48 @@ class DatasetService:
             self._datasets.values(), key=lambda record: record.detail.created_at
         ).detail.id
 
+    def get_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
+        filenames: list[str] = []
+        for dataset_id in dataset_ids:
+            record = self._datasets.get(dataset_id)
+            if record is None:
+                continue
+            filename = record.detail.filename
+            if filename not in filenames:
+                filenames.append(filename)
+        return filenames
+
+    def load_uploaded_file_by_filename(self, filename: str) -> dict[str, object]:
+        normalized_filename = Path(filename).name
+        record = self._find_record_by_filename(normalized_filename)
+        if record is None or record.detail.storage_path is None:
+            raise FileNotFoundError(normalized_filename)
+
+        storage_path = Path(record.detail.storage_path)
+        dataframe = self._infer_datetime_columns(load_dataframe(storage_path))
+        preview = build_preview_from_dataframe(dataframe)
+
+        return {
+            "filename": normalized_filename,
+            "dataset_id": record.detail.id,
+            "storage_path": str(storage_path),
+            "row_count": int(len(dataframe.index)),
+            "column_count": int(len(dataframe.columns)),
+            "columns": [str(column) for column in dataframe.columns.tolist()],
+            "dtypes": {
+                str(column): str(dtype)
+                for column, dtype in dataframe.dtypes.astype(str).items()
+            },
+            "null_counts": {
+                str(column): int(count)
+                for column, count in dataframe.isna().sum().items()
+            },
+            "preview": {
+                "columns": preview[0],
+                "rows": preview[1],
+            },
+        }
+
     def delete(self, dataset_id: str) -> DatasetDeleteResponse:
         linked_sessions = self._linked_sessions(dataset_id)
         if linked_sessions:
@@ -121,6 +167,25 @@ class DatasetService:
         if self._session_service is None:
             return []
         return self._session_service.list_linked_sessions(dataset_id)
+
+    def _store_uploaded_file(
+        self, dataset_id: str, filename: str, content: bytes
+    ) -> Path:
+        UPLOADED_DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+        safe_name = Path(filename).name or "dataset.csv"
+        stored_path = UPLOADED_DATASETS_DIR / f"{dataset_id}__{safe_name}"
+        stored_path.write_bytes(content)
+        return stored_path
+
+    def _find_record_by_filename(self, filename: str) -> "_DatasetRecord | None":
+        candidates = [
+            record
+            for record in self._datasets.values()
+            if record.detail.filename == filename and record.detail.storage_path is not None
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda record: record.detail.created_at)
 
     def _load_dataframe(self, content: bytes, suffix: str) -> pd.DataFrame:
         normalized_suffix = suffix.lower()

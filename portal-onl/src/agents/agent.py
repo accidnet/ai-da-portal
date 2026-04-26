@@ -11,7 +11,7 @@ from domain.datasets.service import DatasetService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.llm.client import LlmClient, LlmClientError
 from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
-from tools import update_plan
+from tools import registry, update_plan
 
 
 @dataclass(slots=True)
@@ -21,7 +21,7 @@ class _FunctionCall:
     arguments: dict[str, object]
 
 
-class AgentGraph:
+class Agent:
     def __init__(
         self,
         *,
@@ -52,7 +52,7 @@ class AgentGraph:
                     instructions=self._system_prompt(),
                     previous_response_id=working_state.get("response_id"),
                     input=next_input,
-                    tools=self._tool_definitions(),
+                    tools=registry.get_tool_definitions(),
                     tool_choice="auto",
                     parallel_tool_calls=False,
                     reasoning={"effort": "medium"},
@@ -108,7 +108,7 @@ class AgentGraph:
                 instructions=self._system_prompt(),
                 previous_response_id=working_state.get("response_id"),
                 input=self._build_initial_input(working_state),
-                tools=self._tool_definitions(),
+                tools=registry.get_tool_definitions(),
                 tool_choice="auto",
                 parallel_tool_calls=False,
                 reasoning={"effort": "medium"},
@@ -150,7 +150,7 @@ class AgentGraph:
                     self._llm_client.create_response(
                         previous_response_id=working_state.get("response_id"),
                         input=tool_outputs,
-                        tools=self._tool_definitions(),
+                        tools=registry.get_tool_definitions(),
                         tool_choice="auto",
                         parallel_tool_calls=False,
                         reasoning={"effort": "medium"},
@@ -229,12 +229,20 @@ class AgentGraph:
         return load_prompt("base.md")
 
     def _build_initial_input(self, state: AgentState) -> list[dict[str, object]]:
+        available_dataset_ids = self._available_dataset_ids(state)
+        available_uploaded_filenames = self._available_uploaded_filenames(
+            available_dataset_ids
+        )
         payload = {
             "session_id": self._require_string(state, "session_id"),
             "message": self._require_string(state, "message"),
             "requested_dataset_ids": state.get("dataset_ids", []),
             "session_dataset_ids": state.get("session_dataset_ids", []),
             "latest_dataset_id": self._dataset_service.get_latest_dataset_id(),
+            "available_uploaded_filenames": available_uploaded_filenames,
+            "latest_uploaded_filename": (
+                available_uploaded_filenames[0] if available_uploaded_filenames else None
+            ),
         }
         return [
             {
@@ -246,78 +254,6 @@ class AgentGraph:
                     }
                 ],
             }
-        ]
-
-    def _tool_definitions(self) -> list[dict[str, object]]:
-        return [
-            update_plan.tool_definition(),
-            {
-                "type": "function",
-                "name": "inspect_dataset_context",
-                "description": (
-                    "업로드된 데이터의 구조, 컬럼, 품질, 범위, 사용 가능한 행에 대한 질문에 답하기 전에 데이터셋 프로필과 미리보기를 확인합니다. 상관관계나 추세 분석 같은 실제 분석 결론에는 이 함수를 사용하지 마세요."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "dataset_id": {
-                            "type": ["string", "null"],
-                            "description": "확인할 특정 데이터셋 ID입니다. null이면 현재 사용할 수 있는 가장 적절한 데이터셋을 확인합니다.",
-                        },
-                        "include_preview": {
-                            "type": "boolean",
-                            "description": "표 형태의 미리보기 행을 포함할지 여부입니다.",
-                            "default": True,
-                        },
-                        "include_profile": {
-                            "type": "boolean",
-                            "description": "데이터셋 프로파일 통계를 포함할지 여부입니다.",
-                            "default": True,
-                        },
-                    },
-                    "required": [],
-                    "additionalProperties": False,
-                },
-            },
-            {
-                "type": "function",
-                "name": "run_portal_analysis",
-                "description": (
-                    "백엔드 데이터셋 프로파일링 또는 분석을 실행하고 최종 답변에 사용할 구조화된 결과를 반환합니다. 업로드된 데이터의 계산 결과나 시각 요약에 근거해야 하는 답변에는 이 함수를 사용하세요."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "route": {
-                            "type": "string",
-                            "enum": ["dataset_analysis", "analysis_request"],
-                            "description": "데이터셋 개요나 프로파일 작업에는 dataset_analysis를, 구체적인 분석 질문에는 analysis_request를 사용합니다.",
-                        },
-                        "analysis_type": {
-                            "type": "string",
-                            "enum": [
-                                "dataset_profile",
-                                "descriptive_summary",
-                                "correlation",
-                                "trend",
-                                "grouped_aggregation",
-                                "anomaly_detection",
-                            ],
-                            "description": "실행할 백엔드 분석 유형입니다.",
-                        },
-                        "dataset_id": {
-                            "type": ["string", "null"],
-                            "description": "분석할 특정 데이터셋 ID입니다. null이면 자동으로 결정합니다.",
-                        },
-                        "prompt": {
-                            "type": ["string", "null"],
-                            "description": "분석 요청을 위한 선택적 추가 지시문입니다.",
-                        },
-                    },
-                    "required": ["route", "analysis_type"],
-                    "additionalProperties": False,
-                },
-            },
         ]
 
     def _execute_function_call(
@@ -333,6 +269,8 @@ class AgentGraph:
         if function_call.name == "run_portal_analysis":
             state["status"] = "running_analysis"
             return self._run_portal_analysis(state, function_call.arguments)
+        if function_call.name == "load_uploaded_dataset_file":
+            return self._load_uploaded_dataset_file(function_call.arguments)
         return {"ok": False, "error": f"Unsupported tool: {function_call.name}"}
 
     def _build_state_event(self, state: AgentState) -> dict[str, object]:
@@ -482,6 +420,23 @@ class AgentGraph:
             "workspace": workspace.model_dump(mode="json") if workspace else None,
         }
 
+    def _load_uploaded_dataset_file(self, arguments: dict[str, object]) -> dict[str, object]:
+        filename = self._read_string(arguments.get("filename"))
+        if filename is None:
+            return {"ok": False, "error": "filename is required."}
+
+        try:
+            payload = self._dataset_service.load_uploaded_file_by_filename(filename)
+        except FileNotFoundError:
+            return {
+                "ok": False,
+                "error": f"Uploaded file not found: {filename}",
+            }
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        return {"ok": True, **payload}
+
     def _available_dataset_ids(self, state: AgentState) -> list[str]:
         combined = [
             *state.get("dataset_ids", []),
@@ -495,6 +450,12 @@ class AgentGraph:
             if dataset_id not in unique_ids:
                 unique_ids.append(dataset_id)
         return unique_ids
+
+    def _available_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
+        get_uploaded_filenames = getattr(self._dataset_service, "get_uploaded_filenames", None)
+        if not callable(get_uploaded_filenames):
+            return []
+        return cast(list[str], get_uploaded_filenames(dataset_ids))
 
     def _resolve_dataset_id(
         self, *, state: AgentState, preferred_dataset_id: str | None
@@ -821,13 +782,13 @@ class AgentGraph:
         raise LlmClientError(f"Agent state is missing required field: {key}")
 
 
-def build_agent_graph(
+def build_agent(
     *,
     llm_client: LlmClient,
     dataset_service: DatasetService,
     analysis_service: AnalysisService,
-) -> AgentGraph:
-    return AgentGraph(
+) -> Agent:
+    return Agent(
         llm_client=llm_client,
         dataset_service=dataset_service,
         analysis_service=analysis_service,

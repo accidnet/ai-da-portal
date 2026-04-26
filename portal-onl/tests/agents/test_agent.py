@@ -1,8 +1,11 @@
 from datetime import UTC, datetime
+from pathlib import Path
 
-from agents.graph import AgentGraph
+import pandas as pd
+
+from agents.agent import Agent
 from domain.analyses.schemas import AnalysisDetail
-from domain.datasets.schemas import DatasetPreviewResponse, DatasetProfileResponse
+from domain.datasets.schemas import DatasetDetail, DatasetPreviewResponse, DatasetProfileResponse
 from domain.shared import (
     AnalyticsPayload,
     DatasetColumnProfile,
@@ -37,8 +40,25 @@ class FakeStream:
 
 
 class FakeDatasetService:
+    def __init__(self) -> None:
+        self._loaded_paths: list[str] = []
+
     def get_latest_dataset_id(self) -> str | None:
         return "dataset-1"
+
+    def get(self, dataset_id: str) -> DatasetDetail:
+        assert dataset_id == "dataset-1"
+        return DatasetDetail(
+            id=dataset_id,
+            filename="sales.csv",
+            content_type="text/csv",
+            storage_path="/tmp/dataset-1__sales.csv",
+            created_at=datetime.now(UTC),
+        )
+
+    def get_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
+        assert dataset_ids
+        return ["sales.csv"]
 
     def get_profile(self, dataset_id: str) -> DatasetProfileResponse:
         assert dataset_id == "dataset-1"
@@ -62,6 +82,27 @@ class FakeDatasetService:
             columns=["sales", "region"],
             rows=[{"sales": 100, "region": "KR"}],
         )
+
+    def load_uploaded_file_by_filename(self, filename: str) -> dict[str, object]:
+        assert filename == "sales.csv"
+        self._loaded_paths.append(filename)
+        dataframe = pd.DataFrame(
+            [{"sales": 100, "region": "KR"}, {"sales": 120, "region": "US"}]
+        )
+        return {
+            "filename": filename,
+            "dataset_id": "dataset-1",
+            "storage_path": str(Path("/tmp/dataset-1__sales.csv")),
+            "row_count": 2,
+            "column_count": 2,
+            "columns": ["sales", "region"],
+            "dtypes": {"sales": "int64", "region": "object"},
+            "null_counts": {"sales": 0, "region": 0},
+            "preview": {
+                "columns": ["sales", "region"],
+                "rows": dataframe.to_dict(orient="records"),
+            },
+        }
 
 
 class FakeAnalysisService:
@@ -90,10 +131,11 @@ class FakeAnalysisService:
 
 
 def test_agent_graph_returns_direct_conversation_reply() -> None:
-    graph = AgentGraph(
-        llm_client=FakeLlmClient(
-            [{"id": "resp_1", "output_text": "안녕하세요. 무엇을 도와드릴까요?"}]
-        ),
+    llm_client = FakeLlmClient(
+        [{"id": "resp_1", "output_text": "안녕하세요. 무엇을 도와드릴까요?"}]
+    )
+    graph = Agent(
+        llm_client=llm_client,
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
     )
@@ -110,6 +152,71 @@ def test_agent_graph_returns_direct_conversation_reply() -> None:
     assert result["assistant_message"] == "안녕하세요. 무엇을 도와드릴까요?"
     assert result["route"] == "conversation"
     assert result["used_tools"] == []
+    assert llm_client.calls[0]["input"][0]["content"][0]["text"]
+
+
+def test_agent_initial_input_includes_uploaded_filenames() -> None:
+    llm_client = FakeLlmClient(
+        [{"id": "resp_1", "output_text": "파일명을 확인했습니다."}]
+    )
+    graph = Agent(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    graph.invoke(
+        {
+            "session_id": "session-1",
+            "message": "업로드 파일을 확인해줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    payload = llm_client.calls[0]["input"][0]["content"][0]["text"]
+    assert '"available_uploaded_filenames": ["sales.csv"]' in payload
+    assert '"latest_uploaded_filename": "sales.csv"' in payload
+
+
+def test_agent_loads_uploaded_file_by_filename_tool() -> None:
+    dataset_service = FakeDatasetService()
+    graph = Agent(
+        llm_client=FakeLlmClient(
+            [
+                {
+                    "id": "resp_1",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "call_id": "call_1",
+                            "name": "load_uploaded_dataset_file",
+                            "arguments": '{"filename":"sales.csv"}',
+                        }
+                    ],
+                },
+                {
+                    "id": "resp_2",
+                    "output_text": "sales.csv 파일을 로드했고 기본 정보를 확인했습니다.",
+                },
+            ]
+        ),
+        dataset_service=dataset_service,
+        analysis_service=FakeAnalysisService(),
+    )
+
+    result = graph.invoke(
+        {
+            "session_id": "session-1",
+            "message": "sales.csv를 불러와서 구조를 보여줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    assert result["assistant_message"] == "sales.csv 파일을 로드했고 기본 정보를 확인했습니다."
+    assert result["used_tools"] == ["load_uploaded_dataset_file"]
+    assert dataset_service._loaded_paths == ["sales.csv"]
 
 
 def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
@@ -132,7 +239,7 @@ def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
             },
         ]
     )
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=llm_client,
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
@@ -158,7 +265,7 @@ def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
 
 def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
     analysis_service = FakeAnalysisService()
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=FakeLlmClient(
             [
                 {
@@ -202,7 +309,7 @@ def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
 
 
 def test_agent_graph_returns_state_when_no_final_message_is_present() -> None:
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=FakeLlmClient([{"id": "resp_1", "output": []}]),
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
@@ -243,7 +350,7 @@ def test_agent_graph_allows_update_plan_tool() -> None:
             },
         ]
     )
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=llm_client,
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
@@ -303,7 +410,7 @@ def test_agent_graph_parses_stream_events_and_executes_tool() -> None:
         ]
     )
     llm_client = FakeLlmClient([first_stream, second_stream])
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=llm_client,
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
@@ -345,7 +452,7 @@ def test_agent_graph_stream_invoke_yields_output_text_deltas() -> None:
             )
         ]
     )
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=llm_client,
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
@@ -414,7 +521,7 @@ def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
             ),
         ]
     )
-    graph = AgentGraph(
+    graph = Agent(
         llm_client=llm_client,
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),

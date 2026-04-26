@@ -1,1 +1,1 @@
-__all__ = ["update_plan"]
+__all__ = ["registry", "update_plan"]

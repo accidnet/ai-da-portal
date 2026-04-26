@@ -2,7 +2,7 @@ from functools import lru_cache
 
 from fastapi import Depends
 
-from agents.graph import AgentGraph, build_agent_graph
+from agents.agent import Agent, build_agent
 from core.config import Settings, get_settings
 from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
 from domain.analyses.service import AnalysisService
@@ -67,8 +67,8 @@ def get_message_stream_service(
     return MessageStreamService(message_service=message_service)
 
 
-def get_agent_runtime() -> AgentGraph:
-    return build_agent_graph(
+def get_agent_runtime() -> Agent:
+    return build_agent(
         llm_client=get_llm_client(),
         dataset_service=get_dataset_service(),
         analysis_service=get_analysis_service(),
