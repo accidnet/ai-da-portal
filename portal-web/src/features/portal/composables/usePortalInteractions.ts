@@ -5,8 +5,9 @@ import {
   streamChatMessage,
   type AgentStateStreamPayload,
   type ChatInteractionDataset,
+  type ChatSubMessageStreamEvent,
 } from '../../../shared/api/portalApi'
-import type { ChatMessage, MessageAttachmentPreview } from '../types'
+import type { ChatMessage, ChatSubMessage, MessageAttachmentPreview } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
 import {
   buildReportContent,
@@ -117,7 +118,67 @@ export function usePortalInteractions(options: {
     }
   }
 
+  function formatSubMessageLabel(): string {
+    return 'Thinking...'
+  }
+
+  function applyStreamingSubMessage(
+    assistantMessageIndex: number,
+    sessionState: SessionRuntimeState,
+    event: ChatSubMessageStreamEvent,
+  ) {
+    const current = sessionState.messages[assistantMessageIndex]
+    if (!current || current.role !== 'assistant') return
+
+    const sourceId = event.call_id?.trim() || event.item_id?.trim() || event.type.trim()
+    const subMessageId = `${event.type}:${sourceId}`
+    const isDone = event.type.endsWith('.done')
+    const nextChunk =
+      typeof event.delta === 'string'
+        ? event.delta
+        : typeof event.arguments === 'string'
+          ? event.arguments
+          : typeof event.text === 'string'
+            ? event.text
+            : ''
+
+    sessionState.messages = sessionState.messages.map((entry, index) => {
+      if (index !== assistantMessageIndex || entry.role !== 'assistant') {
+        return entry
+      }
+
+      const subMessages = [...(entry.subMessages ?? [])]
+      const existingIndex = subMessages.findIndex((subMessage) => subMessage.id === subMessageId)
+      const existing = existingIndex >= 0 ? subMessages[existingIndex] : null
+      const nextText = isDone
+        ? nextChunk || existing?.text || ''
+        : `${existing?.text ?? ''}${nextChunk}`
+      const nextSubMessage: ChatSubMessage = {
+        id: subMessageId,
+        type: event.type,
+        label: formatSubMessageLabel(),
+        text: nextText,
+        isStreaming: !isDone,
+      }
+
+      if (existingIndex >= 0) {
+        subMessages[existingIndex] = nextSubMessage
+      } else {
+        subMessages.push(nextSubMessage)
+      }
+
+      return {
+        ...entry,
+        subMessages,
+      }
+    })
+  }
+
   async function handleSendMessage(message: string, options: { setUploadError: (message: string | null) => void }) {
+    if (isSending.value || isRunningAnalysis.value) {
+      return
+    }
+
     const { setUploadError } = options
 
     clearInteractionFeedback()
@@ -143,16 +204,15 @@ export function usePortalInteractions(options: {
     pendingAttachment.value = null
     const assistantMessageIndex = sessionState.messages.length
 
-    if (!attachedFile) {
-      sessionState.messages = [
-        ...sessionState.messages,
-        {
-          role: 'assistant',
-          author: 'AI 데이터 분석가',
-          text: '',
-        },
-      ]
-    }
+    sessionState.messages = [
+      ...sessionState.messages,
+      {
+        role: 'assistant',
+        author: 'AI 데이터 분석가',
+        text: '',
+        subMessages: [],
+      },
+    ]
 
     try {
       const streamedDatasetRef: { current: ChatInteractionDataset | null } = { current: null }
@@ -173,6 +233,9 @@ export function usePortalInteractions(options: {
                     }
                   : entry,
               )
+            },
+            onSubMessage(event) {
+              applyStreamingSubMessage(assistantMessageIndex, sessionState, event)
             },
             onState(state) {
               applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
@@ -215,7 +278,7 @@ export function usePortalInteractions(options: {
       }
 
       const streamedAssistantText =
-        !attachedFile && sessionState.messages[assistantMessageIndex]?.role === 'assistant'
+        sessionState.messages[assistantMessageIndex]?.role === 'assistant'
           ? sessionState.messages[assistantMessageIndex].text
           : ''
       const finalAssistantText = normalizeAssistantMessage(response.assistant_message)
@@ -225,6 +288,10 @@ export function usePortalInteractions(options: {
         author: 'AI 데이터 분석가',
         // Keep the streamed bubble content when the terminal payload omits text.
         text: streamedAssistantText || finalAssistantText,
+        subMessages:
+          sessionState.messages[assistantMessageIndex]?.role === 'assistant'
+            ? sessionState.messages[assistantMessageIndex].subMessages ?? []
+            : [],
         route: response.route,
         usedTools: response.used_tools,
         plan: response.plan,
@@ -232,11 +299,9 @@ export function usePortalInteractions(options: {
         attachmentPreview,
       }
 
-      sessionState.messages = attachedFile
-        ? [...sessionState.messages, assistantMessage]
-        : sessionState.messages.map((entry, index) =>
-            index === assistantMessageIndex ? assistantMessage : entry,
-          )
+      sessionState.messages = sessionState.messages.map((entry, index) =>
+        index === assistantMessageIndex ? assistantMessage : entry,
+      )
       sessionState.analyticsPayload = response.analytics
       sessionState.workspacePayload = response.workspace
       syncSessionSummaryWithState(sessionId)
@@ -259,11 +324,9 @@ export function usePortalInteractions(options: {
           : entry,
       )
       pendingAttachment.value = attachedFile
-      if (!attachedFile) {
-        sessionState.messages = sessionState.messages.filter(
-          (_, index) => index !== assistantMessageIndex,
-        )
-      }
+      sessionState.messages = sessionState.messages.filter(
+        (_, index) => index !== assistantMessageIndex,
+      )
     } finally {
       isSending.value = false
       isSendingInteraction.value = false

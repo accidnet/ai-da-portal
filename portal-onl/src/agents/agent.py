@@ -98,28 +98,34 @@ class Agent:
         working_state.setdefault("used_tools", [])
         working_state.setdefault("status", "queued")
         last_state_fingerprint: str | None = None
+        next_input = self._build_initial_input(working_state)
+        print("[TMP-INPUT]")
+        print(next_input)
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
         max_iterations = 3
         iteration_count = 0
 
-        response = yield from self._stream_response_payload(
-            self._llm_client.create_response(
-                instructions=self._system_prompt(),
-                previous_response_id=working_state.get("response_id"),
-                input=self._build_initial_input(working_state),
-                tools=registry.get_tool_definitions(),
-                tool_choice="auto",
-                parallel_tool_calls=False,
-                reasoning={"effort": "medium"},
-                max_output_tokens=900,
-            )
-        )
-
         while True:
             if iteration_count >= max_iterations:
                 break
             iteration_count += 1
+
+            response_kwargs: dict[str, object] = {
+                "previous_response_id": working_state.get("response_id"),
+                "input": next_input,
+                "tools": registry.get_tool_definitions(),
+                "tool_choice": "auto",
+                "parallel_tool_calls": False,
+                "reasoning": {"effort": "medium"},
+                "max_output_tokens": 900,
+            }
+            if iteration_count == 1:
+                response_kwargs["instructions"] = self._system_prompt()
+
+            response = yield from self._stream_response_payload(
+                self._llm_client.create_response(**response_kwargs)
+            )
 
             response_id = response.get("id")
             if isinstance(response_id, str) and response_id:
@@ -146,17 +152,7 @@ class Agent:
                     if fingerprint != last_state_fingerprint:
                         last_state_fingerprint = fingerprint
                         yield state_event
-                response = yield from self._stream_response_payload(
-                    self._llm_client.create_response(
-                        previous_response_id=working_state.get("response_id"),
-                        input=tool_outputs,
-                        tools=registry.get_tool_definitions(),
-                        tool_choice="auto",
-                        parallel_tool_calls=False,
-                        reasoning={"effort": "medium"},
-                        max_output_tokens=900,
-                    )
-                )
+                next_input = tool_outputs
                 continue
 
             assistant_message = self._extract_assistant_text(response)
@@ -235,25 +231,36 @@ class Agent:
         )
         payload = {
             "session_id": self._require_string(state, "session_id"),
-            "message": self._require_string(state, "message"),
             "requested_dataset_ids": state.get("dataset_ids", []),
             "session_dataset_ids": state.get("session_dataset_ids", []),
             "latest_dataset_id": self._dataset_service.get_latest_dataset_id(),
             "available_uploaded_filenames": available_uploaded_filenames,
             "latest_uploaded_filename": (
-                available_uploaded_filenames[0] if available_uploaded_filenames else None
+                available_uploaded_filenames[0]
+                if available_uploaded_filenames
+                else None
             ),
         }
         return [
+            {
+                "role": "developer",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "다음의 정보를 활용하세요.\n"
+                        + (json.dumps(payload, ensure_ascii=False)),
+                    }
+                ],
+            },
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "input_text",
-                        "text": (json.dumps(payload, ensure_ascii=False)),
+                        "text": self._require_string(state, "message"),
                     }
                 ],
-            }
+            },
         ]
 
     def _execute_function_call(
@@ -420,7 +427,9 @@ class Agent:
             "workspace": workspace.model_dump(mode="json") if workspace else None,
         }
 
-    def _load_uploaded_dataset_file(self, arguments: dict[str, object]) -> dict[str, object]:
+    def _load_uploaded_dataset_file(
+        self, arguments: dict[str, object]
+    ) -> dict[str, object]:
         filename = self._read_string(arguments.get("filename"))
         if filename is None:
             return {"ok": False, "error": "filename is required."}
@@ -452,7 +461,9 @@ class Agent:
         return unique_ids
 
     def _available_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
-        get_uploaded_filenames = getattr(self._dataset_service, "get_uploaded_filenames", None)
+        get_uploaded_filenames = getattr(
+            self._dataset_service, "get_uploaded_filenames", None
+        )
         if not callable(get_uploaded_filenames):
             return []
         return cast(list[str], get_uploaded_filenames(dataset_ids))
@@ -562,70 +573,30 @@ class Agent:
         try:
             for event in cast(Iterable[object], stream):
                 payload = self._event_to_dict(event)
-
-                event_type = payload.get("type")
                 response_payload = self._coerce_optional_dict(payload.get("response"))
-
-                # DEBUG를 위한 임시 출력
-                if event_type not in (
-                    RESPONSE_STREAMING_EVENTS.response.created,
-                    RESPONSE_STREAMING_EVENTS.response.completed,
-                    RESPONSE_STREAMING_EVENTS.response.in_progress,
-                ):
-                    from pprint import pprint
-
-                    pprint("[TMP-TYPE]")
-                    pprint(event_type)
-                    print("[TMP-PAYLOAD]")
-                    pprint(response_payload)
-                    print("==" * 60)
 
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
 
-                if (
-                    event_type == RESPONSE_STREAMING_EVENTS.response.completed
-                    and response_payload is not None
-                ):
-                    return self._normalize_response_payload(response_payload)
+                result = self._handle_stream_event(
+                    payload=payload,
+                    response_id=response_id,
+                    response_payload=response_payload,
+                    function_calls=function_calls,
+                    text_deltas=text_deltas,
+                    final_text=final_text,
+                )
+                final_text = result["final_text"]
 
-                if (
-                    event_type == RESPONSE_STREAMING_EVENTS.response.output_text.delta
-                    or event_type == RESPONSE_STREAMING_EVENTS.message.delta
-                ):
-                    delta = payload.get("delta") or payload.get("text")
-                    if isinstance(delta, str) and delta:
-                        text_deltas.append(delta)
-                        yield {
-                            "type": RESPONSE_STREAMING_EVENTS.response.output_text.delta,
-                            "delta": delta,
-                            "response_id": response_id,
-                        }
-                    continue
+                completed_response = result["completed_response"]
+                if isinstance(completed_response, dict):
+                    return completed_response
 
-                if (
-                    event_type == RESPONSE_STREAMING_EVENTS.response.output_text.done
-                    or event_type == RESPONSE_STREAMING_EVENTS.message.completed
-                ):
-                    text = payload.get("text") or payload.get("delta")
-                    if isinstance(text, str) and text.strip():
-                        final_text = text.strip()
-                    continue
+                yielded_event = result["yielded_event"]
+                if isinstance(yielded_event, dict):
+                    yield yielded_event
 
-                if event_type in {
-                    RESPONSE_STREAMING_EVENTS.response.output_item.added,
-                    RESPONSE_STREAMING_EVENTS.response.output_item.done,
-                }:
-                    item = self._coerce_optional_dict(payload.get("item"))
-                    if item is not None:
-                        self._collect_stream_function_call(function_calls, item)
-                    continue
-
-                if event_type in {
-                    RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
-                    RESPONSE_STREAMING_EVENTS.response.function_call_arguments.done,
-                }:
-                    self._append_function_call_arguments(function_calls, payload)
+                if result["handled"]:
                     continue
         finally:
             if callable(close):
@@ -644,6 +615,118 @@ class Agent:
             normalized["output_text"] = output_text
 
         return self._normalize_response_payload(normalized)
+
+    def _handle_stream_event(
+        self,
+        *,
+        payload: dict[str, object],
+        response_id: str | None,
+        response_payload: dict[str, object] | None,
+        function_calls: dict[str, dict[str, object]],
+        text_deltas: list[str],
+        final_text: str | None,
+    ) -> dict[str, object]:
+        event_type = payload.get("type")
+
+        # DEBUG를 위한 임시 출력
+        if event_type not in (
+            RESPONSE_STREAMING_EVENTS.response.created,
+            RESPONSE_STREAMING_EVENTS.response.completed,
+            RESPONSE_STREAMING_EVENTS.response.in_progress,
+        ):
+            from pprint import pprint
+
+            pprint("[TMP-TYPE]")
+            pprint(event_type)
+            print("[TMP-PAYLOAD]")
+            pprint(payload)
+            print("==" * 60)
+
+        if (
+            event_type == RESPONSE_STREAMING_EVENTS.response.completed
+            and response_payload is not None
+        ):
+            return {
+                "handled": True,
+                "yielded_event": None,
+                "completed_response": self._normalize_response_payload(
+                    response_payload
+                ),
+                "final_text": final_text,
+            }
+
+        if event_type in {
+            RESPONSE_STREAMING_EVENTS.response.output_text.delta,
+            RESPONSE_STREAMING_EVENTS.message.delta,
+        }:
+            delta = payload.get("delta") or payload.get("text")
+            if isinstance(delta, str) and delta:
+                text_deltas.append(delta)
+                return {
+                    "handled": True,
+                    "yielded_event": {
+                        "type": RESPONSE_STREAMING_EVENTS.response.output_text.delta,
+                        "delta": delta,
+                        "response_id": response_id,
+                    },
+                    "completed_response": None,
+                    "final_text": final_text,
+                }
+            return {
+                "handled": True,
+                "yielded_event": None,
+                "completed_response": None,
+                "final_text": final_text,
+            }
+
+        if event_type in {
+            RESPONSE_STREAMING_EVENTS.response.output_text.done,
+            RESPONSE_STREAMING_EVENTS.message.completed,
+        }:
+            text = payload.get("text") or payload.get("delta")
+            return {
+                "handled": True,
+                "yielded_event": None,
+                "completed_response": None,
+                "final_text": text.strip()
+                if isinstance(text, str) and text.strip()
+                else final_text,
+            }
+
+        if event_type in {
+            RESPONSE_STREAMING_EVENTS.response.output_item.added,
+            RESPONSE_STREAMING_EVENTS.response.output_item.done,
+        }:
+            item = self._coerce_optional_dict(payload.get("item"))
+            if item is not None:
+                self._collect_stream_function_call(function_calls, item)
+            return {
+                "handled": True,
+                "yielded_event": None,
+                "completed_response": None,
+                "final_text": final_text,
+            }
+
+        if event_type in {
+            RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
+            RESPONSE_STREAMING_EVENTS.response.function_call_arguments.done,
+        }:
+            function_call_event = self._append_function_call_arguments(
+                function_calls, payload
+            )
+            return {
+                "handled": True,
+                "yielded_event": function_call_event,
+                "completed_response": None,
+                "final_text": final_text,
+            }
+
+        return {
+            "handled": False,
+            "yielded_event": None,
+            "completed_response": None,
+            "final_text": final_text,
+        }
 
     def _build_stream_output(
         self,
@@ -695,12 +778,12 @@ class Agent:
 
     def _append_function_call_arguments(
         self, function_calls: dict[str, dict[str, object]], event: dict[str, object]
-    ) -> None:
+    ) -> dict[str, object] | None:
         call_id = self._read_string(event.get("call_id")) or self._read_string(
             event.get("item_id")
         )
         if call_id is None:
-            return
+            return None
 
         entry = function_calls.setdefault(
             call_id,
@@ -716,9 +799,26 @@ class Agent:
         if name:
             entry["name"] = name
 
-        arguments = event.get("delta") or event.get("arguments")
-        if isinstance(arguments, str):
-            entry["arguments"] = f'{entry.get("arguments", "")}{arguments}'
+        delta = event.get("delta")
+        arguments = event.get("arguments")
+        if isinstance(delta, str):
+            entry["arguments"] = f'{entry.get("arguments", "")}{delta}'
+        elif isinstance(arguments, str):
+            entry["arguments"] = arguments
+
+        streamed_event = {
+            "type": event.get("type"),
+            "call_id": call_id,
+            "name": entry.get("name") or None,
+            "response_id": event.get("response_id"),
+        }
+        if event.get("type") == RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta:
+            streamed_event["delta"] = delta if isinstance(delta, str) else ""
+        else:
+            streamed_event["arguments"] = (
+                entry.get("arguments") if isinstance(entry.get("arguments"), str) else ""
+            )
+        return streamed_event
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(event)

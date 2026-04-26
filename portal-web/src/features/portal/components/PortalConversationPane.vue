@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
-import type { ComposerData, ConversationData } from '../types'
+import type { ChatMessage, ChatSubMessage, ComposerData, ConversationData } from '../types'
 
 const props = defineProps<{
   conversation: ConversationData
@@ -23,6 +23,7 @@ const emit = defineEmits<{
 const draft = ref('')
 const isDragActive = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const expandedSubMessageKeys = ref<Record<string, boolean>>({})
 
 const canSend = computed(
   () => (draft.value.trim().length > 0 || Boolean(props.attachedFileName)) && !props.sendDisabled,
@@ -141,6 +142,27 @@ function formatPlanStepStatus(status: 'pending' | 'in_progress' | 'completed'): 
   if (status === 'completed') return '완료'
   if (status === 'in_progress') return '진행 중'
   return '대기'
+}
+
+function buildSubMessageKey(messageIndex: number, subMessageId: string): string {
+  return `${messageIndex}:${subMessageId}`
+}
+
+function isSubMessageExpanded(messageIndex: number, subMessage: ChatSubMessage): boolean {
+  const key = buildSubMessageKey(messageIndex, subMessage.id)
+  return expandedSubMessageKeys.value[key] ?? subMessage.isStreaming
+}
+
+function toggleSubMessage(messageIndex: number, subMessage: ChatSubMessage) {
+  const key = buildSubMessageKey(messageIndex, subMessage.id)
+  expandedSubMessageKeys.value = {
+    ...expandedSubMessageKeys.value,
+    [key]: !isSubMessageExpanded(messageIndex, subMessage),
+  }
+}
+
+function hasSubMessages(message: ChatMessage): boolean {
+  return (message.subMessages?.length ?? 0) > 0
 }
 
 function submit() {
@@ -269,6 +291,41 @@ onMounted(() => {
             <span></span>
             <span></span>
             <strong>{{ conversation.thinkingLabel }}</strong>
+          </div>
+
+          <div v-if="hasSubMessages(message)" class="message-substream-list">
+            <section
+              v-for="subMessage in message.subMessages ?? []"
+              :key="subMessage.id"
+              class="message-substream"
+              :class="{ 'message-substream--streaming': subMessage.isStreaming }"
+            >
+              <button
+                type="button"
+                class="message-substream__header"
+                :aria-expanded="isSubMessageExpanded(index, subMessage)"
+                @click="toggleSubMessage(index, subMessage)"
+              >
+                <div class="message-substream__title-block">
+                  <strong>{{ subMessage.label }}</strong>
+                  <span class="material-symbols-outlined message-substream__chevron">
+                    {{ isSubMessageExpanded(index, subMessage) ? 'expand_less' : 'expand_more' }}
+                  </span>
+                </div>
+              </button>
+
+              <div
+                v-if="isSubMessageExpanded(index, subMessage)"
+                class="message-substream__body"
+              >
+                <div
+                  v-if="subMessage.text.trim()"
+                  class="message-substream__text"
+                  v-html="renderMarkdown(subMessage.text)"
+                ></div>
+                <div v-else class="message-substream__empty">서브 메시지를 수신 중입니다.</div>
+              </div>
+            </section>
           </div>
 
           <div v-if="message.route || message.usedTools?.length" class="message-meta-chips">
@@ -576,6 +633,96 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
+}
+
+.message-substream-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.message-substream {
+  border: 1px solid rgba(24, 74, 140, 0.14);
+  border-radius: 16px;
+  background: rgba(24, 74, 140, 0.04);
+  overflow: hidden;
+}
+
+.message-substream--streaming {
+  border-color: rgba(24, 74, 140, 0.24);
+  background: rgba(24, 74, 140, 0.07);
+}
+
+.message-substream__header {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 0;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.message-substream__title-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-substream__chevron {
+  color: var(--color-text-soft);
+  font-size: 1.1rem;
+}
+
+.message-substream__title-block strong {
+  color: var(--color-text);
+  font-size: 0.8rem;
+}
+
+.message-substream__body {
+  padding: 0 14px 14px;
+}
+
+.message-substream__text {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.message-substream__text :deep(p),
+.message-substream__text :deep(ul),
+.message-substream__text :deep(h1),
+.message-substream__text :deep(h2),
+.message-substream__text :deep(h3) {
+  margin: 0;
+}
+
+.message-substream__text :deep(p + p),
+.message-substream__text :deep(p + ul),
+.message-substream__text :deep(ul + p),
+.message-substream__text :deep(h1 + p),
+.message-substream__text :deep(h2 + p),
+.message-substream__text :deep(h3 + p) {
+  margin-top: 10px;
+}
+
+.message-substream__text :deep(ul) {
+  padding-left: 18px;
+}
+
+.message-substream__text :deep(code) {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(24, 74, 140, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.82em;
+}
+
+.message-substream__empty {
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
 }
 
 .message-meta-chip {

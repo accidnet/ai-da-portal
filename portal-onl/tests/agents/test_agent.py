@@ -489,6 +489,83 @@ def test_agent_graph_stream_invoke_yields_output_text_deltas() -> None:
     assert result["assistant_message"] == "안녕하세요"
 
 
+def test_agent_graph_stream_invoke_yields_function_call_argument_sub_messages() -> None:
+    llm_client = FakeLlmClient(
+        [
+            FakeStream(
+                [
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "call_id": "call_1",
+                            "name": "inspect_dataset_context",
+                        },
+                    },
+                    {
+                        "type": "response.function_call_arguments.delta",
+                        "call_id": "call_1",
+                        "delta": '{"include_preview":',
+                    },
+                    {
+                        "type": "response.function_call_arguments.done",
+                        "call_id": "call_1",
+                        "arguments": '{"include_preview":true}',
+                    },
+                    {"type": "response.created", "response": {"id": "resp_1"}},
+                ]
+            ),
+            FakeStream(
+                [
+                    {"type": "response.created", "response": {"id": "resp_2"}},
+                    {
+                        "type": "response.output_text.done",
+                        "text": "컨텍스트를 확인했습니다.",
+                    },
+                ]
+            ),
+        ]
+    )
+    graph = Agent(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    stream = graph.stream_invoke(
+        {
+            "session_id": "session-1",
+            "message": "데이터셋 확인해줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    events: list[dict[str, object]] = []
+    try:
+        while True:
+            events.append(next(stream))
+    except StopIteration as stop:
+        result = stop.value
+
+    assert events[0] == {
+        "type": "response.function_call_arguments.delta",
+        "call_id": "call_1",
+        "name": "inspect_dataset_context",
+        "response_id": None,
+        "delta": '{"include_preview":',
+    }
+    assert events[1] == {
+        "type": "response.function_call_arguments.done",
+        "call_id": "call_1",
+        "name": "inspect_dataset_context",
+        "response_id": None,
+        "arguments": '{"include_preview":true}',
+    }
+    assert events[2]["type"] == "agent.state"
+    assert result["assistant_message"] == "컨텍스트를 확인했습니다."
+
+
 def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
     llm_client = FakeLlmClient(
         [
@@ -543,9 +620,10 @@ def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
     except StopIteration as stop:
         result = stop.value
 
-    assert events[0]["type"] == "agent.state"
-    assert events[0]["state"]["route"] == "analysis_request"
-    assert events[0]["state"]["used_tools"] == ["run_portal_analysis"]
-    assert events[0]["state"]["status"] == "running_analysis"
-    assert events[0]["state"]["analytics"] is not None
+    assert events[0]["type"] == "response.function_call_arguments.done"
+    assert events[1]["type"] == "agent.state"
+    assert events[1]["state"]["route"] == "analysis_request"
+    assert events[1]["state"]["used_tools"] == ["run_portal_analysis"]
+    assert events[1]["state"]["status"] == "running_analysis"
+    assert events[1]["state"]["analytics"] is not None
     assert result["assistant_message"] == "추세 분석을 완료했습니다."

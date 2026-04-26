@@ -85,6 +85,14 @@ export interface MessageAttachmentStatus {
   meta?: string
 }
 
+export interface ChatSubMessage {
+  id: string
+  type: string
+  label: string
+  text: string
+  isStreaming: boolean
+}
+
 export interface PlanStep {
   step: string
   status: 'pending' | 'in_progress' | 'completed'
@@ -94,6 +102,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   author?: string
   text: string
+  subMessages?: ChatSubMessage[]
   attachmentStatus?: MessageAttachmentStatus
   route?: 'conversation' | 'dataset_analysis' | 'analysis_request'
   usedTools?: string[]

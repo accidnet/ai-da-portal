@@ -228,9 +228,26 @@ export interface AgentStateStreamPayload {
   analysis_type?: string | null
 }
 
+export interface ChatSubMessageStreamEvent {
+  type: string
+  call_id?: string
+  item_id?: string
+  name?: string | null
+  delta?: string
+  arguments?: string
+  text?: string
+  response_id?: string | null
+}
+
 interface ChatStreamEvent {
   type?: string
   delta?: string
+  text?: string
+  arguments?: string
+  call_id?: string
+  item_id?: string
+  name?: string | null
+  response_id?: string | null
   detail?: string
   state?: AgentStateStreamPayload
   response?: ChatResponse
@@ -240,6 +257,7 @@ interface ChatStreamEvent {
 export interface StreamChatMessageOptions {
   signal?: AbortSignal
   onDelta?: (delta: string) => void
+  onSubMessage?: (event: ChatSubMessageStreamEvent) => void
   onState?: (state: AgentStateStreamPayload) => void
   onDataset?: (dataset: ChatInteractionDataset) => void
 }
@@ -556,6 +574,28 @@ export async function streamChatMessage(
     if (eventType === 'response.output_text.delta' && typeof event.delta === 'string') {
       options.onDelta?.(event.delta)
       return
+    }
+
+    if (eventType && eventType !== 'response.output_text.done' && eventType !== 'message.completed') {
+      const isReservedEvent =
+        eventType === 'agent.state'
+        || eventType === 'dataset.ready'
+        || eventType === 'response.completed'
+        || eventType === 'error'
+
+      if (!isReservedEvent && (typeof event.delta === 'string' || typeof event.arguments === 'string' || typeof event.text === 'string')) {
+        options.onSubMessage?.({
+          type: eventType,
+          call_id: event.call_id,
+          item_id: event.item_id,
+          name: event.name,
+          delta: event.delta,
+          arguments: event.arguments,
+          text: event.text,
+          response_id: event.response_id,
+        })
+        return
+      }
     }
 
     if (eventType === 'agent.state' && event.state) {
