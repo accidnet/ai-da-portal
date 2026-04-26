@@ -98,7 +98,9 @@ class AgentGraph:
         working_state.setdefault("used_tools", [])
         working_state.setdefault("status", "queued")
         last_state_fingerprint: str | None = None
-        max_iterations = 1
+
+        # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
+        max_iterations = 3
         iteration_count = 0
 
         response = yield from self._stream_response_payload(
@@ -127,7 +129,9 @@ class AgentGraph:
             if function_calls:
                 tool_outputs: list[dict[str, object]] = []
                 for function_call in function_calls:
-                    tool_result = self._execute_function_call(working_state, function_call)
+                    tool_result = self._execute_function_call(
+                        working_state, function_call
+                    )
                     tool_outputs.append(
                         {
                             "type": "function_call_output",
@@ -357,9 +361,7 @@ class AgentGraph:
             "state": self._serialize_snapshot(self.snapshot_state(state)),
         }
 
-    def _serialize_snapshot(
-        self, snapshot: AgentStateSnapshot
-    ) -> dict[str, object]:
+    def _serialize_snapshot(self, snapshot: AgentStateSnapshot) -> dict[str, object]:
         return {
             "route": snapshot["route"],
             "assistant_message": snapshot["assistant_message"],
@@ -619,9 +621,23 @@ class AgentGraph:
         try:
             for event in cast(Iterable[object], stream):
                 payload = self._event_to_dict(event)
-                event_type = payload.get("type")
 
+                event_type = payload.get("type")
                 response_payload = self._coerce_optional_dict(payload.get("response"))
+
+                # DEBUG를 위한 임시 출력
+                if event_type not in (
+                    RESPONSE_STREAMING_EVENTS.response.created,
+                    RESPONSE_STREAMING_EVENTS.response.completed,
+                    RESPONSE_STREAMING_EVENTS.response.in_progress,
+                ):
+                    from pprint import pprint
+
+                    pprint("[TMP-TYPE]")
+                    pprint(event_type)
+                    print("[TMP-PAYLOAD]")
+                    pprint(response_payload)
+                    print("==" * 60)
 
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))

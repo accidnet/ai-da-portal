@@ -32,7 +32,3 @@ class ChatInteractionDataset(BaseModel):
     detail: DatasetDetail
     preview: DatasetPreviewResponse
     profile: DatasetProfileResponse
-
-
-class ChatInteractionResponse(ChatResponse):
-    dataset: ChatInteractionDataset | None = None

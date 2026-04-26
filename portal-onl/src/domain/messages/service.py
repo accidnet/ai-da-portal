@@ -10,7 +10,6 @@ from agents.state import AgentRoute
 from domain.datasets.service import DatasetService
 from domain.messages.schemas import (
     ChatInteractionDataset,
-    ChatInteractionResponse,
     ChatRequest,
     ChatResponse,
 )
@@ -162,15 +161,14 @@ class MessageService:
             ).model_dump(mode="json"),
         }
 
-    async def handle_chat_interaction(
+    async def prepare_chat_request(
         self,
         *,
         session_id: str,
         message: str,
         dataset_ids: list[str],
         file: UploadFile | None,
-        agent_runtime: AgentGraph,
-    ) -> ChatInteractionResponse:
+    ) -> tuple[ChatRequest, ChatInteractionDataset | None]:
         resolved_dataset_ids = list(dataset_ids)
         interaction_dataset: ChatInteractionDataset | None = None
 
@@ -185,17 +183,13 @@ class MessageService:
             )
             resolved_dataset_ids = [detail.id, *resolved_dataset_ids]
 
-        response = self.handle_chat(
+        return (
             ChatRequest(
                 session_id=session_id,
                 message=message,
                 dataset_ids=resolved_dataset_ids,
             ),
-            agent_runtime=agent_runtime,
-        )
-
-        return ChatInteractionResponse(
-            **response.model_dump(), dataset=interaction_dataset
+            interaction_dataset,
         )
 
     def _resolve_session_title(

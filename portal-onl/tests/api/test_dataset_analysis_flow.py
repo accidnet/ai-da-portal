@@ -490,7 +490,7 @@ def test_chat_selects_donut_for_share_questions() -> None:
     app.dependency_overrides.clear()
 
 
-def test_chat_interaction_accepts_file_and_message_together() -> None:
+def test_stream_chat_accepts_file_and_message_together() -> None:
     app.dependency_overrides[get_message_service] = _override_message_service
     app.dependency_overrides[get_agent_runtime] = _override_agent_runtime
     csv_content = dedent(
@@ -504,7 +504,7 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
 
     with TestClient(app) as client:
         response = client.post(
-            "/api/v1/chat/interactions",
+            "/api/v1/chat/messages/stream",
             data={
                 "session_id": "interaction-session",
                 "message": "이 파일을 업로드하고 바로 분석해줘.",
@@ -520,16 +520,37 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         )
 
         assert response.status_code == 202
-        body = response.json()
-        assert body["dataset"] is not None
-        assert body["dataset"]["detail"]["filename"] == "marketing_metrics.csv"
-        assert body["dataset"]["preview"]["columns"] == [
+        chunks = [chunk for chunk in response.text.split("\n\n") if chunk.strip()]
+        events: list[tuple[str, dict[str, object]]] = []
+        for chunk in chunks:
+            event_type = ""
+            data_lines: list[str] = []
+            for line in chunk.splitlines():
+                if line.startswith("event:"):
+                    event_type = line.split(":", 1)[1].strip()
+                if line.startswith("data:"):
+                    data_lines.append(line.split(":", 1)[1].strip())
+            if data_lines:
+                events.append((event_type, json.loads("\n".join(data_lines))))
+
+        dataset_event = next(
+            payload for event_type, payload in events if event_type == "dataset.ready"
+        )
+        completed_event = next(
+            payload for event_type, payload in events if event_type == "response.completed"
+        )
+        dataset = dataset_event["dataset"]
+        body = completed_event["response"]
+
+        assert dataset is not None
+        assert dataset["detail"]["filename"] == "marketing_metrics.csv"
+        assert dataset["preview"]["columns"] == [
             "date",
             "channel",
             "spend",
             "new_users",
         ]
-        assert body["dataset"]["profile"]["profile"]["row_count"] == 3
+        assert dataset["profile"]["profile"]["row_count"] == 3
         assert body["analytics"] is not None
         assert body["workspace"] is not None
         assert body["analytics"]["summary_cards"]
@@ -541,10 +562,10 @@ def test_chat_interaction_accepts_file_and_message_together() -> None:
         snapshot = client.get("/api/v1/sessions/interaction-session/snapshot")
         assert snapshot.status_code == 200
         snapshot_body = snapshot.json()
-        assert snapshot_body["dataset_ids"] == [body["dataset"]["detail"]["id"]]
+        assert snapshot_body["dataset_ids"] == [dataset["detail"]["id"]]
         assert (
             snapshot_body["datasets"][0]["detail"]["id"]
-            == body["dataset"]["detail"]["id"]
+            == dataset["detail"]["id"]
         )
 
     app.dependency_overrides.clear()

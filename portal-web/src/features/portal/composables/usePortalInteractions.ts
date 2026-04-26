@@ -2,16 +2,16 @@ import { computed, ref, type ComputedRef } from 'vue'
 
 import {
   createAnalysis,
-  sendChatInteraction,
   streamChatMessage,
   type AgentStateStreamPayload,
-  type ChatInteractionResponse,
+  type ChatInteractionDataset,
 } from '../../../shared/api/portalApi'
 import type { ChatMessage, MessageAttachmentPreview } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
 import {
   buildReportContent,
   createAttachmentPreview,
+  formatFileSize,
   isUploadableDatasetFile,
   normalizeAssistantMessage,
   sanitizeFileNameSegment,
@@ -129,7 +129,14 @@ export function usePortalInteractions(options: {
     const userMessageEntry: ChatMessage = {
       role: 'user',
       text: userMessage,
+      attachmentStatus: attachedFile
+        ? {
+            filename: attachedFile.name,
+            meta: `${formatFileSize(attachedFile.size)} · 업로드 중`,
+          }
+        : undefined,
     }
+    const userMessageIndex = sessionState.messages.length
     sessionState.messages = [...sessionState.messages, userMessageEntry]
     isSending.value = true
     isSendingInteraction.value = Boolean(attachedFile)
@@ -148,17 +155,12 @@ export function usePortalInteractions(options: {
     }
 
     try {
-      const response = attachedFile
-        ? await sendChatInteraction({
+      const streamedDatasetRef: { current: ChatInteractionDataset | null } = { current: null }
+      const response = await streamChatMessage({
             sessionId,
             message: userMessage,
             datasetIds: sessionState.datasets.map((dataset) => dataset.id),
             file: attachedFile,
-          })
-        : await streamChatMessage({
-            sessionId,
-            message: userMessage,
-            datasetIds: sessionState.datasets.map((dataset) => dataset.id),
           }, {
             onDelta(delta) {
               const current = sessionState.messages[assistantMessageIndex]
@@ -175,8 +177,10 @@ export function usePortalInteractions(options: {
             onState(state) {
               applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
             },
+            onDataset(dataset) {
+              streamedDatasetRef.current = dataset
+            },
           })
-      const interactionResponse = attachedFile ? (response as ChatInteractionResponse) : null
       const nextSessionTitle = response.session_title?.trim()
 
       if (nextSessionTitle) {
@@ -185,10 +189,23 @@ export function usePortalInteractions(options: {
 
       let attachmentPreview: MessageAttachmentPreview | undefined
 
-      if (interactionResponse?.dataset) {
-        const uploadedDataset = interactionResponse.dataset
+      const uploadedDataset = streamedDatasetRef.current
+      if (uploadedDataset !== null) {
         const dataset = mapDatasetAsset(uploadedDataset)
         sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
+        sessionState.messages = sessionState.messages.map((entry, index) =>
+          index === userMessageIndex
+            ? {
+                ...entry,
+                attachmentStatus: attachedFile
+                  ? {
+                      filename: attachedFile.name,
+                      meta: `${formatFileSize(attachedFile.size)} · 업로드 완료`,
+                    }
+                  : entry.attachmentStatus,
+              }
+            : entry,
+        )
         attachmentPreview = createAttachmentPreview(
           uploadedDataset.detail.filename,
           attachedFile?.size ?? 0,
@@ -197,10 +214,17 @@ export function usePortalInteractions(options: {
         await loadDatasets()
       }
 
+      const streamedAssistantText =
+        !attachedFile && sessionState.messages[assistantMessageIndex]?.role === 'assistant'
+          ? sessionState.messages[assistantMessageIndex].text
+          : ''
+      const finalAssistantText = normalizeAssistantMessage(response.assistant_message)
+
       const assistantMessage = {
         role: 'assistant' as const,
         author: 'AI 데이터 분석가',
-        text: normalizeAssistantMessage(response.assistant_message),
+        // Keep the streamed bubble content when the terminal payload omits text.
+        text: streamedAssistantText || finalAssistantText,
         route: response.route,
         usedTools: response.used_tools,
         plan: response.plan,
@@ -221,6 +245,19 @@ export function usePortalInteractions(options: {
         error instanceof Error
           ? error.message
           : '메시지를 보내지 못했어요. ChatGPT 연결과 백엔드 상태를 확인해 주세요.'
+      sessionState.messages = sessionState.messages.map((entry, index) =>
+        index === userMessageIndex
+          ? {
+              ...entry,
+              attachmentStatus: attachedFile
+                ? {
+                    filename: attachedFile.name,
+                    meta: `${formatFileSize(attachedFile.size)} · 업로드 실패`,
+                  }
+                : entry.attachmentStatus,
+            }
+          : entry,
+      )
       pendingAttachment.value = attachedFile
       if (!attachedFile) {
         sessionState.messages = sessionState.messages.filter(

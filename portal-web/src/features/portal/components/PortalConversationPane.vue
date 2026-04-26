@@ -252,6 +252,16 @@ onMounted(() => {
             <span>{{ message.author }}</span>
           </div>
 
+          <div v-if="message.attachmentStatus" class="message-attachment-status">
+            <div class="message-attachment-status__icon">
+              <span class="material-symbols-outlined">upload_file</span>
+            </div>
+            <div class="message-attachment-status__content">
+              <strong>{{ message.attachmentStatus.filename }}</strong>
+              <span>{{ message.attachmentStatus.meta ?? '첨부 파일' }}</span>
+            </div>
+          </div>
+
           <div v-if="message.text.trim()" class="message-text" v-html="renderMarkdown(message.text)"></div>
 
           <div v-else-if="shouldRenderInlineThinking(index)" class="thinking-row thinking-row--inline" aria-live="polite">
@@ -628,6 +638,49 @@ onMounted(() => {
   color: var(--color-primary-strong);
   font-size: 0.68rem;
   font-weight: 700;
+}
+
+.message-attachment-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(24, 74, 140, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.message-attachment-status__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: rgba(24, 74, 140, 0.08);
+  color: var(--color-primary-strong);
+}
+
+.message-attachment-status__content {
+  min-width: 0;
+}
+
+.message-attachment-status__content strong,
+.message-attachment-status__content span {
+  display: block;
+}
+
+.message-attachment-status__content strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  word-break: break-word;
+}
+
+.message-attachment-status__content span {
+  margin-top: 4px;
+  color: var(--color-text-soft);
+  font-size: 0.73rem;
 }
 
 .message-attachment-preview {

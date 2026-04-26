@@ -209,12 +209,10 @@ export interface ChatResponse {
   } | null
 }
 
-export interface ChatInteractionResponse extends ChatResponse {
-  dataset: {
-    detail: DatasetDetailResponse
-    preview: DatasetPreviewResponse
-    profile: DatasetProfileResponse
-  } | null
+export interface ChatInteractionDataset {
+  detail: DatasetDetailResponse
+  preview: DatasetPreviewResponse
+  profile: DatasetProfileResponse
 }
 
 export interface AgentStateStreamPayload {
@@ -236,12 +234,14 @@ interface ChatStreamEvent {
   detail?: string
   state?: AgentStateStreamPayload
   response?: ChatResponse
+  dataset?: ChatInteractionDataset | null
 }
 
 export interface StreamChatMessageOptions {
   signal?: AbortSignal
   onDelta?: (delta: string) => void
   onState?: (state: AgentStateStreamPayload) => void
+  onDataset?: (dataset: ChatInteractionDataset) => void
 }
 
 export interface AnalysisResponse {
@@ -498,20 +498,34 @@ export async function sendChatMessage(
 }
 
 export async function streamChatMessage(
-  payload: { sessionId: string; message: string; datasetIds?: string[] },
+  payload: { sessionId: string; message: string; datasetIds?: string[]; file?: File | null },
   options: StreamChatMessageOptions = {},
 ): Promise<ChatResponse> {
-  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
-    method: 'POST',
-    headers: {
-      Accept: 'text/event-stream',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const headers: Record<string, string> = {
+    Accept: 'text/event-stream',
+  }
+  let body: BodyInit
+
+  if (payload.file) {
+    const formData = new FormData()
+    formData.append('session_id', payload.sessionId)
+    formData.append('message', payload.message)
+    formData.append('dataset_ids_json', JSON.stringify(payload.datasetIds ?? []))
+    formData.append('file', payload.file)
+    body = formData
+  } else {
+    headers['Content-Type'] = 'application/json'
+    body = JSON.stringify({
       session_id: payload.sessionId,
       message: payload.message,
       dataset_ids: payload.datasetIds ?? [],
-    }),
+    })
+  }
+
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
+    method: 'POST',
+    headers,
+    body,
     signal: options.signal,
   })
 
@@ -546,6 +560,11 @@ export async function streamChatMessage(
 
     if (eventType === 'agent.state' && event.state) {
       options.onState?.(event.state)
+      return
+    }
+
+    if (eventType === 'dataset.ready' && event.dataset) {
+      options.onDataset?.(event.dataset)
       return
     }
 
@@ -611,40 +630,6 @@ export async function streamChatMessage(
   }
 
   throw new Error('Chat stream ended without a completed response.')
-}
-
-export async function sendChatInteraction(
-  payload: { sessionId: string; message: string; datasetIds?: string[]; file?: File | null },
-  signal?: AbortSignal,
-): Promise<ChatInteractionResponse> {
-  const formData = new FormData()
-  formData.append('session_id', payload.sessionId)
-  formData.append('message', payload.message)
-  formData.append('dataset_ids_json', JSON.stringify(payload.datasetIds ?? []))
-
-  if (payload.file) {
-    formData.append('file', payload.file)
-  }
-
-  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/interactions`, {
-    method: 'POST',
-    body: formData,
-    signal,
-  })
-
-  if (!response.ok) {
-    let detail = ''
-    try {
-      const errorBody = (await response.json()) as { detail?: string }
-      detail = errorBody.detail?.trim() ?? ''
-    } catch {
-      detail = ''
-    }
-
-    throw new Error(detail || `Chat interaction failed with status ${response.status}`)
-  }
-
-  return (await response.json()) as ChatInteractionResponse
 }
 
 export async function uploadDataset(

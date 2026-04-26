@@ -10,3 +10,7 @@ def configure_logging() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         force=True,
     )
+
+    # OpenAI SDK/http client debug logs are too noisy for normal app runs.
+    for logger_name in ("openai", "httpx", "httpcore", "python_multipart"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
