@@ -59,55 +59,44 @@ class MessageService:
                 "session_dataset_ids": session_dataset_ids,
             }
         )
-        route = cast(AgentRoute, state.get("route", "conversation"))
-        assistant_message = state.get("assistant_message", "").strip()
-        analytics = state.get("analytics")
-        workspace = state.get("workspace")
-        used_tools = [
-            tool for tool in state.get("used_tools", []) if isinstance(tool, str)
-        ]
-        plan = list(state.get("plan", []))
-        plan_explanation = state.get("plan_explanation")
+        snapshot = self._snapshot_state(agent_runtime, state)
         logger.debug(
             "Agent graph completed session_id=%s route=%s tools=%s has_analytics=%s",
             payload.session_id,
-            route,
-            used_tools,
-            analytics is not None,
+            snapshot["route"],
+            snapshot["used_tools"],
+            snapshot["analytics"] is not None,
         )
 
         snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
-        resolved_dataset_id = state.get("resolved_dataset_id")
+        resolved_dataset_id = snapshot["resolved_dataset_id"]
         if resolved_dataset_id is not None:
             snapshot_dataset_ids = [resolved_dataset_id, *snapshot_dataset_ids]
 
         self._session_service.record_chat(
             session_id=payload.session_id,
             user_message=payload.message,
-            assistant_message=assistant_message,
-            route=route,
-            used_tools=used_tools,
-            plan=plan,
-            plan_explanation=(
-                plan_explanation if isinstance(plan_explanation, str) else None
-            ),
+            assistant_message=snapshot["assistant_message"],
+            route=snapshot["route"],
+            used_tools=snapshot["used_tools"],
+            plan=snapshot["plan"],
+            plan_explanation=snapshot["plan_explanation"],
             dataset_ids=snapshot_dataset_ids,
-            analytics=analytics,
-            workspace=workspace,
+            analytics=snapshot["analytics"],
+            workspace=snapshot["workspace"],
         )
 
         return ChatResponse(
             session_id=payload.session_id,
             session_title=session_title,
-            assistant_message=assistant_message,
-            route=route,
-            used_tools=used_tools,
-            plan=plan,
-            plan_explanation=(
-                plan_explanation if isinstance(plan_explanation, str) else None
-            ),
-            analytics=analytics,
-            workspace=workspace,
+            assistant_message=snapshot["assistant_message"],
+            route=snapshot["route"],
+            used_tools=snapshot["used_tools"],
+            plan=snapshot["plan"],
+            plan_explanation=snapshot["plan_explanation"],
+            status=snapshot["status"],
+            analytics=snapshot["analytics"],
+            workspace=snapshot["workspace"],
         )
 
     def stream_chat(
@@ -137,34 +126,24 @@ class MessageService:
             }
         )
 
-        route = cast(AgentRoute, state.get("route", "conversation"))
-        assistant_message = state.get("assistant_message", "").strip()
-        analytics = state.get("analytics")
-        workspace = state.get("workspace")
-        used_tools = [
-            tool for tool in state.get("used_tools", []) if isinstance(tool, str)
-        ]
-        plan = list(state.get("plan", []))
-        plan_explanation = state.get("plan_explanation")
+        snapshot = self._snapshot_state(agent_runtime, state)
 
         snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
-        resolved_dataset_id = state.get("resolved_dataset_id")
+        resolved_dataset_id = snapshot["resolved_dataset_id"]
         if resolved_dataset_id is not None:
             snapshot_dataset_ids = [resolved_dataset_id, *snapshot_dataset_ids]
 
         self._session_service.record_chat(
             session_id=payload.session_id,
             user_message=payload.message,
-            assistant_message=assistant_message,
-            route=route,
-            used_tools=used_tools,
-            plan=plan,
-            plan_explanation=(
-                plan_explanation if isinstance(plan_explanation, str) else None
-            ),
+            assistant_message=snapshot["assistant_message"],
+            route=snapshot["route"],
+            used_tools=snapshot["used_tools"],
+            plan=snapshot["plan"],
+            plan_explanation=snapshot["plan_explanation"],
             dataset_ids=snapshot_dataset_ids,
-            analytics=analytics,
-            workspace=workspace,
+            analytics=snapshot["analytics"],
+            workspace=snapshot["workspace"],
         )
 
         yield {
@@ -172,15 +151,14 @@ class MessageService:
             "response": ChatResponse(
                 session_id=payload.session_id,
                 session_title=session_title,
-                assistant_message=assistant_message,
-                route=route,
-                used_tools=used_tools,
-                plan=plan,
-                plan_explanation=(
-                    plan_explanation if isinstance(plan_explanation, str) else None
-                ),
-                analytics=analytics,
-                workspace=workspace,
+                assistant_message=snapshot["assistant_message"],
+                route=snapshot["route"],
+                used_tools=snapshot["used_tools"],
+                plan=snapshot["plan"],
+                plan_explanation=snapshot["plan_explanation"],
+                status=snapshot["status"],
+                analytics=snapshot["analytics"],
+                workspace=snapshot["workspace"],
             ).model_dump(mode="json"),
         }
 
@@ -235,6 +213,44 @@ class MessageService:
             session_id=session_id,
             title=generated_title,
         ).title
+
+    def _snapshot_state(
+        self, agent_runtime: AgentGraph, state: dict[str, object]
+    ) -> dict[str, object]:
+        snapshot_state = getattr(agent_runtime, "snapshot_state", None)
+        if callable(snapshot_state):
+            return cast(dict[str, object], snapshot_state(state))
+
+        route = cast(AgentRoute, state.get("route", "conversation"))
+        assistant_message = str(state.get("assistant_message", "")).strip()
+        analytics = state.get("analytics")
+        workspace = state.get("workspace")
+        if not assistant_message and (
+            isinstance(analytics, AnalyticsPayload) or workspace is not None
+        ):
+            assistant_message = (
+                "백엔드 분석은 완료됐어요. 요약과 시각화 결과를 확인해 주세요."
+            )
+        return {
+            "route": route,
+            "assistant_message": assistant_message,
+            "used_tools": [
+                tool for tool in state.get("used_tools", []) if isinstance(tool, str)
+            ],
+            "plan": [step for step in state.get("plan", []) if isinstance(step, dict)],
+            "plan_explanation": (
+                state.get("plan_explanation")
+                if isinstance(state.get("plan_explanation"), str)
+                else None
+            ),
+            "analytics": analytics if isinstance(analytics, AnalyticsPayload) else None,
+            "workspace": workspace,
+            "resolved_dataset_id": state.get("resolved_dataset_id"),
+            "analysis_type": state.get("analysis_type"),
+            "status": state.get(
+                "status", "completed" if assistant_message else "queued"
+            ),
+        }
 
     def _generate_session_title(self, user_message: str) -> str:
         try:

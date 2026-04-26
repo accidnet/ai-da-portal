@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
-from agents.state import AgentState
+from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from domain.analyses.schemas import AnalysisRequest
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
+from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.llm.client import LlmClient, LlmClientError
 from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
 from tools import update_plan
@@ -35,8 +36,9 @@ class AgentGraph:
     def invoke(self, state: AgentState) -> AgentState:
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
+        working_state.setdefault("status", "queued")
 
-        max_iterations = 1
+        max_iterations = 6
         iteration_count = 0
         next_input: list[dict[str, object]] = self._build_initial_input(working_state)
 
@@ -45,15 +47,17 @@ class AgentGraph:
                 break
             iteration_count += 1
 
-            response = self._llm_client.create_response(
-                instructions=self._system_prompt(),
-                previous_response_id=working_state.get("response_id"),
-                input=next_input,
-                tools=self._tool_definitions(),
-                tool_choice="auto",
-                parallel_tool_calls=False,
-                reasoning={"effort": "medium"},
-                max_output_tokens=900,
+            response = self._read_response_payload(
+                self._llm_client.create_response(
+                    instructions=self._system_prompt(),
+                    previous_response_id=working_state.get("response_id"),
+                    input=next_input,
+                    tools=self._tool_definitions(),
+                    tool_choice="auto",
+                    parallel_tool_calls=False,
+                    reasoning={"effort": "medium"},
+                    max_output_tokens=900,
+                )
             )
 
             response_id = response.get("id")
@@ -78,6 +82,7 @@ class AgentGraph:
             assistant_message = self._extract_assistant_text(response)
             if assistant_message:
                 working_state["assistant_message"] = assistant_message
+                working_state["status"] = "completed"
                 working_state.setdefault("route", "conversation")
                 break
 
@@ -91,6 +96,10 @@ class AgentGraph:
     ) -> Generator[dict[str, object], None, AgentState]:
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
+        working_state.setdefault("status", "queued")
+        last_state_fingerprint: str | None = None
+        max_iterations = 1
+        iteration_count = 0
 
         response = yield from self._stream_response_payload(
             self._llm_client.create_response(
@@ -105,24 +114,34 @@ class AgentGraph:
             )
         )
 
-        for _ in range(6):
+        while True:
+            if iteration_count >= max_iterations:
+                break
+            iteration_count += 1
+
             response_id = response.get("id")
             if isinstance(response_id, str) and response_id:
                 working_state["response_id"] = response_id
 
             function_calls = self._extract_function_calls(response)
             if function_calls:
-                tool_outputs = [
-                    {
-                        "type": "function_call_output",
-                        "call_id": function_call.call_id,
-                        "output": json.dumps(
-                            self._execute_function_call(working_state, function_call),
-                            ensure_ascii=False,
-                        ),
-                    }
-                    for function_call in function_calls
-                ]
+                tool_outputs: list[dict[str, object]] = []
+                for function_call in function_calls:
+                    tool_result = self._execute_function_call(working_state, function_call)
+                    tool_outputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": function_call.call_id,
+                            "output": json.dumps(tool_result, ensure_ascii=False),
+                        }
+                    )
+                    state_event = self._build_state_event(working_state)
+                    fingerprint = json.dumps(
+                        state_event["state"], ensure_ascii=False, sort_keys=True
+                    )
+                    if fingerprint != last_state_fingerprint:
+                        last_state_fingerprint = fingerprint
+                        yield state_event
                 response = yield from self._stream_response_payload(
                     self._llm_client.create_response(
                         previous_response_id=working_state.get("response_id"),
@@ -139,6 +158,7 @@ class AgentGraph:
             assistant_message = self._extract_assistant_text(response)
             if assistant_message:
                 working_state["assistant_message"] = assistant_message
+                working_state["status"] = "completed"
                 working_state.setdefault("route", "conversation")
                 return working_state
 
@@ -146,6 +166,60 @@ class AgentGraph:
 
         working_state.setdefault("route", "conversation")
         return working_state
+
+    def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
+        route = cast(AgentRoute, state.get("route", "conversation"))
+        assistant_message = self._read_string(state.get("assistant_message")) or ""
+        analytics = state.get("analytics")
+        workspace = state.get("workspace")
+        plan = [
+            cast(PlanStep, step)
+            for step in state.get("plan", [])
+            if isinstance(step, dict)
+        ]
+        status = cast(
+            str,
+            state.get("status", "completed" if assistant_message else "queued"),
+        )
+        if not assistant_message and (
+            isinstance(analytics, AnalyticsPayload)
+            or isinstance(workspace, WorkspacePayload)
+        ):
+            assistant_message = (
+                "백엔드 분석은 완료됐어요. 요약과 시각화 결과를 확인해 주세요."
+            )
+
+        return {
+            "route": route,
+            "assistant_message": assistant_message,
+            "used_tools": [
+                tool for tool in state.get("used_tools", []) if isinstance(tool, str)
+            ],
+            "plan": plan,
+            "plan_explanation": (
+                state.get("plan_explanation")
+                if isinstance(state.get("plan_explanation"), str)
+                else None
+            ),
+            "analytics": (
+                analytics if isinstance(analytics, AnalyticsPayload) else None
+            ),
+            "workspace": (
+                workspace if isinstance(workspace, WorkspacePayload) else None
+            ),
+            "resolved_dataset_id": self._read_string(state.get("resolved_dataset_id")),
+            "analysis_type": self._read_string(state.get("analysis_type")),
+            "status": cast(
+                Literal[
+                    "queued",
+                    "profiling",
+                    "running_analysis",
+                    "completed",
+                    "failed",
+                ],
+                status,
+            ),
+        }
 
     def _system_prompt(self) -> str:
         return load_prompt("base.md")
@@ -270,10 +344,42 @@ class AgentGraph:
             return update_plan.execute(state, function_call.arguments)
         if function_call.name == "inspect_dataset_context":
             state["route"] = "dataset_analysis"
+            state["status"] = "profiling"
             return self._inspect_dataset_context(state, function_call.arguments)
         if function_call.name == "run_portal_analysis":
+            state["status"] = "running_analysis"
             return self._run_portal_analysis(state, function_call.arguments)
         return {"ok": False, "error": f"Unsupported tool: {function_call.name}"}
+
+    def _build_state_event(self, state: AgentState) -> dict[str, object]:
+        return {
+            "type": "agent.state",
+            "state": self._serialize_snapshot(self.snapshot_state(state)),
+        }
+
+    def _serialize_snapshot(
+        self, snapshot: AgentStateSnapshot
+    ) -> dict[str, object]:
+        return {
+            "route": snapshot["route"],
+            "assistant_message": snapshot["assistant_message"],
+            "used_tools": snapshot["used_tools"],
+            "plan": snapshot["plan"],
+            "plan_explanation": snapshot["plan_explanation"],
+            "analytics": (
+                snapshot["analytics"].model_dump(mode="json")
+                if snapshot["analytics"] is not None
+                else None
+            ),
+            "workspace": (
+                snapshot["workspace"].model_dump(mode="json")
+                if snapshot["workspace"] is not None
+                else None
+            ),
+            "resolved_dataset_id": snapshot["resolved_dataset_id"],
+            "analysis_type": snapshot["analysis_type"],
+            "status": snapshot["status"],
+        }
 
     def _inspect_dataset_context(
         self, state: AgentState, arguments: dict[str, object]

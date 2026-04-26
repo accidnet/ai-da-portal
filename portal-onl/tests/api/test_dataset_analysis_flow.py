@@ -200,6 +200,23 @@ def _override_agent_runtime() -> FakeAgentRuntime:
     return FakeAgentRuntime()
 
 
+def _parse_sse_events(payload: str) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for chunk in payload.split("\n\n"):
+        trimmed = chunk.strip()
+        if not trimmed:
+            continue
+
+        data_lines = [
+            line.removeprefix("data:").strip()
+            for line in trimmed.splitlines()
+            if line.startswith("data:")
+        ]
+        if data_lines:
+            events.append(json.loads("\n".join(data_lines)))
+    return events
+
+
 def test_uploaded_dataset_preview_profile_and_list() -> None:
     with TestClient(app) as client:
         dataset = _upload_sample_csv(client)
@@ -400,7 +417,8 @@ def test_chat_stream_returns_output_text_deltas_and_completed_payload() -> None:
         )
 
         assert response.status_code == 202
-        events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events = _parse_sse_events(response.text)
         assert events[0]["type"] == "response.output_text.delta"
         assert events[1]["type"] == "response.output_text.delta"
         assert events[-1]["type"] == "response.completed"

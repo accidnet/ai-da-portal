@@ -1,6 +1,12 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
-import { createAnalysis, sendChatInteraction, streamChatMessage, type ChatInteractionResponse } from '../../../shared/api/portalApi'
+import {
+  createAnalysis,
+  sendChatInteraction,
+  streamChatMessage,
+  type AgentStateStreamPayload,
+  type ChatInteractionResponse,
+} from '../../../shared/api/portalApi'
 import type { ChatMessage, MessageAttachmentPreview } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
 import {
@@ -83,6 +89,34 @@ export function usePortalInteractions(options: {
     if (file) queueInteractionFile(file, setUploadError)
   }
 
+  function applyStreamingAssistantState(
+    assistantMessageIndex: number,
+    sessionState: SessionRuntimeState,
+    state: AgentStateStreamPayload,
+  ) {
+    const current = sessionState.messages[assistantMessageIndex]
+    if (!current || current.role !== 'assistant') return
+
+    sessionState.messages = sessionState.messages.map((entry, index) =>
+      index === assistantMessageIndex
+        ? {
+            ...entry,
+            route: state.route ?? entry.route,
+            usedTools: state.used_tools ?? entry.usedTools ?? [],
+            plan: state.plan ?? entry.plan ?? [],
+            planExplanation: state.plan_explanation?.trim() || entry.planExplanation,
+          }
+        : entry,
+    )
+
+    if (state.analytics) {
+      sessionState.analyticsPayload = state.analytics
+    }
+    if (state.workspace) {
+      sessionState.workspacePayload = state.workspace
+    }
+  }
+
   async function handleSendMessage(message: string, options: { setUploadError: (message: string | null) => void }) {
     const { setUploadError } = options
 
@@ -138,6 +172,9 @@ export function usePortalInteractions(options: {
                   : entry,
               )
             },
+            onState(state) {
+              applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
+            },
           })
       const interactionResponse = attachedFile ? (response as ChatInteractionResponse) : null
       const nextSessionTitle = response.session_title?.trim()
@@ -166,6 +203,8 @@ export function usePortalInteractions(options: {
         text: normalizeAssistantMessage(response.assistant_message),
         route: response.route,
         usedTools: response.used_tools,
+        plan: response.plan,
+        planExplanation: response.plan_explanation?.trim() || undefined,
         attachmentPreview,
       }
 

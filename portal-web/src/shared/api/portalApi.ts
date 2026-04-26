@@ -103,6 +103,11 @@ export interface SessionSnapshotMessageResponse {
   text?: string | null
   route?: 'conversation' | 'dataset_analysis' | 'analysis_request' | null
   used_tools?: string[] | null
+  plan?: Array<{
+    step: string
+    status: 'pending' | 'in_progress' | 'completed'
+  }> | null
+  plan_explanation?: string | null
   content?: string | null
   bullets?: Array<{ text?: string | null } | string> | null
   code_block?: {
@@ -130,8 +135,13 @@ export interface ChatResponse {
   session_id: string
   session_title?: string | null
   assistant_message: string
-   route: 'conversation' | 'dataset_analysis' | 'analysis_request'
-   used_tools: string[]
+  route: 'conversation' | 'dataset_analysis' | 'analysis_request'
+  used_tools: string[]
+  plan: Array<{
+    step: string
+    status: 'pending' | 'in_progress' | 'completed'
+  }>
+  plan_explanation?: string | null
   status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
   analytics: {
     summary_cards: Array<{
@@ -207,9 +217,31 @@ export interface ChatInteractionResponse extends ChatResponse {
   } | null
 }
 
+export interface AgentStateStreamPayload {
+  route: ChatResponse['route']
+  assistant_message: string
+  used_tools: ChatResponse['used_tools']
+  plan: ChatResponse['plan']
+  plan_explanation?: string | null
+  status: ChatResponse['status']
+  analytics: ChatResponse['analytics'] | null
+  workspace: ChatResponse['workspace'] | null
+  resolved_dataset_id?: string | null
+  analysis_type?: string | null
+}
+
+interface ChatStreamEvent {
+  type?: string
+  delta?: string
+  detail?: string
+  state?: AgentStateStreamPayload
+  response?: ChatResponse
+}
+
 export interface StreamChatMessageOptions {
   signal?: AbortSignal
   onDelta?: (delta: string) => void
+  onState?: (state: AgentStateStreamPayload) => void
 }
 
 export interface AnalysisResponse {
@@ -472,7 +504,7 @@ export async function streamChatMessage(
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
     method: 'POST',
     headers: {
-      Accept: 'application/x-ndjson',
+      Accept: 'text/event-stream',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -504,49 +536,74 @@ export async function streamChatMessage(
   let buffer = ''
   let completedResponse: ChatResponse | null = null
 
-  const processLine = (line: string) => {
-    const trimmed = line.trim()
-    if (!trimmed) return
+  const processEvent = (event: ChatStreamEvent, fallbackType = '') => {
+    const eventType = event.type || fallbackType
 
-    const event = JSON.parse(trimmed) as {
-      type?: string
-      delta?: string
-      detail?: string
-      response?: ChatResponse
-    }
-
-    if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+    if (eventType === 'response.output_text.delta' && typeof event.delta === 'string') {
       options.onDelta?.(event.delta)
       return
     }
 
-    if (event.type === 'response.completed' && event.response) {
+    if (eventType === 'agent.state' && event.state) {
+      options.onState?.(event.state)
+      return
+    }
+
+    if (eventType === 'response.completed' && event.response) {
       completedResponse = event.response
       return
     }
 
-    if (event.type === 'error') {
+    if (eventType === 'error') {
       throw new Error(event.detail?.trim() || 'Chat stream failed.')
     }
+  }
+
+  const processChunk = (chunk: string) => {
+    const trimmed = chunk.trim()
+    if (!trimmed) return
+
+    if (!trimmed.includes('data:')) {
+      processEvent(JSON.parse(trimmed) as ChatStreamEvent)
+      return
+    }
+
+    const lines = trimmed.split(/\r?\n/)
+    let fallbackType = ''
+    const dataLines: string[] = []
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        fallbackType = line.slice(6).trim()
+        continue
+      }
+
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart())
+      }
+    }
+
+    if (dataLines.length === 0) return
+    processEvent(JSON.parse(dataLines.join('\n')) as ChatStreamEvent, fallbackType)
   }
 
   while (true) {
     const { done, value } = await reader.read()
     buffer += decoder.decode(value, { stream: !done })
 
-    let boundary = buffer.indexOf('\n')
+    let boundary = buffer.indexOf('\n\n')
     while (boundary >= 0) {
-      const line = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 1)
-      processLine(line)
-      boundary = buffer.indexOf('\n')
+      const chunk = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      processChunk(chunk)
+      boundary = buffer.indexOf('\n\n')
     }
 
     if (done) break
   }
 
   if (buffer.trim()) {
-    processLine(buffer)
+    processChunk(buffer)
   }
 
   if (completedResponse) {

@@ -380,3 +380,65 @@ def test_agent_graph_stream_invoke_yields_output_text_deltas() -> None:
         },
     ]
     assert result["assistant_message"] == "안녕하세요"
+
+
+def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
+    llm_client = FakeLlmClient(
+        [
+            FakeStream(
+                [
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "call_id": "call_1",
+                            "name": "run_portal_analysis",
+                        },
+                    },
+                    {
+                        "type": "response.function_call_arguments.done",
+                        "call_id": "call_1",
+                        "arguments": '{"route":"analysis_request","analysis_type":"trend"}',
+                    },
+                    {"type": "response.created", "response": {"id": "resp_1"}},
+                ]
+            ),
+            FakeStream(
+                [
+                    {"type": "response.created", "response": {"id": "resp_2"}},
+                    {
+                        "type": "response.output_text.done",
+                        "text": "추세 분석을 완료했습니다.",
+                    },
+                ]
+            ),
+        ]
+    )
+    graph = AgentGraph(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    stream = graph.stream_invoke(
+        {
+            "session_id": "session-1",
+            "message": "매출 추세를 분석해줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    events: list[dict[str, object]] = []
+    try:
+        while True:
+            events.append(next(stream))
+    except StopIteration as stop:
+        result = stop.value
+
+    assert events[0]["type"] == "agent.state"
+    assert events[0]["state"]["route"] == "analysis_request"
+    assert events[0]["state"]["used_tools"] == ["run_portal_analysis"]
+    assert events[0]["state"]["status"] == "running_analysis"
+    assert events[0]["state"]["analytics"] is not None
+    assert result["assistant_message"] == "추세 분석을 완료했습니다."

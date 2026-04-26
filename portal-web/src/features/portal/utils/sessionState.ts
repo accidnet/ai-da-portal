@@ -94,6 +94,8 @@ export function mapSnapshotMessage(payload: SessionSnapshotMessageResponse): Cha
     text,
     route: payload.route ?? undefined,
     usedTools: payload.used_tools ?? [],
+    plan: payload.plan ?? [],
+    planExplanation: payload.plan_explanation?.trim() || undefined,
     bullets,
     codeBlock: codeContent
       ? {

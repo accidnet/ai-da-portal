@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -60,22 +60,20 @@ def stream_message(
                 len(payload.dataset_ids),
             )
             for event in service.stream_chat(payload=payload, agent_runtime=agent_runtime):
-                yield json.dumps(event, ensure_ascii=False) + "\n"
+                yield _encode_sse_event(event)
         except LlmClientError as exc:
             logger.exception(
                 "Streaming chat request failed session_id=%s dataset_count=%s",
                 payload.session_id,
                 len(payload.dataset_ids),
             )
-            yield (
-                json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False)
-                + "\n"
-            )
+            yield _encode_sse_event({"type": "error", "detail": str(exc)})
 
     return StreamingResponse(
         event_stream(),
-        media_type="application/x-ndjson",
+        media_type="text/event-stream",
         status_code=status.HTTP_202_ACCEPTED,
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -130,3 +128,11 @@ def _parse_dataset_ids(dataset_ids_json: str | None) -> list[str]:
         raise ValueError("dataset_ids_json must be a JSON array of strings.")
 
     return payload
+
+
+def _encode_sse_event(event: dict[str, object]) -> str:
+    event_type = event.get("type")
+    encoded = json.dumps(event, ensure_ascii=False)
+    if isinstance(event_type, str) and event_type:
+        return f"event: {event_type}\ndata: {encoded}\n\n"
+    return f"data: {encoded}\n\n"

@@ -80,12 +80,19 @@ export interface MessageAttachmentPreview {
   rows: Record<string, string | number | null>[]
 }
 
+export interface PlanStep {
+  step: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   author?: string
   text: string
   route?: 'conversation' | 'dataset_analysis' | 'analysis_request'
   usedTools?: string[]
+   plan?: PlanStep[]
+   planExplanation?: string
   codeBlock?: MessageCodeBlock
   bullets?: MessageListItem[]
   attachmentPreview?: MessageAttachmentPreview

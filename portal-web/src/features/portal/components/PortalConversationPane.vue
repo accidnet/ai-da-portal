@@ -137,6 +137,12 @@ function formatToolLabel(toolName: string): string {
   return `Tool: ${toolName}`
 }
 
+function formatPlanStepStatus(status: 'pending' | 'in_progress' | 'completed'): string {
+  if (status === 'completed') return '완료'
+  if (status === 'in_progress') return '진행 중'
+  return '대기'
+}
+
 function submit() {
   const message = draft.value.trim()
   if ((!message && !props.attachedFileName) || props.sendDisabled) {
@@ -262,6 +268,16 @@ onMounted(() => {
             <span v-for="tool in message.usedTools ?? []" :key="tool" class="message-meta-chip">
               {{ formatToolLabel(tool) }}
             </span>
+          </div>
+
+          <div v-if="message.planExplanation || message.plan?.length" class="message-plan-card">
+            <strong v-if="message.planExplanation" class="message-plan-card__title">{{ message.planExplanation }}</strong>
+            <ul v-if="message.plan?.length" class="message-plan-list">
+              <li v-for="planStep in message.plan" :key="`${planStep.step}-${planStep.status}`" class="message-plan-list__item">
+                <span>{{ planStep.step }}</span>
+                <span class="message-plan-status">{{ formatPlanStepStatus(planStep.status) }}</span>
+              </li>
+            </ul>
           </div>
 
           <div v-if="message.attachmentPreview" class="message-attachment-preview">
@@ -570,6 +586,48 @@ onMounted(() => {
   color: #0f5f4d;
   background: rgba(16, 124, 97, 0.1);
   border-color: rgba(16, 124, 97, 0.18);
+}
+
+.message-plan-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(24, 74, 140, 0.12);
+  border-radius: 16px;
+  background: rgba(24, 74, 140, 0.04);
+}
+
+.message-plan-card__title {
+  color: var(--color-text);
+  font-size: 0.8rem;
+}
+
+.message-plan-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message-plan-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.message-plan-status {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(24, 74, 140, 0.08);
+  color: var(--color-primary-strong);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .message-attachment-preview {
