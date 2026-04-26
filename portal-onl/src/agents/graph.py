@@ -95,6 +95,7 @@ class AgentGraph:
         response = yield from self._stream_response_payload(
             self._llm_client.create_response(
                 instructions=self._system_prompt(),
+                previous_response_id=working_state.get("response_id"),
                 input=self._build_initial_input(working_state),
                 tools=self._tool_definitions(),
                 tool_choice="auto",
@@ -515,10 +516,6 @@ class AgentGraph:
                 event_type = payload.get("type")
 
                 response_payload = self._coerce_optional_dict(payload.get("response"))
-                from pprint import pprint
-
-                pprint("[TMP]")
-                pprint(response_payload)
 
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
