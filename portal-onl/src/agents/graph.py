@@ -437,6 +437,9 @@ class AgentGraph:
                 event_type = payload.get("type")
 
                 response_payload = self._coerce_optional_dict(payload.get("response"))
+
+                # TODO: response.created일 경우에는 추후 응답생성 시작을 알리는 용도로 프론트에 전달할 것
+
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
 
@@ -446,25 +449,37 @@ class AgentGraph:
                 ):
                     return self._normalize_response_payload(response_payload)
 
-                if RESPONSE_STREAMING_EVENTS.is_text_delta(event_type):
+                if (
+                    event_type == RESPONSE_STREAMING_EVENTS.response.output_text.delta
+                    or event_type == RESPONSE_STREAMING_EVENTS.message.delta
+                ):
                     delta = payload.get("delta") or payload.get("text")
                     if isinstance(delta, str) and delta:
                         text_deltas.append(delta)
                     continue
 
-                if RESPONSE_STREAMING_EVENTS.is_text_done(event_type):
+                if (
+                    event_type == RESPONSE_STREAMING_EVENTS.response.output_text.done
+                    or event_type == RESPONSE_STREAMING_EVENTS.message.completed
+                ):
                     text = payload.get("text") or payload.get("delta")
                     if isinstance(text, str) and text.strip():
                         final_text = text.strip()
                     continue
 
-                if RESPONSE_STREAMING_EVENTS.is_output_item(event_type):
+                if event_type in {
+                    RESPONSE_STREAMING_EVENTS.response.output_item.added,
+                    RESPONSE_STREAMING_EVENTS.response.output_item.done,
+                }:
                     item = self._coerce_optional_dict(payload.get("item"))
                     if item is not None:
                         self._collect_stream_function_call(function_calls, item)
                     continue
 
-                if RESPONSE_STREAMING_EVENTS.is_function_call_arguments(event_type):
+                if event_type in {
+                    RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
+                    RESPONSE_STREAMING_EVENTS.response.function_call_arguments.done,
+                }:
                     self._append_function_call_arguments(function_calls, payload)
                     continue
         finally:
@@ -561,9 +576,11 @@ class AgentGraph:
             entry["arguments"] = f'{entry.get("arguments", "")}{arguments}'
 
     def _event_to_dict(self, event: object) -> dict[str, object]:
+        from pprint import pprint
+
         payload = self._coerce_optional_dict(event)
         print("[PAYLOAD]")
-        print(payload)
+        pprint(payload)
         if payload is not None:
             return payload
 

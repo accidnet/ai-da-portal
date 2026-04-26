@@ -205,13 +205,19 @@ class MessageService:
                     continue
 
                 event_type = payload.get("type")
-                if RESPONSE_STREAMING_EVENTS.is_text_delta(event_type):
+                if (
+                    event_type == RESPONSE_STREAMING_EVENTS.response.output_text.delta
+                    or event_type == RESPONSE_STREAMING_EVENTS.message.delta
+                ):
                     delta = payload.get("delta") or payload.get("text")
                     if isinstance(delta, str) and delta:
                         deltas.append(delta)
                     continue
 
-                if RESPONSE_STREAMING_EVENTS.is_text_done(event_type):
+                if (
+                    event_type == RESPONSE_STREAMING_EVENTS.response.output_text.done
+                    or event_type == RESPONSE_STREAMING_EVENTS.message.completed
+                ):
                     text = payload.get("text") or payload.get("delta")
                     if isinstance(text, str) and text.strip():
                         final_text = text.strip()
