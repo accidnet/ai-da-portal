@@ -136,7 +136,7 @@ def test_llm_client_uses_chatgpt_oauth_token_when_available(
         system="system", user_message="user prompt", dataset_ids=["dataset-1"]
     )
 
-    assert reply == "hello from oauth"
+    assert isinstance(reply, FakeStream)
     assert factory.calls[0]["api_key"] == "oauth-token"
     assert factory.calls[0]["base_url"] == "https://chatgpt.com/backend-api/codex"
     assert factory.calls[0]["default_headers"] == {"ChatGPT-Account-Id": "acct-123"}
@@ -153,7 +153,7 @@ def test_llm_client_raises_when_no_credentials_are_available() -> None:
         client.generate(system="system", user_message="user prompt")
 
 
-def test_llm_client_parses_streaming_response_events() -> None:
+def test_llm_client_generate_returns_stream_for_oauth() -> None:
     sdk_client = FakeOpenAIClient(
         FakeResponsesApi(
             stream_events=[
@@ -170,10 +170,10 @@ def test_llm_client_parses_streaming_response_events() -> None:
 
     reply = client.generate(system="system", user_message="user prompt")
 
-    assert reply == "Hello world"
+    assert isinstance(reply, FakeStream)
 
 
-def test_llm_client_prefers_done_text_over_response_completed_wrapper() -> None:
+def test_llm_client_generate_preserves_stream_events_for_oauth() -> None:
     sdk_client = FakeOpenAIClient(
         FakeResponsesApi(
             stream_events=[
@@ -196,7 +196,7 @@ def test_llm_client_prefers_done_text_over_response_completed_wrapper() -> None:
 
     reply = client.generate(system="system", user_message="user prompt")
 
-    assert reply == "실제 분석 결과입니다."
+    assert isinstance(reply, FakeStream)
 
 
 def test_llm_client_generate_json_unwraps_nested_response_payload() -> None:
@@ -405,6 +405,6 @@ def test_llm_client_create_response_uses_streaming_for_oauth_codex() -> None:
         ],
     )
 
-    assert payload["id"] == "resp_123"
+    assert isinstance(payload, FakeStream)
     assert responses_api.calls[0]["stream"] is True
     assert "max_output_tokens" not in responses_api.calls[0]

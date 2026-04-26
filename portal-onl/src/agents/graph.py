@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -415,6 +416,196 @@ class AgentGraph:
         if parts:
             return "\n\n".join(parts)
         return None
+
+    def _read_response_payload(self, response: object) -> dict[str, object]:
+        payload = self._coerce_optional_dict(response)
+        if payload is not None:
+            return self._normalize_response_payload(payload)
+        return self._parse_stream_response(response)
+
+    def _parse_stream_response(self, stream: object) -> dict[str, object]:
+        response_id: str | None = None
+        final_text: str | None = None
+        text_deltas: list[str] = []
+        function_calls: dict[str, dict[str, object]] = {}
+
+        close = getattr(stream, "close", None)
+        try:
+            for event in cast(Iterable[object], stream):
+                payload = self._event_to_dict(event)
+                event_type = payload.get("type")
+
+                response_payload = self._coerce_optional_dict(payload.get("response"))
+                if response_payload is not None and response_id is None:
+                    response_id = self._read_string(response_payload.get("id"))
+
+                if event_type == "response.completed" and response_payload is not None:
+                    return self._normalize_response_payload(response_payload)
+
+                if event_type in {"response.output_text.delta", "message.delta"}:
+                    delta = payload.get("delta") or payload.get("text")
+                    if isinstance(delta, str) and delta:
+                        text_deltas.append(delta)
+                    continue
+
+                if event_type in {"response.output_text.done", "message.completed"}:
+                    text = payload.get("text") or payload.get("delta")
+                    if isinstance(text, str) and text.strip():
+                        final_text = text.strip()
+                    continue
+
+                if event_type in {
+                    "response.output_item.added",
+                    "response.output_item.done",
+                }:
+                    item = self._coerce_optional_dict(payload.get("item"))
+                    if item is not None:
+                        self._collect_stream_function_call(function_calls, item)
+                    continue
+
+                if event_type in {
+                    "response.function_call_arguments.delta",
+                    "response.function_call_arguments.done",
+                }:
+                    self._append_function_call_arguments(function_calls, payload)
+                    continue
+        finally:
+            if callable(close):
+                close()
+
+        normalized: dict[str, object] = {}
+        if response_id:
+            normalized["id"] = response_id
+
+        output = self._build_stream_output(function_calls, final_text, text_deltas)
+        if output:
+            normalized["output"] = output
+
+        output_text = final_text or "".join(text_deltas).strip()
+        if output_text:
+            normalized["output_text"] = output_text
+
+        return self._normalize_response_payload(normalized)
+
+    def _build_stream_output(
+        self,
+        function_calls: dict[str, dict[str, object]],
+        final_text: str | None,
+        text_deltas: list[str],
+    ) -> list[dict[str, object]]:
+        output: list[dict[str, object]] = []
+        for function_call in function_calls.values():
+            output.append(function_call)
+
+        message_text = final_text or "".join(text_deltas).strip()
+        if message_text:
+            output.append(
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": message_text}],
+                }
+            )
+        return output
+
+    def _collect_stream_function_call(
+        self, function_calls: dict[str, dict[str, object]], item: dict[str, object]
+    ) -> None:
+        if item.get("type") != "function_call":
+            return
+
+        call_id = self._read_string(item.get("call_id"))
+        if call_id is None:
+            return
+
+        entry = function_calls.setdefault(
+            call_id,
+            {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": self._read_string(item.get("name")) or "",
+                "arguments": "",
+            },
+        )
+
+        name = self._read_string(item.get("name"))
+        if name:
+            entry["name"] = name
+
+        arguments = item.get("arguments")
+        if isinstance(arguments, str):
+            entry["arguments"] = arguments
+
+    def _append_function_call_arguments(
+        self, function_calls: dict[str, dict[str, object]], event: dict[str, object]
+    ) -> None:
+        call_id = self._read_string(event.get("call_id")) or self._read_string(
+            event.get("item_id")
+        )
+        if call_id is None:
+            return
+
+        entry = function_calls.setdefault(
+            call_id,
+            {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": self._read_string(event.get("name")) or "",
+                "arguments": "",
+            },
+        )
+
+        name = self._read_string(event.get("name"))
+        if name:
+            entry["name"] = name
+
+        arguments = event.get("delta") or event.get("arguments")
+        if isinstance(arguments, str):
+            entry["arguments"] = f'{entry.get("arguments", "")}{arguments}'
+
+    def _event_to_dict(self, event: object) -> dict[str, object]:
+        payload = self._coerce_optional_dict(event)
+        if payload is not None:
+            return payload
+
+        event_type = getattr(event, "type", None)
+        if isinstance(event_type, str):
+            return {"type": event_type}
+        return {}
+
+    def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
+        if isinstance(value, dict):
+            return cast(dict[str, object], value)
+
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump(mode="python")
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            dumped = to_dict()
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        return None
+
+    def _normalize_response_payload(
+        self, response: dict[str, object]
+    ) -> dict[str, object]:
+        nested_response = self._coerce_optional_dict(response.get("response"))
+        normalized = nested_response if nested_response is not None else dict(response)
+
+        output_text = normalized.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            normalized["output_text"] = output_text.strip()
+            return normalized
+
+        extracted = self._extract_assistant_text(normalized)
+        if extracted:
+            normalized["output_text"] = extracted
+
+        return normalized
 
     def _read_bool(self, value: object, *, default: bool) -> bool:
         if isinstance(value, bool):

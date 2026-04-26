@@ -1,5 +1,6 @@
 import logging
 import re
+from collections.abc import Iterable
 from typing import cast
 
 from fastapi import UploadFile
@@ -176,7 +177,9 @@ class MessageService:
                 ),
                 user_message=f"첫 사용자 질문:\n{user_message}",
             )
-            sanitized = self._sanitize_session_title(generated)
+            sanitized = self._sanitize_session_title(
+                self._resolve_generated_text(generated)
+            )
             if sanitized:
                 return sanitized
         except LlmClientError as exc:
@@ -185,6 +188,95 @@ class MessageService:
             )
 
         return self._fallback_session_title(user_message)
+
+    def _resolve_generated_text(self, generated: object) -> str:
+        if isinstance(generated, str):
+            return generated
+
+        final_text: str | None = None
+        deltas: list[str] = []
+        close = getattr(generated, "close", None)
+
+        try:
+            for event in cast(Iterable[object], generated):
+                payload = self._coerce_optional_dict(event)
+                if payload is None:
+                    continue
+
+                event_type = payload.get("type")
+                if event_type in {"response.output_text.delta", "message.delta"}:
+                    delta = payload.get("delta") or payload.get("text")
+                    if isinstance(delta, str) and delta:
+                        deltas.append(delta)
+                    continue
+
+                if event_type in {"response.output_text.done", "message.completed"}:
+                    text = payload.get("text") or payload.get("delta")
+                    if isinstance(text, str) and text.strip():
+                        final_text = text.strip()
+                    continue
+
+                if event_type == "response.completed":
+                    response_payload = self._coerce_optional_dict(payload.get("response"))
+                    if response_payload is None:
+                        continue
+                    completed = self._extract_output_text(response_payload)
+                    if completed:
+                        return completed
+        finally:
+            if callable(close):
+                close()
+
+        output = final_text or "".join(deltas).strip()
+        if output:
+            return output
+        raise LlmClientError("OpenAI returned no assistant text.")
+
+    def _extract_output_text(self, payload: dict[str, object]) -> str | None:
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        output = payload.get("output")
+        if not isinstance(output, list):
+            return None
+
+        parts: list[str] = []
+        for item in output:
+            item_payload = self._coerce_optional_dict(item)
+            if item_payload is None:
+                continue
+            content = item_payload.get("content")
+            if not isinstance(content, list):
+                continue
+            for entry in content:
+                entry_payload = self._coerce_optional_dict(entry)
+                if entry_payload is None:
+                    continue
+                text = entry_payload.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+        if parts:
+            return "\n\n".join(parts)
+        return None
+
+    def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
+        if isinstance(value, dict):
+            return cast(dict[str, object], value)
+
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump(mode="python")
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            dumped = to_dict()
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        return None
 
     def _sanitize_session_title(self, title: str) -> str | None:
         sanitized = " ".join(title.strip().split())

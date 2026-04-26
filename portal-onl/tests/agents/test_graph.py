@@ -24,6 +24,18 @@ class FakeLlmClient:
         return self._responses.pop(0)
 
 
+class FakeStream:
+    def __init__(self, events: list[object]) -> None:
+        self._events = events
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class FakeDatasetService:
     def get_latest_dataset_id(self) -> str | None:
         return "dataset-1"
@@ -256,3 +268,62 @@ def test_agent_graph_allows_update_plan_tool() -> None:
         {"step": "데이터셋 확인", "status": "completed"},
         {"step": "추세 분석 실행", "status": "in_progress"},
     ]
+
+
+def test_agent_graph_parses_stream_events_and_executes_tool() -> None:
+    first_stream = FakeStream(
+        [
+            {
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "inspect_dataset_context",
+                },
+            },
+            {
+                "type": "response.function_call_arguments.delta",
+                "call_id": "call_1",
+                "delta": '{"include_preview":true,"include_profile":true}',
+            },
+            {"type": "response.created", "response": {"id": "resp_1"}},
+        ]
+    )
+    second_stream = FakeStream(
+        [
+            {"type": "response.created", "response": {"id": "resp_2"}},
+            {
+                "type": "response.output_text.delta",
+                "delta": "데이터셋은 12행 2열이고 ",
+            },
+            {
+                "type": "response.output_text.done",
+                "text": "데이터셋은 12행 2열이고 sales 컬럼이 있습니다.",
+            },
+        ]
+    )
+    llm_client = FakeLlmClient([first_stream, second_stream])
+    graph = AgentGraph(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    result = graph.invoke(
+        {
+            "session_id": "session-1",
+            "message": "업로드된 데이터 컬럼을 설명해줘",
+            "dataset_ids": [],
+            "session_dataset_ids": ["dataset-1"],
+        }
+    )
+
+    assert (
+        result["assistant_message"]
+        == "데이터셋은 12행 2열이고 sales 컬럼이 있습니다."
+    )
+    assert result["route"] == "dataset_analysis"
+    assert result["used_tools"] == ["inspect_dataset_context"]
+    assert llm_client.calls[1]["previous_response_id"] == "resp_1"
+    assert first_stream.closed is True
+    assert second_stream.closed is True

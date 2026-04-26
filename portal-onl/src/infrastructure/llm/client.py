@@ -1,7 +1,5 @@
 import json
-import logging
 import re
-from collections.abc import Iterable
 from typing import Any, cast
 
 import httpx
@@ -10,11 +8,6 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from core.config import Settings
 from domain.auth.service import OpenAiAuthService
 from infrastructure.llm.schemas import StructuredPrompt
-
-
-logger = logging.getLogger(__name__)
-
-
 class LlmClientError(RuntimeError):
     pass
 
@@ -34,7 +27,7 @@ class LlmClient:
 
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
-    ) -> str:
+    ) -> object:
         prompt = StructuredPrompt(
             system=system,
             user=user_message,
@@ -50,9 +43,9 @@ class LlmClient:
         response = self._responses_create(payload=payload, stream=self._uses_oauth())
 
         if self._uses_oauth():
-            output = self._extract_stream_output(response)
-        else:
-            output = self._extract_output_text(self._coerce_dict(response))
+            return response
+
+        output = self._extract_output_text(self._coerce_dict(response))
 
         if output:
             return output
@@ -60,11 +53,13 @@ class LlmClient:
 
     def generate_json(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
-    ) -> dict[str, object]:
+    ) -> object:
         raw = self.generate(
             system=system, user_message=user_message, dataset_ids=dataset_ids
         )
-        return self._extract_json_object(raw)
+        if isinstance(raw, str):
+            return self._extract_json_object(raw)
+        return raw
 
     def create_response(
         self,
@@ -77,7 +72,7 @@ class LlmClient:
         reasoning: dict[str, object] | None = None,
         parallel_tool_calls: bool | None = None,
         max_output_tokens: int | None = None,
-    ) -> dict[str, object]:
+    ) -> object:
         use_oauth = self._uses_oauth()
         payload: dict[str, object] = {
             "model": self._settings.llm_model,
@@ -101,9 +96,7 @@ class LlmClient:
 
         response = self._responses_create(payload=payload, stream=use_oauth)
         if use_oauth:
-            return self._normalize_response_payload(
-                self._extract_stream_response_payload(response)
-            )
+            return response
         return self._normalize_response_payload(self._coerce_dict(response))
 
     def _uses_oauth(self) -> bool:
@@ -189,66 +182,6 @@ class LlmClient:
             }
         ]
 
-    def _extract_stream_output(self, stream: object) -> str | None:
-        final_response = self._get_final_response_payload(stream)
-        if final_response is not None:
-            output = self._extract_output_text(
-                final_response, allow_raw_json_fallback=False
-            )
-            if output:
-                self._close_stream(stream)
-                return output.strip() or None
-
-        deltas: list[str] = []
-        final_text: str | None = None
-
-        try:
-            for event in cast(Iterable[object], stream):
-                event_payload = self._event_to_dict(event)
-                extracted = self._extract_text_from_event(event_payload)
-                if extracted is None:
-                    continue
-
-                text, is_final = extracted
-                if not text:
-                    continue
-                if is_final:
-                    final_text = text
-                else:
-                    deltas.append(text)
-        finally:
-            self._close_stream(stream)
-
-        if final_text:
-            return final_text.strip() or None
-        if deltas:
-            return "".join(deltas).strip() or None
-        return None
-
-    def _extract_stream_response_payload(self, stream: object) -> dict[str, object]:
-        final_response = self._get_final_response_payload(stream)
-        if final_response is not None:
-            self._close_stream(stream)
-            return final_response
-
-        try:
-            i = 0
-            for event in cast(Iterable[object], stream):
-                event_payload = self._event_to_dict(event)
-                print(f"{i}:::::::::", event_payload)
-                i+=1
-                if event_payload.get("type") != "response.completed":
-                    continue
-                response_payload = self._coerce_optional_dict(
-                    event_payload.get("response")
-                )
-                if response_payload is not None:
-                    return response_payload
-        finally:
-            self._close_stream(stream)
-
-        raise LlmClientError("OpenAI returned no structured response payload.")
-
     def _get_final_response_payload(self, stream: object) -> dict[str, object] | None:
         get_final_response = getattr(stream, "get_final_response", None)
         if not callable(get_final_response):
@@ -264,16 +197,6 @@ class LlmClient:
         close = getattr(stream, "close", None)
         if callable(close):
             close()
-
-    def _event_to_dict(self, event: object) -> dict[str, object]:
-        payload = self._coerce_optional_dict(event)
-        if payload is not None:
-            return payload
-
-        event_type = getattr(event, "type", None)
-        if isinstance(event_type, str):
-            return {"type": event_type}
-        return {}
 
     def _coerce_dict(self, value: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(value)
@@ -351,52 +274,6 @@ class LlmClient:
             return self._extract_json_object(extracted)
 
         return payload
-
-    def _extract_text_from_event(
-        self, event: dict[str, object]
-    ) -> tuple[str, bool] | None:
-        event_type = event.get("type")
-        if event_type in {
-            "response.output_text.delta",
-            "message.delta",
-        }:
-            delta = event.get("delta") or event.get("text")
-            if isinstance(delta, str) and delta:
-                logger.debug(
-                    "Captured SDK stream delta event=%s len=%s", event_type, len(delta)
-                )
-                return (delta, False)
-
-        if event_type in {
-            "response.output_text.done",
-            "message.completed",
-        }:
-            text = event.get("text") or event.get("delta")
-            if isinstance(text, str) and text:
-                logger.debug(
-                    "Captured SDK stream final event=%s len=%s", event_type, len(text)
-                )
-                return (text, True)
-
-        if event_type == "response.completed":
-            response_payload = self._coerce_optional_dict(event.get("response"))
-            if response_payload is not None:
-                completed = self._extract_output_text(
-                    response_payload, allow_raw_json_fallback=False
-                )
-                if completed:
-                    return (completed, True)
-
-        message = self._coerce_optional_dict(event.get("message"))
-        if message is not None:
-            content = message.get("content")
-            if isinstance(content, str) and content.strip():
-                return (content.strip(), True)
-
-        completed = self._extract_output_text(event)
-        if completed and not completed.startswith("{"):
-            return (completed, True)
-        return None
 
     def _extract_output_text(
         self, data: dict[str, object], *, allow_raw_json_fallback: bool = True

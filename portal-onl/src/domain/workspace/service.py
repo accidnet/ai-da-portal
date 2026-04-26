@@ -1,5 +1,7 @@
 import json
 import logging
+from collections.abc import Iterable
+from typing import cast
 
 from pydantic import BaseModel, Field
 
@@ -36,15 +38,17 @@ class WorkspacePlanner:
 
         if self._llm_client is not None:
             try:
-                planned = self._llm_client.generate_json(
-                    system=self._workspace_system_prompt(),
-                    user_message=self._compose_planning_message(
-                        prompt=prompt,
-                        analytics=analytics,
-                        route=route,
-                        analysis_type=analysis_type,
+                planned = self._resolve_planned_workspace(
+                    self._llm_client.generate_json(
+                        system=self._workspace_system_prompt(),
+                        user_message=self._compose_planning_message(
+                            prompt=prompt,
+                            analytics=analytics,
+                            route=route,
+                            analysis_type=analysis_type,
+                        ),
+                        dataset_ids=dataset_ids,
                     ),
-                    dataset_ids=dataset_ids,
                 )
                 workspace = self._build_workspace_from_plan(
                     planned=planned,
@@ -65,6 +69,136 @@ class WorkspacePlanner:
             route=route,
             analysis_type=analysis_type,
         )
+
+    def _resolve_planned_workspace(self, generated: object) -> dict[str, object]:
+        if isinstance(generated, dict):
+            return generated
+        raw = self._resolve_generated_text(generated)
+        return self._extract_json_object(raw)
+
+    def _resolve_generated_text(self, generated: object) -> str:
+        if isinstance(generated, str):
+            return generated
+
+        final_text: str | None = None
+        deltas: list[str] = []
+        close = getattr(generated, "close", None)
+
+        try:
+            for event in cast(Iterable[object], generated):
+                payload = self._coerce_optional_dict(event)
+                if payload is None:
+                    continue
+
+                event_type = payload.get("type")
+                if event_type in {"response.output_text.delta", "message.delta"}:
+                    delta = payload.get("delta") or payload.get("text")
+                    if isinstance(delta, str) and delta:
+                        deltas.append(delta)
+                    continue
+
+                if event_type in {"response.output_text.done", "message.completed"}:
+                    text = payload.get("text") or payload.get("delta")
+                    if isinstance(text, str) and text.strip():
+                        final_text = text.strip()
+                    continue
+
+                if event_type == "response.completed":
+                    response_payload = self._coerce_optional_dict(payload.get("response"))
+                    if response_payload is None:
+                        continue
+                    completed = self._extract_output_text(response_payload)
+                    if completed:
+                        return completed
+        finally:
+            if callable(close):
+                close()
+
+        output = final_text or "".join(deltas).strip()
+        if output:
+            return output
+        raise LlmClientError("OpenAI returned invalid JSON for structured output.")
+
+    def _extract_output_text(self, payload: dict[str, object]) -> str | None:
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        output = payload.get("output")
+        if not isinstance(output, list):
+            return None
+
+        parts: list[str] = []
+        for item in output:
+            item_payload = self._coerce_optional_dict(item)
+            if item_payload is None:
+                continue
+            content = item_payload.get("content")
+            if not isinstance(content, list):
+                continue
+            for entry in content:
+                entry_payload = self._coerce_optional_dict(entry)
+                if entry_payload is None:
+                    continue
+                text = entry_payload.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+                    continue
+                json_value = entry_payload.get("json")
+                if isinstance(json_value, dict):
+                    parts.append(json.dumps(json_value, ensure_ascii=False))
+        if parts:
+            return "\n\n".join(parts)
+        return None
+
+    def _extract_json_object(self, raw_text: str) -> dict[str, object]:
+        normalized = raw_text.strip()
+        if not normalized:
+            raise LlmClientError("OpenAI returned invalid JSON for structured output.")
+
+        fence_start = normalized.find("```")
+        if fence_start >= 0:
+            fence_end = normalized.rfind("```")
+            if fence_end > fence_start:
+                normalized = normalized[fence_start + 3 : fence_end].strip()
+                if normalized.startswith("json"):
+                    normalized = normalized[4:].strip()
+        elif not normalized.startswith("{"):
+            start = normalized.find("{")
+            end = normalized.rfind("}")
+            if start >= 0 and end > start:
+                normalized = normalized[start : end + 1]
+
+        try:
+            payload = json.loads(normalized)
+        except json.JSONDecodeError as exc:
+            raise LlmClientError(
+                "OpenAI returned invalid JSON for structured output."
+            ) from exc
+
+        if not isinstance(payload, dict):
+            raise LlmClientError(
+                "OpenAI returned non-object JSON for structured output."
+            )
+        return payload
+
+    def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
+        if isinstance(value, dict):
+            return cast(dict[str, object], value)
+
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump(mode="python")
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            dumped = to_dict()
+            if isinstance(dumped, dict):
+                return cast(dict[str, object], dumped)
+
+        return None
 
     def _workspace_system_prompt(self) -> str:
         return (
