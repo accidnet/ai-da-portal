@@ -327,7 +327,6 @@ def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
         ],
         tools=[{"type": "function", "name": "run_portal_analysis"}],
         tool_choice="auto",
-        previous_response_id="resp_prev",
         reasoning={"effort": "medium"},
         parallel_tool_calls=False,
         max_output_tokens=900,
@@ -336,7 +335,6 @@ def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
     assert payload["id"] == "resp_123"
     assert responses_api.calls[0]["stream"] is False
     assert responses_api.calls[0]["tool_choice"] == "auto"
-    assert responses_api.calls[0]["previous_response_id"] == "resp_prev"
     assert responses_api.calls[0]["parallel_tool_calls"] is False
 
 

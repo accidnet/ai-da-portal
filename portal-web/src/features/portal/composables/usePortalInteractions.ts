@@ -193,7 +193,7 @@ export function usePortalInteractions(options: {
       attachmentStatus: attachedFile
         ? {
             filename: attachedFile.name,
-            meta: `${formatFileSize(attachedFile.size)} · 업로드 중`,
+            meta: formatFileSize(attachedFile.size),
           }
         : undefined,
     }

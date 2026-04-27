@@ -50,7 +50,6 @@ class Agent:
             response = self._read_response_payload(
                 self._llm_client.create_response(
                     instructions=load_prompt("base.md"),
-                    previous_response_id=working_state.get("response_id"),
                     input=next_input,
                     tools=registry.get_tool_definitions(),
                     tool_choice="auto",
@@ -135,7 +134,6 @@ class Agent:
 
             response_kwargs: dict[str, object] = {
                 "instructions": load_prompt("base.md"),
-                "previous_response_id": working_state.get("response_id"),
                 "input": next_input,
                 "tools": registry.get_tool_definitions(),
                 "tool_choice": "auto",

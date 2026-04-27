@@ -260,7 +260,6 @@ def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
     assert result["route"] == "dataset_analysis"
     assert result["resolved_dataset_id"] == "dataset-1"
     assert result["used_tools"] == ["inspect_dataset_context"]
-    assert llm_client.calls[1]["previous_response_id"] == "resp_1"
 
 
 def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
@@ -431,7 +430,6 @@ def test_agent_graph_parses_stream_events_and_executes_tool() -> None:
     )
     assert result["route"] == "dataset_analysis"
     assert result["used_tools"] == ["inspect_dataset_context"]
-    assert llm_client.calls[1]["previous_response_id"] == "resp_1"
     assert first_stream.closed is True
     assert second_stream.closed is True
 

@@ -68,7 +68,6 @@ class LlmClient:
         instructions: str | None = None,
         tools: list[dict[str, object]] | None = None,
         tool_choice: str | dict[str, object] | None = None,
-        previous_response_id: str | None = None,
         reasoning: dict[str, object] | None = None,
         parallel_tool_calls: bool | None = None,
         max_output_tokens: int | None = None,
@@ -85,8 +84,6 @@ class LlmClient:
             payload["tools"] = tools
         if tool_choice is not None:
             payload["tool_choice"] = tool_choice
-        if previous_response_id:
-            payload["previous_response_id"] = previous_response_id
         if reasoning:
             payload["reasoning"] = reasoning
         if parallel_tool_calls is not None:
