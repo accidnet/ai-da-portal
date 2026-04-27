@@ -15,6 +15,7 @@ from infrastructure.llm.input_models import (
     EasyInputMessage,
     FunctionCallOutput,
     InputItemList,
+    ResponseInputText,
 )
 from tools import registry
 from tools.function_call_runtime import resolve_output_item_function_call
@@ -271,14 +272,22 @@ class Agent:
         }
         return InputItemList(
             items=(
-                EasyInputMessage.from_text(
+                EasyInputMessage(
                     role="developer",
-                    text="다음의 정보를 활용하세요.\n"
-                    + json.dumps(payload, ensure_ascii=False),
+                    content=(
+                        ResponseInputText(
+                            text="다음의 정보를 활용하세요.\n"
+                            + json.dumps(payload, ensure_ascii=False)
+                        ),
+                    ),
                 ),
-                EasyInputMessage.from_text(
+                EasyInputMessage(
                     role="user",
-                    text=self._require_string(state, "message"),
+                    content=(
+                        ResponseInputText(
+                            text=self._require_string(state, "message")
+                        ),
+                    ),
                 ),
             )
         ).to_payload()

@@ -109,7 +109,7 @@ def test_llm_client_uses_responses_api_when_api_key_is_configured(
         {
             "type": "message",
             "role": "user",
-            "phase": "input",
+            "phase": None,
             "content": [{"type": "input_text", "text": "user prompt"}],
         }
     ]

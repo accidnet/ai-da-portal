@@ -7,7 +7,11 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from core.config import Settings
 from domain.auth.service import OpenAiAuthService
-from infrastructure.llm.input_models import EasyInputMessage, InputItemList
+from infrastructure.llm.input_models import (
+    EasyInputMessage,
+    InputItemList,
+    ResponseInputText,
+)
 from infrastructure.llm.schemas import StructuredPrompt
 class LlmClientError(RuntimeError):
     pass
@@ -169,7 +173,12 @@ class LlmClient:
 
     def _build_input(self, user_message: str) -> list[dict[str, object]]:
         return InputItemList(
-            items=(EasyInputMessage.from_text(role="user", text=user_message),)
+            items=(
+                EasyInputMessage(
+                    role="user",
+                    content=(ResponseInputText(text=user_message),),
+                ),
+            )
         ).to_payload()
 
     def _get_final_response_payload(self, stream: object) -> dict[str, object] | None:
