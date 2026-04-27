@@ -6,7 +6,9 @@ from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
 type StreamEventResult = dict[str, object]
 type DictCoercer = Callable[[object], dict[str, object] | None]
 type ResponseNormalizer = Callable[[dict[str, object]], dict[str, object]]
-type OutputItemFunctionCallHandler = Callable[[dict[str, object]], dict[str, object] | None]
+type OutputItemFunctionCallHandler = Callable[
+    [dict[str, object]], dict[str, object] | None
+]
 
 
 QUIET_EVENT_TYPES = {
@@ -80,7 +82,7 @@ def _build_handler_map(
         RESPONSE_STREAMING_EVENTS.message.completed: lambda: _handle_output_text_done(
             payload, final_text
         ),
-        RESPONSE_STREAMING_EVENTS.response.output_item.added: lambda: _handle_output_item(
+        RESPONSE_STREAMING_EVENTS.response.output_item.added: lambda: _handle_output_item_add(
             payload,
             function_calls,
             final_text,
@@ -178,7 +180,7 @@ def _handle_output_text_done(
     )
 
 
-def _handle_output_item(
+def _handle_output_item_add(
     payload: dict[str, object],
     function_calls: dict[str, dict[str, object]],
     final_text: str | None,
@@ -207,7 +209,10 @@ def _handle_output_item_done(
     yielded_event: dict[str, object] | None = None
     if item is not None:
         _collect_stream_function_call(function_calls, item)
-        if item.get("type") == "function_call" and handle_output_item_function_call is not None:
+        if (
+            item.get("type") == "function_call"
+            and handle_output_item_function_call is not None
+        ):
             yielded_event = handle_output_item_function_call(item)
 
     return _build_result(

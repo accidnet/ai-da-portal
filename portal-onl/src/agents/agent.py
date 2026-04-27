@@ -49,7 +49,7 @@ class Agent:
 
             response = self._read_response_payload(
                 self._llm_client.create_response(
-                    instructions=self._system_prompt(),
+                    instructions=load_prompt("base.md"),
                     previous_response_id=working_state.get("response_id"),
                     input=next_input,
                     tools=registry.get_tool_definitions(),
@@ -134,6 +134,7 @@ class Agent:
                 return stream_event
 
             response_kwargs: dict[str, object] = {
+                "instructions": load_prompt("base.md"),
                 "previous_response_id": working_state.get("response_id"),
                 "input": next_input,
                 "tools": registry.get_tool_definitions(),
@@ -142,8 +143,6 @@ class Agent:
                 "reasoning": {"effort": "medium"},
                 "max_output_tokens": 900,
             }
-            if iteration_count == 1:
-                response_kwargs["instructions"] = self._system_prompt()
 
             response = yield from self._stream_response_payload(
                 self._llm_client.create_response(**response_kwargs),
@@ -247,9 +246,6 @@ class Agent:
                 status,
             ),
         }
-
-    def _system_prompt(self) -> str:
-        return load_prompt("base.md")
 
     def _build_initial_input(self, state: AgentState) -> list[dict[str, object]]:
         available_dataset_ids = self._available_dataset_ids(state)
