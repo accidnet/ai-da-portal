@@ -107,7 +107,9 @@ def test_llm_client_uses_responses_api_when_api_key_is_configured(
     assert sdk_client.responses.calls[0]["store"] is False
     assert sdk_client.responses.calls[0]["input"] == [
         {
+            "type": "message",
             "role": "user",
+            "phase": "input",
             "content": [{"type": "input_text", "text": "user prompt"}],
         }
     ]

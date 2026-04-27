@@ -174,6 +174,18 @@ export function usePortalInteractions(options: {
     })
   }
 
+  function hasVisibleAssistantContent(message: ChatMessage | undefined): boolean {
+    if (!message || message.role !== 'assistant') return false
+
+    return Boolean(
+      message.text.trim()
+      || message.subMessages?.length
+      || message.plan?.length
+      || message.planExplanation?.trim()
+      || message.attachmentPreview,
+    )
+  }
+
   async function handleSendMessage(message: string, options: { setUploadError: (message: string | null) => void }) {
     if (isSending.value || isRunningAnalysis.value) {
       return
@@ -324,9 +336,12 @@ export function usePortalInteractions(options: {
           : entry,
       )
       pendingAttachment.value = attachedFile
-      sessionState.messages = sessionState.messages.filter(
-        (_, index) => index !== assistantMessageIndex,
-      )
+      if (!hasVisibleAssistantContent(sessionState.messages[assistantMessageIndex])) {
+        sessionState.messages = sessionState.messages.filter(
+          (_, index) => index !== assistantMessageIndex,
+        )
+      }
+      syncSessionSummaryWithState(sessionId)
     } finally {
       isSending.value = false
       isSendingInteraction.value = false

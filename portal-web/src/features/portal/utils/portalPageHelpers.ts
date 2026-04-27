@@ -81,7 +81,7 @@ export function createWelcomeMessages(): ChatMessage[] {
       bullets: [
         { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
         { text: '추세, 상관관계, 이상치 분석 요청하기' },
-        { text: '간단한 그래프 시각화하기' },
+        { text: '간단한 그래프 시각화 요청하기' },
       ],
     },
   ]

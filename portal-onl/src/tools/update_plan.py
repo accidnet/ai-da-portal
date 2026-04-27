@@ -3,7 +3,7 @@ from typing import cast
 from agents.state import AgentState, PlanStep
 
 
-PLAN_STATUSES = ("pending", "in_progress", "completed")
+_PLAN_STATUSES = ("pending", "in_progress", "completed")
 
 
 def tool_definition() -> dict[str, object]:
@@ -33,8 +33,8 @@ def tool_definition() -> dict[str, object]:
                             },
                             "status": {
                                 "type": "string",
-                                "enum": list(PLAN_STATUSES),
-                                "description": "pending, in_progress, completed 중 하나입니다.",
+                                "enum": list(_PLAN_STATUSES),
+                                "description": f"{",".join(_PLAN_STATUSES)} 중 하나입니다.",
                             },
                         },
                         "required": ["step", "status"],
@@ -67,7 +67,7 @@ def execute(state: AgentState, arguments: dict[str, object]) -> dict[str, object
         status = raw_step.get("status")
         if not isinstance(step, str) or not step.strip():
             return {"ok": False, "error": "each plan item needs a non-empty step."}
-        if status not in PLAN_STATUSES:
+        if status not in _PLAN_STATUSES:
             return {
                 "ok": False,
                 "error": "status must be one of pending, in_progress, completed.",

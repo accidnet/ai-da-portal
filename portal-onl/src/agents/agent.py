@@ -1,3 +1,4 @@
+import logging
 import json
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
@@ -10,8 +11,16 @@ from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.llm.client import LlmClient, LlmClientError
+from infrastructure.llm.input_models import (
+    EasyInputMessage,
+    FunctionCallOutput,
+    InputItemList,
+)
 from tools import registry
 from tools.function_call_runtime import resolve_output_item_function_call
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -66,14 +75,13 @@ class Agent:
             function_calls = self._extract_function_calls(response)
             if function_calls:
                 next_input = [
-                    {
-                        "type": "function_call_output",
-                        "call_id": function_call.call_id,
-                        "output": json.dumps(
+                    FunctionCallOutput(
+                        call_id=function_call.call_id,
+                        output=json.dumps(
                             self._execute_function_call(working_state, function_call),
                             ensure_ascii=False,
                         ),
-                    }
+                    ).to_payload()
                     for function_call in function_calls
                 ]
                 continue
@@ -98,8 +106,7 @@ class Agent:
         working_state.setdefault("status", "queued")
         last_state_fingerprint: str | None = None
         next_input = self._build_initial_input(working_state)
-        print("[TMP-INPUT]")
-        print(next_input)
+        logger.debug("Agent stream input prepared next_input=%s", next_input)
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
         max_iterations = 3
@@ -141,6 +148,7 @@ class Agent:
                 "reasoning": {"effort": "medium"},
                 "max_output_tokens": 900,
             }
+            logger.debug("Agent streaming response kwargs=%s", response_kwargs)
 
             response = yield from self._stream_response_payload(
                 self._llm_client.create_response(**response_kwargs),
@@ -163,11 +171,10 @@ class Agent:
                         working_state, function_call
                     )
                     tool_outputs.append(
-                        {
-                            "type": "function_call_output",
-                            "call_id": function_call.call_id,
-                            "output": json.dumps(tool_result, ensure_ascii=False),
-                        }
+                        FunctionCallOutput(
+                            call_id=function_call.call_id,
+                            output=json.dumps(tool_result, ensure_ascii=False),
+                        ).to_payload()
                     )
                     state_event = self._build_state_event(working_state)
                     fingerprint = json.dumps(
@@ -262,27 +269,19 @@ class Agent:
                 else None
             ),
         }
-        return [
-            {
-                "role": "developer",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": "다음의 정보를 활용하세요.\n"
-                        + (json.dumps(payload, ensure_ascii=False)),
-                    }
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": self._require_string(state, "message"),
-                    }
-                ],
-            },
-        ]
+        return InputItemList(
+            items=(
+                EasyInputMessage.from_text(
+                    role="developer",
+                    text="다음의 정보를 활용하세요.\n"
+                    + json.dumps(payload, ensure_ascii=False),
+                ),
+                EasyInputMessage.from_text(
+                    role="user",
+                    text=self._require_string(state, "message"),
+                ),
+            )
+        ).to_payload()
 
     def _execute_function_call(
         self, state: AgentState, function_call: _FunctionCall

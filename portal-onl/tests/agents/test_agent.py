@@ -613,3 +613,64 @@ def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
     assert events[0]["state"]["status"] == "running_analysis"
     assert events[0]["state"]["analytics"] is not None
     assert result["assistant_message"] == "추세 분석을 완료했습니다."
+
+
+def test_agent_graph_stream_invoke_emits_plan_state_on_update_plan_output_item_done() -> None:
+    llm_client = FakeLlmClient(
+        [
+            FakeStream(
+                [
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "call_id": "call_1",
+                            "name": "update_plan",
+                            "arguments": (
+                                '{"explanation":"분석 전에 단계 정리","plan":[{"step":"데이터셋 확인","status":"completed"},{"step":"추세 분석 실행","status":"in_progress"}]}'
+                            ),
+                        },
+                    },
+                    {"type": "response.created", "response": {"id": "resp_1"}},
+                ]
+            ),
+            FakeStream(
+                [
+                    {"type": "response.created", "response": {"id": "resp_2"}},
+                    {
+                        "type": "response.output_text.done",
+                        "text": "먼저 데이터셋을 확인했고, 이제 추세 분석을 진행하겠습니다.",
+                    },
+                ]
+            ),
+        ]
+    )
+    graph = Agent(
+        llm_client=llm_client,
+        dataset_service=FakeDatasetService(),
+        analysis_service=FakeAnalysisService(),
+    )
+
+    stream = graph.stream_invoke(
+        {
+            "session_id": "session-1",
+            "message": "분석 순서를 정리해줘",
+            "dataset_ids": ["dataset-1"],
+            "session_dataset_ids": [],
+        }
+    )
+
+    events: list[dict[str, object]] = []
+    try:
+        while True:
+            events.append(next(stream))
+    except StopIteration as stop:
+        result = stop.value
+
+    assert events[0]["type"] == "agent.state"
+    assert events[0]["state"]["plan_explanation"] == "분석 전에 단계 정리"
+    assert events[0]["state"]["plan"] == [
+        {"step": "데이터셋 확인", "status": "completed"},
+        {"step": "추세 분석 실행", "status": "in_progress"},
+    ]
+    assert result["assistant_message"] == "먼저 데이터셋을 확인했고, 이제 추세 분석을 진행하겠습니다."

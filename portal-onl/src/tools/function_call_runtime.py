@@ -43,11 +43,17 @@ def resolve_output_item_function_call(
         last_state_fingerprint = fingerprint
         state_payload = state_event["state"]
 
-    stream_event = {
-        "type": "agent.function_call_output",
-        "call_id": function_call.call_id,
-        "name": function_call.name,
-        "output": tool_result,
-        "state": state_payload,
-    }
+    if state_payload is not None:
+        stream_event = {
+            "type": "agent.state",
+            "state": state_payload,
+        }
+    else:
+        stream_event = {
+            "type": "agent.function_call_output",
+            "call_id": function_call.call_id,
+            "name": function_call.name,
+            "output": tool_result,
+            "state": None,
+        }
     return function_call_output, stream_event, last_state_fingerprint
