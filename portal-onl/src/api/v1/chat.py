@@ -3,7 +3,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from api.deps import get_agent_runtime, get_message_service, get_message_stream_service
+from api.deps import (
+    get_chat_agent_runtime,
+    get_chat_streaming_agent_runtime,
+    get_message_service,
+    get_message_stream_service,
+)
+from agents.runtimes import ChatAgent, ChatStreamingAgent
 from domain.messages.schemas import ChatRequest, ChatResponse
 from domain.messages.service import MessageService
 from domain.messages.stream_service import MessageStreamService
@@ -19,7 +25,7 @@ logger = logging.getLogger(__name__)
 def send_message(
     payload: ChatRequest,
     service: MessageService = Depends(get_message_service),
-    agent_runtime: object = Depends(get_agent_runtime),
+    agent_runtime: ChatAgent = Depends(get_chat_agent_runtime),
 ) -> ChatResponse:
     try:
         logger.debug(
@@ -48,7 +54,7 @@ def send_message(
 async def stream_message(
     request: Request,
     stream_service: MessageStreamService = Depends(get_message_stream_service),
-    agent_runtime: object = Depends(get_agent_runtime),
+    agent_runtime: ChatStreamingAgent = Depends(get_chat_streaming_agent_runtime),
 ) -> StreamingResponse:
     return await stream_service.create_streaming_response(
         request=request,

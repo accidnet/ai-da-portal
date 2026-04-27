@@ -1,11 +1,11 @@
 import logging
 import re
 from collections.abc import Generator, Iterable
-from typing import cast
+from typing import Protocol, cast
 
 from fastapi import UploadFile
 
-from agents.agent import Agent
+from agents.runtimes import ChatAgent, ChatStreamingAgent
 from agents.state import AgentRoute
 from domain.datasets.service import DatasetService
 from domain.messages.schemas import (
@@ -22,6 +22,10 @@ from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
 logger = logging.getLogger(__name__)
 
 
+class _SnapshotAgent(Protocol):
+    def snapshot_state(self, state: dict[str, object]) -> dict[str, object]: ...
+
+
 class MessageService:
     def __init__(
         self,
@@ -33,8 +37,10 @@ class MessageService:
         self._dataset_service = dataset_service
         self._session_service = session_service
 
-    def handle_chat(self, payload: ChatRequest, agent_runtime: Agent) -> ChatResponse:
-        agent_runtime = cast(Agent, agent_runtime)
+    def handle_chat(
+        self, payload: ChatRequest, agent_runtime: ChatAgent
+    ) -> ChatResponse:
+        agent_runtime = cast(ChatAgent, agent_runtime)
         session = self._session_service.ensure_session(payload.session_id)
         session_title = self._resolve_session_title(
             session_id=payload.session_id,
@@ -97,9 +103,9 @@ class MessageService:
         )
 
     def stream_chat(
-        self, payload: ChatRequest, agent_runtime: Agent
+        self, payload: ChatRequest, agent_runtime: ChatStreamingAgent
     ) -> Generator[dict[str, object], None, None]:
-        agent_runtime = cast(Agent, agent_runtime)
+        agent_runtime = cast(ChatStreamingAgent, agent_runtime)
         session = self._session_service.ensure_session(payload.session_id)
         session_title = self._resolve_session_title(
             session_id=payload.session_id,
@@ -114,7 +120,7 @@ class MessageService:
             session_dataset_ids,
         )
 
-        state = yield from agent_runtime.stream_invoke(
+        state = yield from agent_runtime.invoke(
             {
                 "session_id": payload.session_id,
                 "message": payload.message,
@@ -207,7 +213,7 @@ class MessageService:
         ).title
 
     def _snapshot_state(
-        self, agent_runtime: Agent, state: dict[str, object]
+        self, agent_runtime: _SnapshotAgent, state: dict[str, object]
     ) -> dict[str, object]:
         snapshot_state = getattr(agent_runtime, "snapshot_state", None)
         if callable(snapshot_state):

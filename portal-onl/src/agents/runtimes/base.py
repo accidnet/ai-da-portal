@@ -1,11 +1,10 @@
-import logging
 import json
+import logging
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
-from agents.stream_event_handlers import handle_stream_event
 from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
@@ -13,25 +12,25 @@ from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.llm.client import LlmClient, LlmClientError
 from infrastructure.llm.input_models import (
     EasyInputMessage,
+    FunctionCall as InputFunctionCall,
     FunctionCallOutput,
     InputItemList,
     ResponseInputText,
 )
 from tools import registry
-from tools.function_call_runtime import resolve_output_item_function_call
 
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-class _FunctionCall:
+class FunctionCall:
     call_id: str
     name: str
     arguments: dict[str, object]
 
 
-class Agent:
+class BaseAgent:
     def __init__(
         self,
         *,
@@ -42,162 +41,6 @@ class Agent:
         self._llm_client = llm_client
         self._dataset_service = dataset_service
         self._analysis_service = analysis_service
-
-    def invoke(self, state: AgentState) -> AgentState:
-        working_state = cast(AgentState, dict(state))
-        working_state.setdefault("used_tools", [])
-        working_state.setdefault("status", "queued")
-
-        max_iterations = 6
-        iteration_count = 0
-        next_input: list[dict[str, object]] = self._build_initial_input(working_state)
-
-        while True:
-            if iteration_count >= max_iterations:
-                break
-            iteration_count += 1
-
-            response = self._read_response_payload(
-                self._llm_client.create_response(
-                    instructions=load_prompt("base.md"),
-                    input=next_input,
-                    tools=registry.get_tool_definitions(),
-                    tool_choice="auto",
-                    parallel_tool_calls=False,
-                    reasoning={"effort": "medium"},
-                    max_output_tokens=900,
-                )
-            )
-
-            response_id = response.get("id")
-            if isinstance(response_id, str) and response_id:
-                working_state["response_id"] = response_id
-
-            function_calls = self._extract_function_calls(response)
-            if function_calls:
-                next_input = [
-                    FunctionCallOutput(
-                        call_id=function_call.call_id,
-                        output=json.dumps(
-                            self._execute_function_call(working_state, function_call),
-                            ensure_ascii=False,
-                        ),
-                    ).to_payload()
-                    for function_call in function_calls
-                ]
-                continue
-
-            assistant_message = self._extract_assistant_text(response)
-            if assistant_message:
-                working_state["assistant_message"] = assistant_message
-                working_state["status"] = "completed"
-                working_state.setdefault("route", "conversation")
-                break
-
-            break
-
-        working_state.setdefault("route", "conversation")
-        return working_state
-
-    def stream_invoke(
-        self, state: AgentState
-    ) -> Generator[dict[str, object], None, AgentState]:
-        working_state = cast(AgentState, dict(state))
-        working_state.setdefault("used_tools", [])
-        working_state.setdefault("status", "queued")
-        last_state_fingerprint: str | None = None
-        next_input = self._build_initial_input(working_state)
-        logger.debug("Agent stream input prepared next_input=%s", next_input)
-
-        # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 3
-        iteration_count = 0
-
-        while True:
-            if iteration_count >= max_iterations:
-                break
-            iteration_count += 1
-
-            stream_tool_outputs: list[dict[str, object]] = []
-
-            def on_output_item_function_call(
-                item: dict[str, object],
-            ) -> dict[str, object] | None:
-                nonlocal last_state_fingerprint
-
-                function_call_output, stream_event, next_fingerprint = (
-                    resolve_output_item_function_call(
-                        item=item,
-                        working_state=working_state,
-                        extract_function_calls=self._extract_function_calls,
-                        execute_function_call=self._execute_function_call,
-                        build_state_event=self._build_state_event,
-                        last_state_fingerprint=last_state_fingerprint,
-                    )
-                )
-                last_state_fingerprint = next_fingerprint
-                if function_call_output is not None:
-                    stream_tool_outputs.append(function_call_output)
-                return stream_event
-
-            response_kwargs: dict[str, object] = {
-                "instructions": load_prompt("base.md"),
-                "input": next_input,
-                "tools": registry.get_tool_definitions(),
-                "tool_choice": "auto",
-                "parallel_tool_calls": False,
-                "reasoning": {"effort": "medium"},
-                "max_output_tokens": 900,
-            }
-            logger.debug("Agent streaming response kwargs=%s", response_kwargs)
-
-            response = yield from self._stream_response_payload(
-                self._llm_client.create_response(**response_kwargs),
-                handle_output_item_function_call=on_output_item_function_call,
-            )
-
-            response_id = response.get("id")
-            if isinstance(response_id, str) and response_id:
-                working_state["response_id"] = response_id
-
-            if stream_tool_outputs:
-                next_input = stream_tool_outputs
-                continue
-
-            function_calls = self._extract_function_calls(response)
-            if function_calls:
-                tool_outputs: list[dict[str, object]] = []
-                for function_call in function_calls:
-                    tool_result = self._execute_function_call(
-                        working_state, function_call
-                    )
-                    tool_outputs.append(
-                        FunctionCallOutput(
-                            call_id=function_call.call_id,
-                            output=json.dumps(tool_result, ensure_ascii=False),
-                        ).to_payload()
-                    )
-                    state_event = self._build_state_event(working_state)
-                    fingerprint = json.dumps(
-                        state_event["state"], ensure_ascii=False, sort_keys=True
-                    )
-                    if fingerprint != last_state_fingerprint:
-                        last_state_fingerprint = fingerprint
-                        yield state_event
-                next_input = tool_outputs
-                continue
-
-            assistant_message = self._extract_assistant_text(response)
-            if assistant_message:
-                working_state["assistant_message"] = assistant_message
-                working_state["status"] = "completed"
-                working_state.setdefault("route", "conversation")
-                return working_state
-
-            break
-
-        working_state.setdefault("route", "conversation")
-        return working_state
 
     def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
         route = cast(AgentRoute, state.get("route", "conversation"))
@@ -274,6 +117,7 @@ class Agent:
             items=(
                 EasyInputMessage(
                     role="developer",
+                    # typed content는 단일 항목이어도 튜플로 전달합니다.
                     content=(
                         ResponseInputText(
                             text="다음의 정보를 활용하세요.\n"
@@ -283,17 +127,16 @@ class Agent:
                 ),
                 EasyInputMessage(
                     role="user",
+                    # 입력 모델 시그니처에 맞춰 사용자 메시지도 typed content로 구성합니다.
                     content=(
-                        ResponseInputText(
-                            text=self._require_string(state, "message")
-                        ),
+                        ResponseInputText(text=self._require_string(state, "message")),
                     ),
                 ),
             )
         ).to_payload()
 
     def _execute_function_call(
-        self, state: AgentState, function_call: _FunctionCall
+        self, state: AgentState, function_call: FunctionCall
     ) -> dict[str, object]:
         state["used_tools"] = [*state.get("used_tools", []), function_call.name]
         return registry.execute_tool(
@@ -315,6 +158,28 @@ class Agent:
                 require_string=self._require_string,
             ),
         )
+
+    def _build_function_call_output_item(
+        self,
+        function_call: FunctionCall,
+        tool_result: dict[str, object],
+    ) -> dict[str, object]:
+        # 함수 호출 결과는 다음 Responses input에 그대로 이어붙일 수 있는 형식으로 맞춥니다.
+        return FunctionCallOutput(
+            call_id=function_call.call_id,
+            output=json.dumps(tool_result, ensure_ascii=False),
+        ).to_payload()
+
+    def _execute_response_function_calls(
+        self, state: AgentState, response: dict[str, object]
+    ) -> list[dict[str, object]]:
+        tool_outputs: list[dict[str, object]] = []
+        for function_call in self._extract_function_calls(response):
+            tool_result = self._execute_function_call(state, function_call)
+            tool_outputs.append(
+                self._build_function_call_output_item(function_call, tool_result)
+            )
+        return tool_outputs
 
     def _build_state_event(self, state: AgentState) -> dict[str, object]:
         return {
@@ -383,12 +248,12 @@ class Agent:
 
     def _extract_function_calls(
         self, response: dict[str, object]
-    ) -> list[_FunctionCall]:
+    ) -> list[FunctionCall]:
         output = response.get("output")
         if not isinstance(output, list):
             return []
 
-        function_calls: list[_FunctionCall] = []
+        function_calls: list[FunctionCall] = []
         for item in output:
             if not isinstance(item, dict) or item.get("type") != "function_call":
                 continue
@@ -403,7 +268,7 @@ class Agent:
                 if isinstance(loaded, dict):
                     parsed_arguments = loaded
             function_calls.append(
-                _FunctionCall(
+                FunctionCall(
                     call_id=call_id,
                     name=name,
                     arguments=parsed_arguments,
@@ -437,6 +302,146 @@ class Agent:
             return "\n\n".join(parts)
         return None
 
+    def _response_output_to_input_items(
+        self, response: dict[str, object]
+    ) -> list[dict[str, object]]:
+        output = response.get("output")
+        if not isinstance(output, list):
+            assistant_text = self._extract_assistant_text(response)
+            if not assistant_text:
+                return []
+            return InputItemList(
+                items=(
+                    EasyInputMessage(
+                        role="assistant",
+                        content=(ResponseInputText(text=assistant_text),),
+                    ),
+                )
+            ).to_payload()
+
+        input_items: list[dict[str, object]] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+
+            item_type = item.get("type")
+            if item_type == "function_call":
+                call_id = self._read_string(item.get("call_id"))
+                name = self._read_string(item.get("name"))
+                if not call_id or not name:
+                    continue
+
+                arguments = item.get("arguments")
+                serialized_arguments = (
+                    arguments
+                    if isinstance(arguments, str)
+                    else json.dumps(arguments or {}, ensure_ascii=False)
+                )
+                input_items.append(
+                    InputFunctionCall(
+                        arguments=serialized_arguments,
+                        call_id=call_id,
+                        name=name,
+                        id=self._read_string(item.get("id")),
+                        namespace=self._read_string(item.get("namespace")),
+                        status=cast(
+                            Literal["in_progress", "completed", "incomplete"] | None,
+                            item.get("status"),
+                        ),
+                    ).to_payload()
+                )
+                continue
+
+            if item_type == "function_call_output":
+                call_id = self._read_string(item.get("call_id"))
+                if not call_id:
+                    continue
+
+                output_payload = item.get("output")
+                if isinstance(output_payload, list):
+                    typed_output = tuple(
+                        ResponseInputText(text=text)
+                        for entry in output_payload
+                        if isinstance(entry, dict)
+                        and isinstance((text := entry.get("text")), str)
+                    )
+                    if not typed_output:
+                        continue
+                    input_items.append(
+                        FunctionCallOutput(
+                            call_id=call_id,
+                            output=typed_output,
+                            id=self._read_string(item.get("id")),
+                            status=cast(
+                                Literal["in_progress", "completed", "incomplete"]
+                                | None,
+                                item.get("status"),
+                            ),
+                        ).to_payload()
+                    )
+                    continue
+
+                if isinstance(output_payload, str):
+                    input_items.append(
+                        FunctionCallOutput(
+                            call_id=call_id,
+                            output=output_payload,
+                            id=self._read_string(item.get("id")),
+                            status=cast(
+                                Literal["in_progress", "completed", "incomplete"]
+                                | None,
+                                item.get("status"),
+                            ),
+                        ).to_payload()
+                    )
+                continue
+
+            if item_type != "message":
+                continue
+
+            role = item.get("role")
+            if role not in ("developer", "user", "assistant", "system"):
+                continue
+
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+
+            typed_content = tuple(
+                ResponseInputText(text=text)
+                for entry in content
+                if isinstance(entry, dict)
+                and isinstance((text := entry.get("text")), str)
+                and text.strip()
+            )
+            if not typed_content:
+                continue
+
+            input_items.append(
+                EasyInputMessage(
+                    role=cast(
+                        Literal["developer", "user", "assistant", "system"], role
+                    ),
+                    content=typed_content,
+                ).to_payload()
+            )
+
+        return input_items
+
+    def _extend_input_with_response(
+        self,
+        current_input: list[dict[str, object]],
+        response: dict[str, object],
+        *,
+        tool_outputs: list[dict[str, object]] | None = None,
+    ) -> list[dict[str, object]]:
+        # 다음 호출에는 기존 대화와 이번 응답 결과를 모두 누적합니다.
+        return [
+            *current_input,
+            *self._response_output_to_input_items(response),
+            *(tool_outputs or []),
+        ]
+
     def _read_response_payload(self, response: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(response)
         if payload is not None:
@@ -469,6 +474,8 @@ class Agent:
     def _parse_stream_response_events(
         self, stream: object, handle_output_item_function_call=None
     ) -> Generator[dict[str, object], None, dict[str, object]]:
+        from agents.stream_event_handlers import handle_stream_event
+
         response_id: str | None = None
         final_text: str | None = None
         text_deltas: list[str] = []
@@ -589,6 +596,19 @@ class Agent:
 
         return normalized
 
+    def _response_kwargs(
+        self, next_input: list[dict[str, object]]
+    ) -> dict[str, object]:
+        # 요청 파라미터는 두 실행 방식에서 동일하게 사용합니다.
+        return {
+            "instructions": load_prompt("base.md"),
+            "input": next_input,
+            "tools": registry.get_tool_definitions(),
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "reasoning": {"effort": "medium"},
+        }
+
     def _read_bool(self, value: object, *, default: bool) -> bool:
         if isinstance(value, bool):
             return value
@@ -604,16 +624,3 @@ class Agent:
         if isinstance(value, str) and value:
             return value
         raise LlmClientError(f"Agent state is missing required field: {key}")
-
-
-def build_agent(
-    *,
-    llm_client: LlmClient,
-    dataset_service: DatasetService,
-    analysis_service: AnalysisService,
-) -> Agent:
-    return Agent(
-        llm_client=llm_client,
-        dataset_service=dataset_service,
-        analysis_service=analysis_service,
-    )

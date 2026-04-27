@@ -138,7 +138,6 @@ class LlmClient:
 
     def _responses_create(self, *, payload: dict[str, object], stream: bool) -> object:
         client = self._get_openai_client()
-
         try:
             return cast(Any, client).responses.create(**payload, stream=stream)
         except APIStatusError as exc:

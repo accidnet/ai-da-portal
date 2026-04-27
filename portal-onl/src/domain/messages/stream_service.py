@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from agents.agent import Agent
+from agents.runtimes import ChatStreamingAgent
 from domain.messages.service import MessageService
 from domain.messages.schemas import ChatRequest
 from infrastructure.llm.client import LlmClientError
@@ -21,7 +21,7 @@ class MessageStreamService:
         self._message_service = message_service
 
     async def create_streaming_response(
-        self, *, request: Request, agent_runtime: Agent
+        self, *, request: Request, agent_runtime: ChatStreamingAgent
     ) -> StreamingResponse:
         try:
             payload, uploaded_file = await self._parse_stream_request(request)

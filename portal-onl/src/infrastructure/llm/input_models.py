@@ -32,12 +32,15 @@ class EasyInputMessage:
             if isinstance(self.content, str)
             else [part.to_payload() for part in self.content]
         )
-        return {
+        payload: dict[str, object] = {
             "content": content,
             "role": self.role,
-            "phase": self.phase,
             "type": self.type,
         }
+        # 선택 필드는 값이 있을 때만 포함합니다.
+        if self.phase is not None:
+            payload["phase"] = self.phase
+        return payload
 
 
 MessageRole: TypeAlias = Literal["developer", "user", "system"]
@@ -52,12 +55,14 @@ class Message:
     type: Literal["message"] = "message"
 
     def to_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "content": [part.to_payload() for part in self.content],
             "role": self.role,
-            "status": self.status,
             "type": self.type,
         }
+        if self.status is not None:
+            payload["status"] = self.status
+        return payload
 
 
 ResponseOutputMessagePhase: TypeAlias = Literal["commentary", "final_answer"]
@@ -89,14 +94,17 @@ class ResponseOutputMessage:
     phase: ResponseOutputMessagePhase | None = None
 
     def to_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "id": self.id,
             "content": [part.to_payload() for part in self.content],
             "role": self.role,
-            "status": self.status,
             "type": self.type,
-            "phase": self.phase,
         }
+        if self.status is not None:
+            payload["status"] = self.status
+        if self.phase is not None:
+            payload["phase"] = self.phase
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
