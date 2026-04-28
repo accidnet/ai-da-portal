@@ -8,14 +8,6 @@ type DictCoercer = Callable[[object], dict[str, object] | None]
 type ResponseNormalizer = Callable[[dict[str, object]], dict[str, object]]
 
 
-QUIET_EVENT_TYPES = {
-    RESPONSE_STREAMING_EVENTS.response.created,
-    RESPONSE_STREAMING_EVENTS.response.completed,
-    RESPONSE_STREAMING_EVENTS.response.in_progress,
-    RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
-}
-
-
 def handle_stream_event(
     *,
     payload: dict[str, object],
@@ -105,6 +97,14 @@ def _build_handler_map(
 
 
 def _debug_stream_event(event_type: object, payload: dict[str, object]) -> None:
+    QUIET_EVENT_TYPES = {
+        RESPONSE_STREAMING_EVENTS.response.output_text.delta,
+        RESPONSE_STREAMING_EVENTS.response.created,
+        RESPONSE_STREAMING_EVENTS.response.completed,
+        RESPONSE_STREAMING_EVENTS.response.in_progress,
+        RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
+    }
+
     if event_type in QUIET_EVENT_TYPES:
         return
 

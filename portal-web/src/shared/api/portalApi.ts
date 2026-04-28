@@ -256,6 +256,7 @@ interface ChatStreamEvent {
 
 export interface StreamChatMessageOptions {
   signal?: AbortSignal
+  onTextSegmentStart?: () => void
   onDelta?: (delta: string) => void
   onSubMessage?: (event: ChatSubMessageStreamEvent) => void
   onState?: (state: AgentStateStreamPayload) => void
@@ -576,9 +577,15 @@ export async function streamChatMessage(
       return
     }
 
+    if (eventType === 'agent.text_segment.start') {
+      options.onTextSegmentStart?.()
+      return
+    }
+
     if (eventType && eventType !== 'response.output_text.done' && eventType !== 'message.completed') {
       const isReservedEvent =
         eventType === 'agent.state'
+        || eventType === 'agent.text_segment.start'
         || eventType === 'dataset.ready'
         || eventType === 'response.completed'
         || eventType === 'error'

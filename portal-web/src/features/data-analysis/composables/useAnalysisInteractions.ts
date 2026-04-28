@@ -240,6 +240,7 @@ export function useAnalysisInteractions(options: {
 
     try {
       const streamedDatasetRef: { current: ChatInteractionDataset | null } = { current: null }
+      const shouldSeparateNextTextSegment: { current: boolean } = { current: false }
       const response = await streamChatMessage({
             sessionId,
             message: userMessage,
@@ -247,6 +248,9 @@ export function useAnalysisInteractions(options: {
             file: attachedFile,
           }, {
             signal: chatStreamController.signal,
+            onTextSegmentStart() {
+              shouldSeparateNextTextSegment.current = true
+            },
             onDelta(delta) {
               const current = sessionState.messages[assistantMessageIndex]
               if (!current || current.role !== 'assistant') return
@@ -254,10 +258,15 @@ export function useAnalysisInteractions(options: {
                 index === assistantMessageIndex
                   ? {
                       ...entry,
-                      text: `${entry.text}${delta}`,
+                      text: `${
+                        shouldSeparateNextTextSegment.current && entry.text.trim()
+                          ? `${entry.text}\n\n`
+                          : entry.text
+                      }${delta}`,
                     }
                   : entry,
               )
+              shouldSeparateNextTextSegment.current = false
             },
             onSubMessage(event) {
               applyStreamingSubMessage(assistantMessageIndex, sessionState, event)

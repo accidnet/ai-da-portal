@@ -81,6 +81,11 @@ class ChatStreamingAgent(BaseAgent):
             iteration_count += 1
 
             response_kwargs = self._response_kwargs(next_input)
+            if iteration_count > 1:
+                yield {
+                    "type": "agent.text_segment.start",
+                    "iteration": iteration_count,
+                }
 
             response = yield from self._stream_response_payload(
                 self._llm_client.create_response(**response_kwargs),
