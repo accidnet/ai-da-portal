@@ -451,17 +451,11 @@ class BaseAgent:
     def _stream_response_payload(
         self,
         response: object,
-        handle_output_item_function_call=None,
     ) -> Generator[dict[str, object], None, dict[str, object]]:
         payload = self._coerce_optional_dict(response)
         if payload is not None:
             return self._normalize_response_payload(payload)
-        return (
-            yield from self._parse_stream_response_events(
-                response,
-                handle_output_item_function_call=handle_output_item_function_call,
-            )
-        )
+        return (yield from self._parse_stream_response_events(response))
 
     def _parse_stream_response(self, stream: object) -> dict[str, object]:
         parser = self._parse_stream_response_events(stream)
@@ -472,7 +466,7 @@ class BaseAgent:
             return stop.value
 
     def _parse_stream_response_events(
-        self, stream: object, handle_output_item_function_call=None
+        self, stream: object
     ) -> Generator[dict[str, object], None, dict[str, object]]:
         from agents.stream_event_handlers import handle_stream_event
 
@@ -499,13 +493,17 @@ class BaseAgent:
                     final_text=final_text,
                     coerce_optional_dict=self._coerce_optional_dict,
                     normalize_response_payload=self._normalize_response_payload,
-                    handle_output_item_function_call=handle_output_item_function_call,
                 )
                 final_text = result["final_text"]
 
                 completed_response = result["completed_response"]
                 if isinstance(completed_response, dict):
-                    return completed_response
+                    output = self._build_stream_output(
+                        function_calls,
+                        final_text,
+                        text_deltas,
+                    )
+                    return self._merge_stream_output(completed_response, output)
 
                 yielded_event = result["yielded_event"]
                 if isinstance(yielded_event, dict):
@@ -531,6 +529,36 @@ class BaseAgent:
 
         return self._normalize_response_payload(normalized)
 
+    def _merge_stream_output(
+        self,
+        response: dict[str, object],
+        stream_output: list[dict[str, object]],
+    ) -> dict[str, object]:
+        if not stream_output:
+            return self._normalize_response_payload(response)
+
+        normalized = self._normalize_response_payload(response)
+        output = normalized.get("output")
+        if not isinstance(output, list) or not output:
+            normalized["output"] = stream_output
+            return self._normalize_response_payload(normalized)
+
+        existing_call_ids = {
+            item.get("call_id")
+            for item in output
+            if isinstance(item, dict) and item.get("type") == "function_call"
+        }
+        missing_stream_items = [
+            item
+            for item in stream_output
+            if item.get("type") == "function_call"
+            and item.get("call_id") not in existing_call_ids
+        ]
+        if missing_stream_items:
+            normalized["output"] = [*output, *missing_stream_items]
+
+        return self._normalize_response_payload(normalized)
+
     def _build_stream_output(
         self,
         function_calls: dict[str, dict[str, object]],
@@ -538,7 +566,13 @@ class BaseAgent:
         text_deltas: list[str],
     ) -> list[dict[str, object]]:
         output: list[dict[str, object]] = []
+        seen_call_ids: set[str] = set()
         for function_call in function_calls.values():
+            call_id = self._read_string(function_call.get("call_id"))
+            name = self._read_string(function_call.get("name"))
+            if not call_id or not name or call_id in seen_call_ids:
+                continue
+            seen_call_ids.add(call_id)
             output.append(function_call)
 
         message_text = final_text or "".join(text_deltas).strip()

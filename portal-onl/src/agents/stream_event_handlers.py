@@ -6,9 +6,6 @@ from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
 type StreamEventResult = dict[str, object]
 type DictCoercer = Callable[[object], dict[str, object] | None]
 type ResponseNormalizer = Callable[[dict[str, object]], dict[str, object]]
-type OutputItemFunctionCallHandler = Callable[
-    [dict[str, object]], dict[str, object] | None
-]
 
 
 QUIET_EVENT_TYPES = {
@@ -29,7 +26,6 @@ def handle_stream_event(
     final_text: str | None,
     coerce_optional_dict: DictCoercer,
     normalize_response_payload: ResponseNormalizer,
-    handle_output_item_function_call: OutputItemFunctionCallHandler | None = None,
 ) -> StreamEventResult:
     event_type = payload.get("type")
 
@@ -44,7 +40,6 @@ def handle_stream_event(
         final_text=final_text,
         coerce_optional_dict=coerce_optional_dict,
         normalize_response_payload=normalize_response_payload,
-        handle_output_item_function_call=handle_output_item_function_call,
     ).get(event_type)
     if handler is not None:
         return handler()
@@ -67,7 +62,6 @@ def _build_handler_map(
     final_text: str | None,
     coerce_optional_dict: DictCoercer,
     normalize_response_payload: ResponseNormalizer,
-    handle_output_item_function_call: OutputItemFunctionCallHandler | None,
 ) -> dict[object, Callable[[], StreamEventResult]]:
     handlers: dict[object, Callable[[], StreamEventResult]] = {
         RESPONSE_STREAMING_EVENTS.response.output_text.delta: lambda: _handle_output_text_delta(
@@ -93,7 +87,6 @@ def _build_handler_map(
             function_calls,
             final_text,
             coerce_optional_dict,
-            handle_output_item_function_call,
         ),
         RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta: lambda: _handle_function_call_arguments_delta(
             payload, function_calls, final_text
@@ -203,21 +196,14 @@ def _handle_output_item_done(
     function_calls: dict[str, dict[str, object]],
     final_text: str | None,
     coerce_optional_dict: DictCoercer,
-    handle_output_item_function_call: OutputItemFunctionCallHandler | None,
 ) -> StreamEventResult:
     item = coerce_optional_dict(payload.get("item"))
-    yielded_event: dict[str, object] | None = None
     if item is not None:
         _collect_stream_function_call(function_calls, item)
-        if (
-            item.get("type") == "function_call"
-            and handle_output_item_function_call is not None
-        ):
-            yielded_event = handle_output_item_function_call(item)
 
     return _build_result(
         handled=True,
-        yielded_event=yielded_event,
+        yielded_event=None,
         completed_response=None,
         final_text=final_text,
     )
@@ -257,20 +243,26 @@ def _collect_stream_function_call(
     if item.get("type") != "function_call":
         return
 
+    item_id = _read_string(item.get("id"))
     call_id = _read_string(item.get("call_id"))
-    if call_id is None:
+    lookup_key = call_id or item_id
+    if lookup_key is None:
         return
 
-    entry = function_calls.setdefault(
-        call_id,
-        {
+    entry = function_calls.get(lookup_key)
+    if entry is None:
+        entry = {
             "type": "function_call",
-            "call_id": call_id,
-            "name": _read_string(item.get("name")) or "",
             "arguments": "",
-        },
-    )
+        }
+        function_calls[lookup_key] = entry
 
+    if item_id:
+        entry["id"] = item_id
+        function_calls[item_id] = entry
+    if call_id:
+        entry["call_id"] = call_id
+        function_calls[call_id] = entry
     name = _read_string(item.get("name"))
     if name:
         entry["name"] = name
@@ -279,24 +271,34 @@ def _collect_stream_function_call(
     if isinstance(arguments, str):
         entry["arguments"] = arguments
 
+    status = _read_string(item.get("status"))
+    if status:
+        entry["status"] = status
+
 
 def _append_function_call_arguments(
     function_calls: dict[str, dict[str, object]], event: dict[str, object]
 ) -> dict[str, object] | None:
-    call_id = _read_string(event.get("call_id")) or _read_string(event.get("item_id"))
-    if call_id is None:
+    item_id = _read_string(event.get("item_id"))
+    call_id = _read_string(event.get("call_id"))
+    lookup_key = item_id or call_id
+    if lookup_key is None:
         return None
 
-    entry = function_calls.setdefault(
-        call_id,
-        {
+    entry = function_calls.get(lookup_key)
+    if entry is None:
+        entry = {
             "type": "function_call",
-            "call_id": call_id,
-            "name": _read_string(event.get("name")) or "",
             "arguments": "",
-        },
-    )
+        }
+        function_calls[lookup_key] = entry
 
+    if item_id:
+        entry["id"] = item_id
+        function_calls[item_id] = entry
+    if call_id:
+        entry["call_id"] = call_id
+        function_calls[call_id] = entry
     name = _read_string(event.get("name"))
     if name:
         entry["name"] = name
@@ -310,7 +312,8 @@ def _append_function_call_arguments(
 
     streamed_event: dict[str, object] = {
         "type": event.get("type"),
-        "call_id": call_id,
+        "call_id": entry.get("call_id"),
+        "item_id": entry.get("id"),
         "name": entry.get("name") or None,
         "response_id": event.get("response_id"),
     }

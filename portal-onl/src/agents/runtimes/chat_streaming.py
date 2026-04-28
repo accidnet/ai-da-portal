@@ -1,4 +1,5 @@
 import logging
+import json
 from collections.abc import Generator
 from typing import cast
 
@@ -7,25 +8,71 @@ from agents.state import AgentState
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from infrastructure.llm.client import LlmClient
-from tools.function_call_runtime import resolve_output_item_function_call
 
 
 logger = logging.getLogger(__name__)
 
 
 class ChatStreamingAgent(BaseAgent):
+    def _handle_after_call_completion(
+        self,
+        *,
+        working_state: AgentState,
+        response: dict[str, object],
+        next_input: list[dict[str, object]],
+        last_state_fingerprint: str,
+    ) -> tuple[
+        AgentState | None,
+        list[dict[str, object]] | None,
+        dict[str, object] | None,
+        str,
+    ]:
+        # 스트림 완료 후 응답 내용을 기준으로 다음 액션을 결정합니다.
+        tool_outputs = self._execute_response_function_calls(working_state, response)
+        if tool_outputs:
+            state_event = self._build_state_event(working_state)
+            state_fingerprint = json.dumps(
+                state_event["state"],
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            if state_fingerprint == last_state_fingerprint:
+                state_event = None
+            else:
+                last_state_fingerprint = state_fingerprint
+
+            next_input = self._extend_input_with_response(
+                next_input,
+                response,
+                tool_outputs=tool_outputs,
+            )
+            return None, next_input, state_event, last_state_fingerprint
+
+        assistant_message = self._extract_assistant_text(response)
+        if assistant_message:
+            working_state["assistant_message"] = assistant_message
+            working_state["status"] = "completed"
+            working_state.setdefault("route", "conversation")
+            return working_state, None, None, last_state_fingerprint
+
+        return None, None, None, last_state_fingerprint
+
     def invoke(
         self, state: AgentState
     ) -> Generator[dict[str, object], None, AgentState]:
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
         working_state.setdefault("status", "queued")
-        last_state_fingerprint: str | None = None
+        last_state_fingerprint = json.dumps(
+            self._build_state_event(working_state)["state"],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         next_input = self._build_initial_input(working_state)
         logger.debug("Agent stream input prepared next_input=%s", next_input)
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 3
+        max_iterations = 10
         iteration_count = 0
 
         while True:
@@ -33,58 +80,31 @@ class ChatStreamingAgent(BaseAgent):
                 break
             iteration_count += 1
 
-            stream_function_call_items: list[dict[str, object]] = []
-            stream_tool_outputs: list[dict[str, object]] = []
-
-            def on_output_item_function_call(
-                item: dict[str, object],
-            ) -> dict[str, object] | None:
-                nonlocal last_state_fingerprint
-
-                function_call_output, stream_event, next_fingerprint = (
-                    resolve_output_item_function_call(
-                        item=item,
-                        working_state=working_state,
-                        extract_function_calls=self._extract_function_calls,
-                        execute_function_call=self._execute_function_call,
-                        build_state_event=self._build_state_event,
-                        last_state_fingerprint=last_state_fingerprint,
-                    )
-                )
-                last_state_fingerprint = next_fingerprint
-                if function_call_output is not None:
-                    # 스트리밍 완료 이벤트에서 받은 function_call 원본도 다음 input에 함께 누적합니다.
-                    stream_function_call_items.append(dict(item))
-                    stream_tool_outputs.append(function_call_output)
-                return stream_event
-
             response_kwargs = self._response_kwargs(next_input)
 
             response = yield from self._stream_response_payload(
                 self._llm_client.create_response(**response_kwargs),
-                handle_output_item_function_call=on_output_item_function_call,
             )
 
             response_id = response.get("id")
             if isinstance(response_id, str) and response_id:
                 working_state["response_id"] = response_id
 
-            if stream_tool_outputs:
-                next_input = [
-                    *next_input,
-                    *self._response_output_to_input_items(
-                        {"output": stream_function_call_items}
-                    ),
-                    *stream_tool_outputs,
-                ]
+            result_state, updated_input, state_event, last_state_fingerprint = (
+                self._handle_after_call_completion(
+                    working_state=working_state,
+                    response=response,
+                    next_input=next_input,
+                    last_state_fingerprint=last_state_fingerprint,
+                )
+            )
+            if state_event is not None:
+                yield state_event
+            if updated_input is not None:
+                next_input = updated_input
                 continue
-
-            assistant_message = self._extract_assistant_text(response)
-            if assistant_message:
-                working_state["assistant_message"] = assistant_message
-                working_state["status"] = "completed"
-                working_state.setdefault("route", "conversation")
-                return working_state
+            if result_state is not None:
+                return result_state
 
         working_state.setdefault("route", "conversation")
         return working_state
