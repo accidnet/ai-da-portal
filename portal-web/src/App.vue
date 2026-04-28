@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import PortalDataAnalysisPage from './pages/PortalDataAnalysisPage.vue'
+import DataAnalysisPage from './pages/DataAnalysisPage.vue'
 </script>
 
 <template>
-  <PortalDataAnalysisPage />
+  <DataAnalysisPage />
 </template>

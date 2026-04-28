@@ -325,6 +325,14 @@ onMounted(() => {
             </ul>
           </div>
 
+          <div v-if="message.attachmentStatus" class="message-attachment-status">
+            <span class="material-symbols-outlined">description</span>
+            <div>
+              <strong>{{ message.attachmentStatus.filename }}</strong>
+              <span>{{ message.attachmentStatus.meta ?? '메시지와 함께 전송됨' }}</span>
+            </div>
+          </div>
+
           <div v-if="message.attachmentPreview" class="message-attachment-preview">
             <div class="message-attachment-preview__header">
               <div>
@@ -766,6 +774,50 @@ onMounted(() => {
   color: var(--color-primary-strong);
   font-size: 0.68rem;
   font-weight: 700;
+}
+
+.message-attachment-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(24, 74, 140, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.message-attachment-status > span {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--color-primary-strong);
+  background: var(--color-surface-muted);
+}
+
+.message-attachment-status div {
+  min-width: 0;
+}
+
+.message-attachment-status strong,
+.message-attachment-status div > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.message-attachment-status strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+}
+
+.message-attachment-status div > span {
+  margin-top: 4px;
+  color: var(--color-text-soft);
+  font-size: 0.73rem;
 }
 
 .message-attachment-preview {

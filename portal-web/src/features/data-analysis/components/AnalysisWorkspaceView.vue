@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import PortalAnalyticsPane from './PortalAnalyticsPane.vue'
-import PortalConversationPane from './PortalConversationPane.vue'
+import AnalysisResultPane from './AnalysisResultPane.vue'
+import AnalysisConversationPane from './AnalysisConversationPane.vue'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -50,15 +50,15 @@ const emit = defineEmits<{
 
 <template>
   <div
-    class="portal-main-grid"
+    class="analysis-workspace-grid"
     :class="{
-      'portal-main-grid--resizing': isResizingAnalyticsPane,
-      'portal-main-grid--analytics-fullscreen': isAnalyticsFullscreen,
-      'portal-main-grid--compact': isCompactLayout,
+      'analysis-workspace-grid--resizing': isResizingAnalyticsPane,
+      'analysis-workspace-grid--analytics-fullscreen': isAnalyticsFullscreen,
+      'analysis-workspace-grid--compact': isCompactLayout,
     }"
     :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
   >
-    <PortalConversationPane
+    <AnalysisConversationPane
       :conversation="conversation"
       :composer="composer"
       :send-disabled="isSending || isRunningAnalysis"
@@ -88,7 +88,7 @@ const emit = defineEmits<{
         </button>
       </div>
 
-      <PortalAnalyticsPane
+      <AnalysisResultPane
         :analytics="shellAnalytics"
         :analytics-payload="analyticsPayload"
         :workspace-payload="workspacePayload"
@@ -110,7 +110,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-.portal-main-grid {
+.analysis-workspace-grid {
   min-height: 0;
   height: 100%;
   display: grid;
@@ -120,8 +120,8 @@ const emit = defineEmits<{
   align-items: stretch;
 }
 
-.portal-main-grid :deep(.conversation-shell),
-.portal-main-grid :deep(.analytics-shell),
+.analysis-workspace-grid :deep(.conversation-shell),
+.analysis-workspace-grid :deep(.analytics-shell),
 .analytics-panel-shell {
   min-height: 0;
   height: 100%;
@@ -131,7 +131,7 @@ const emit = defineEmits<{
   min-width: 0;
 }
 
-.portal-main-grid--resizing {
+.analysis-workspace-grid--resizing {
   user-select: none;
   cursor: col-resize;
 }
@@ -157,12 +157,12 @@ const emit = defineEmits<{
     0 7px 0 rgba(24, 74, 140, 0.22);
 }
 
-.portal-main-grid--analytics-fullscreen {
+.analysis-workspace-grid--analytics-fullscreen {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.portal-main-grid--analytics-fullscreen :deep(.conversation-shell),
-.portal-main-grid--analytics-fullscreen .pane-resizer {
+.analysis-workspace-grid--analytics-fullscreen :deep(.conversation-shell),
+.analysis-workspace-grid--analytics-fullscreen .pane-resizer {
   display: none;
 }
 
@@ -200,7 +200,7 @@ const emit = defineEmits<{
 }
 
 @media (max-width: 1280px) {
-  .portal-main-grid {
+  .analysis-workspace-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
   }
@@ -211,12 +211,12 @@ const emit = defineEmits<{
 }
 
 @media (max-width: 960px) {
-  .portal-main-grid--compact {
+  .analysis-workspace-grid--compact {
     position: relative;
     display: block;
   }
 
-  .portal-main-grid--compact .analytics-panel-shell {
+  .analysis-workspace-grid--compact .analytics-panel-shell {
     position: fixed;
     top: 16px;
     right: 16px;
@@ -231,7 +231,7 @@ const emit = defineEmits<{
     transition: transform 220ms ease;
   }
 
-  .portal-main-grid--compact .analytics-panel-shell--open {
+  .analysis-workspace-grid--compact .analytics-panel-shell--open {
     transform: translateX(0);
   }
 }

@@ -1,30 +1,30 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import PortalDatasetLibrary from '../features/portal/components/PortalDatasetLibrary.vue'
-import PortalDashboardWorkspaceView from '../features/portal/components/PortalDashboardWorkspaceView.vue'
-import PortalSessionHub from '../features/portal/components/PortalSessionHub.vue'
-import PortalSidebar from '../features/portal/components/PortalSidebar.vue'
-import { usePortalAnalyticsPane } from '../features/portal/composables/usePortalAnalyticsPane'
-import { usePortalAuth } from '../features/portal/composables/usePortalAuth'
-import { usePortalDatasets } from '../features/portal/composables/usePortalDatasets'
-import { usePortalInteractions } from '../features/portal/composables/usePortalInteractions'
-import { usePortalSessions } from '../features/portal/composables/usePortalSessions'
-import { shellAnalytics, shellSidebar } from '../features/portal/constants/portalPage'
+import DatasetLibrary from '../features/data-analysis/components/DatasetLibrary.vue'
+import AnalysisWorkspaceView from '../features/data-analysis/components/AnalysisWorkspaceView.vue'
+import SessionHub from '../features/data-analysis/components/SessionHub.vue'
+import AnalysisSidebar from '../features/data-analysis/components/AnalysisSidebar.vue'
+import { useAnalysisPaneLayout } from '../features/data-analysis/composables/useAnalysisPaneLayout'
+import { useOpenAiAuth } from '../features/data-analysis/composables/useOpenAiAuth'
+import { useDatasetLibrary } from '../features/data-analysis/composables/useDatasetLibrary'
+import { useAnalysisInteractions } from '../features/data-analysis/composables/useAnalysisInteractions'
+import { useAnalysisSessions } from '../features/data-analysis/composables/useAnalysisSessions'
+import { shellAnalytics, shellSidebar } from '../features/data-analysis/constants/analysisPage'
 import type {
   BackendConnectionStatus,
   ComposerData,
   ConversationData,
-  PortalScreen,
+  AnalysisScreen,
   SessionItem,
   SharedAnalysisSnapshot,
-} from '../features/portal/types'
-import { createWelcomeMessages, formatFileSize, resolveScreenFromHash } from '../features/portal/utils/portalPageHelpers'
-import { getSharedAnalysisIdFromUrl, loadSharedAnalysisSnapshot, openAnalysisPreview } from '../features/portal/utils/portalShare'
+} from '../features/data-analysis/types'
+import { createWelcomeMessages, formatFileSize, resolveScreenFromHash } from '../features/data-analysis/utils/analysisPageHelpers'
+import { getSharedAnalysisIdFromUrl, loadSharedAnalysisSnapshot, openAnalysisPreview } from '../features/data-analysis/utils/analysisShare'
 import { fetchHealthcheck } from '../shared/api/portalApi'
 
 const connectionStatus = ref<BackendConnectionStatus>('checking')
-const currentScreen = ref<PortalScreen>(resolveScreenFromHash())
+const currentScreen = ref<AnalysisScreen>(resolveScreenFromHash())
 const searchQuery = ref('')
 const sessionHubSearchQuery = ref('')
 const datasetLibrarySearchQuery = ref('')
@@ -45,7 +45,7 @@ const {
   startSidebarResize,
   startAnalyticsPaneResize,
   toggleAnalyticsFullscreen,
-} = usePortalAnalyticsPane()
+} = useAnalysisPaneLayout()
 
 const {
   authStatus,
@@ -56,7 +56,7 @@ const {
   loadAuthStatus,
   connectOpenAi,
   logoutOpenAi,
-} = usePortalAuth()
+} = useOpenAiAuth()
 
 let removeSessionLinks: ((sessionId: string) => void) | null = null
 
@@ -75,7 +75,7 @@ const {
   selectSession,
   handleRenameSession,
   handleDeleteSession,
-} = usePortalSessions({
+} = useAnalysisSessions({
   currentScreen,
   onSessionDeleted: async (sessionId) => {
     removeSessionLinks?.(sessionId)
@@ -107,7 +107,7 @@ const {
   handleDetachDataset,
   handleDeleteDataset,
   removeSessionLinks: removeDatasetSessionLinks,
-} = usePortalDatasets({
+} = useDatasetLibrary({
   activeSessionId,
   activeSessionSummary,
   sessionStates,
@@ -137,10 +137,11 @@ const {
   queueInteractionFile,
   handleInteractionFileChange,
   handleSendMessage,
+  cancelActiveChatStream,
   handleSuggestedPrompt,
   exportAnalyticsReport,
   shareAnalyticsReport,
-} = usePortalInteractions({
+} = useAnalysisInteractions({
   activeSessionState,
   activeDataset,
   analyticsPayload,
@@ -198,7 +199,7 @@ function resetWorkspaceFeedback() {
   uploadError.value = null
 }
 
-async function handleScreenChange(screen: PortalScreen) {
+async function handleScreenChange(screen: AnalysisScreen) {
   currentScreen.value = screen
   if (screen === 'datasets') {
     await loadDatasets()
@@ -297,6 +298,10 @@ function closeAnalyticsPanel() {
   isAnalyticsPanelOpen.value = false
 }
 
+function cancelActiveRequests() {
+  cancelActiveChatStream()
+}
+
 function previewSharedAnalysis() {
   if (!sharedAnalysis.value) return
   openAnalysisPreview(sharedAnalysis.value)
@@ -324,6 +329,7 @@ onMounted(async () => {
   const controller = new AbortController()
   syncResponsiveLayout()
   window.addEventListener('resize', syncResponsiveLayout)
+  window.addEventListener('beforeunload', cancelActiveRequests)
   restoreSidebarWidth()
   restoreAnalyticsPaneWidth()
   bindAuthListeners()
@@ -350,17 +356,19 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  cancelActiveRequests()
   window.removeEventListener('resize', syncResponsiveLayout)
+  window.removeEventListener('beforeunload', cancelActiveRequests)
 })
 </script>
 
 <template>
-  <div class="portal-layout" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
+  <div class="analysis-layout" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <aside
-      class="portal-sidebar-shell"
+      class="analysis-sidebar-shell"
       :class="{
-        'portal-sidebar-shell--compact': isCompactLayout,
-        'portal-sidebar-shell--open': isSidebarOpen,
+        'analysis-sidebar-shell--compact': isCompactLayout,
+        'analysis-sidebar-shell--open': isSidebarOpen,
       }"
     >
       <div v-if="isCompactLayout" class="mobile-panel-header">
@@ -370,7 +378,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <PortalSidebar
+      <AnalysisSidebar
         :sidebar="{ ...shellSidebar, recentSessions }"
         :active-screen="currentScreen"
         :active-session-id="activeSessionId"
@@ -397,16 +405,16 @@ onBeforeUnmount(() => {
       <span></span>
     </button>
 
-    <div class="portal-main-shell">
-      <div v-if="isCompactLayout" class="portal-mobile-toolbar">
-        <button type="button" class="portal-mobile-toolbar__button" @click="toggleSidebarPanel">
+    <div class="analysis-main-shell">
+      <div v-if="isCompactLayout" class="analysis-mobile-toolbar">
+        <button type="button" class="analysis-mobile-toolbar__button" @click="toggleSidebarPanel">
           <span class="material-symbols-outlined">menu_open</span>
           <span>좌측 패널</span>
         </button>
         <button
           v-if="currentScreen === 'dashboard'"
           type="button"
-          class="portal-mobile-toolbar__button"
+          class="analysis-mobile-toolbar__button"
           @click="toggleAnalyticsPanel"
         >
           <span class="material-symbols-outlined">bar_chart</span>
@@ -414,13 +422,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="authError || exportMessage" class="portal-status-messages">
+      <div v-if="authError || exportMessage" class="analysis-status-messages">
         <p v-if="authError" class="auth-error">{{ authError }}</p>
         <p v-if="exportMessage" class="export-message">{{ exportMessage }}</p>
       </div>
 
-      <div class="portal-screen-shell">
-        <PortalDashboardWorkspaceView
+      <div class="analysis-screen-shell">
+        <AnalysisWorkspaceView
           v-if="currentScreen === 'dashboard'"
           :conversation="conversation"
           :composer="composer"
@@ -455,7 +463,7 @@ onBeforeUnmount(() => {
           @close-analytics-panel="closeAnalyticsPanel"
         />
 
-        <PortalSessionHub
+        <SessionHub
           v-else-if="currentScreen === 'sessions'"
           :sessions="sessionSummaries"
           :active-session-id="activeSessionId"
@@ -469,7 +477,7 @@ onBeforeUnmount(() => {
           @create-session="handleCreateSession"
         />
 
-        <PortalDatasetLibrary
+        <DatasetLibrary
           v-else
           :datasets="datasetsLibrary"
           :selected-dataset-id="selectedDatasetId"
@@ -502,9 +510,9 @@ onBeforeUnmount(() => {
       @change="handleDatasetFileChange"
     />
 
-    <div v-if="isHelpDialogOpen" class="portal-overlay" @click.self="closeHelpDialog">
-      <section class="portal-dialog">
-        <header class="portal-dialog__header">
+    <div v-if="isHelpDialogOpen" class="analysis-overlay" @click.self="closeHelpDialog">
+      <section class="analysis-dialog">
+        <header class="analysis-dialog__header">
           <div>
             <p>도움말</p>
             <h2>AI 데이터 분석 사용 안내</h2>
@@ -522,9 +530,9 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div v-if="sharedAnalysis" class="portal-overlay" @click.self="closeSharedAnalysisDialog">
-      <section class="portal-dialog portal-dialog--wide">
-        <header class="portal-dialog__header">
+    <div v-if="sharedAnalysis" class="analysis-overlay" @click.self="closeSharedAnalysisDialog">
+      <section class="analysis-dialog analysis-dialog--wide">
+        <header class="analysis-dialog__header">
           <div>
             <p>공유 미리보기</p>
             <h2>{{ sharedAnalysis.title }}</h2>
@@ -547,7 +555,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.portal-layout {
+.analysis-layout {
   position: relative;
   height: 100vh;
   display: grid;
@@ -579,7 +587,7 @@ onBeforeUnmount(() => {
     0 7px 0 rgba(24, 74, 140, 0.22);
 }
 
-.portal-main-shell {
+.analysis-main-shell {
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -589,17 +597,17 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.portal-sidebar-shell {
+.analysis-sidebar-shell {
   min-width: 0;
   min-height: 0;
 }
 
-.portal-mobile-toolbar {
+.analysis-mobile-toolbar {
   display: flex;
   gap: 10px;
 }
 
-.portal-mobile-toolbar__button,
+.analysis-mobile-toolbar__button,
 .mobile-panel-close {
   border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.92);
@@ -607,7 +615,7 @@ onBeforeUnmount(() => {
   font: inherit;
 }
 
-.portal-mobile-toolbar__button {
+.analysis-mobile-toolbar__button {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -648,12 +656,12 @@ onBeforeUnmount(() => {
   background: rgba(15, 23, 42, 0.28);
 }
 
-.portal-status-messages {
+.analysis-status-messages {
   display: grid;
   gap: 8px;
 }
 
-.portal-screen-shell {
+.analysis-screen-shell {
   min-height: 0;
   height: 100%;
   flex: 1;
@@ -686,7 +694,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.portal-overlay {
+.analysis-overlay {
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -696,7 +704,7 @@ onBeforeUnmount(() => {
   background: rgba(15, 23, 42, 0.34);
 }
 
-.portal-dialog {
+.analysis-dialog {
   width: min(560px, 100%);
   max-height: min(80vh, 720px);
   display: grid;
@@ -708,31 +716,31 @@ onBeforeUnmount(() => {
   box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
 }
 
-.portal-dialog--wide {
+.analysis-dialog--wide {
   width: min(880px, 100%);
 }
 
-.portal-dialog__header {
+.analysis-dialog__header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
 }
 
-.portal-dialog__header p,
+.analysis-dialog__header p,
 .help-list,
 .dialog-subtext {
   margin: 0;
   color: var(--color-text-muted);
 }
 
-.portal-dialog__header p {
+.analysis-dialog__header p {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.7rem;
   font-weight: 800;
 }
 
-.portal-dialog__header h2 {
+.analysis-dialog__header h2 {
   margin: 8px 0 0;
   font-family: var(--font-heading);
 }
@@ -791,13 +799,13 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1280px) {
-  .portal-layout {
+  .analysis-layout {
     padding: 20px;
   }
 }
 
 @media (max-width: 960px) {
-  .portal-layout {
+  .analysis-layout {
     grid-template-columns: minmax(0, 1fr);
     padding: 16px;
     height: auto;
@@ -809,7 +817,7 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .portal-sidebar-shell {
+  .analysis-sidebar-shell {
     position: fixed;
     top: 16px;
     left: 16px;
@@ -824,20 +832,20 @@ onBeforeUnmount(() => {
     transition: transform 220ms ease;
   }
 
-  .portal-sidebar-shell--open {
+  .analysis-sidebar-shell--open {
     transform: translateX(0);
   }
 
-  .portal-main-shell,
-  .portal-screen-shell {
+  .analysis-main-shell,
+  .analysis-screen-shell {
     overflow: visible;
   }
 
-  .portal-mobile-toolbar {
+  .analysis-mobile-toolbar {
     flex-wrap: wrap;
   }
 
-  .portal-overlay {
+  .analysis-overlay {
     padding: 16px;
   }
 }

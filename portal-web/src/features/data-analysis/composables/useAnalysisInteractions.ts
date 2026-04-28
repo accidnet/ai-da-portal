@@ -8,7 +8,7 @@ import {
   type ChatSubMessageStreamEvent,
 } from '../../../shared/api/portalApi'
 import type { ChatMessage, ChatSubMessage, MessageAttachmentPreview } from '../types'
-import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
+import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import {
   buildReportContent,
   createAttachmentPreview,
@@ -16,17 +16,17 @@ import {
   isUploadableDatasetFile,
   normalizeAssistantMessage,
   sanitizeFileNameSegment,
-} from '../utils/portalPageHelpers'
+} from '../utils/analysisPageHelpers'
 import {
   buildSharedAnalysisUrl,
   copyTextToClipboard,
   createSharedAnalysisSnapshot,
   openAnalysisPreview,
   saveSharedAnalysisSnapshot,
-} from '../utils/portalShare'
+} from '../utils/analysisShare'
 import { mapDatasetAsset, type SessionRuntimeState } from '../utils/sessionState'
 
-export function usePortalInteractions(options: {
+export function useAnalysisInteractions(options: {
   activeSessionState: ComputedRef<SessionRuntimeState | null>
   activeDataset: ComputedRef<SessionRuntimeState['datasets'][number] | null>
   analyticsPayload: ComputedRef<SessionRuntimeState['analyticsPayload']>
@@ -59,6 +59,16 @@ export function usePortalInteractions(options: {
   const isSending = ref(false)
   const isRunningAnalysis = ref(false)
   const isSendingInteraction = ref(false)
+  let activeChatStreamController: AbortController | null = null
+
+  function isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError'
+  }
+
+  function cancelActiveChatStream() {
+    activeChatStreamController?.abort()
+    activeChatStreamController = null
+  }
 
   function openInteractionPicker() {
     interactionPickerRef.value?.click()
@@ -215,6 +225,8 @@ export function usePortalInteractions(options: {
     isSendingInteraction.value = Boolean(attachedFile)
     pendingAttachment.value = null
     const assistantMessageIndex = sessionState.messages.length
+    const chatStreamController = new AbortController()
+    activeChatStreamController = chatStreamController
 
     sessionState.messages = [
       ...sessionState.messages,
@@ -234,6 +246,7 @@ export function usePortalInteractions(options: {
             datasetIds: sessionState.datasets.map((dataset) => dataset.id),
             file: attachedFile,
           }, {
+            signal: chatStreamController.signal,
             onDelta(delta) {
               const current = sessionState.messages[assistantMessageIndex]
               if (!current || current.role !== 'assistant') return
@@ -318,6 +331,16 @@ export function usePortalInteractions(options: {
       sessionState.workspacePayload = response.workspace
       syncSessionSummaryWithState(sessionId)
     } catch (error) {
+      if (chatStreamController.signal.aborted || isAbortError(error)) {
+        if (!hasVisibleAssistantContent(sessionState.messages[assistantMessageIndex])) {
+          sessionState.messages = sessionState.messages.filter(
+            (_, index) => index !== assistantMessageIndex,
+          )
+        }
+        syncSessionSummaryWithState(sessionId)
+        return
+      }
+
       chatError.value =
         error instanceof Error
           ? error.message
@@ -343,6 +366,9 @@ export function usePortalInteractions(options: {
       }
       syncSessionSummaryWithState(sessionId)
     } finally {
+      if (activeChatStreamController === chatStreamController) {
+        activeChatStreamController = null
+      }
       isSending.value = false
       isSendingInteraction.value = false
     }
@@ -468,6 +494,7 @@ export function usePortalInteractions(options: {
     queueInteractionFile,
     handleInteractionFileChange,
     handleSendMessage,
+    cancelActiveChatStream,
     runAnalysis,
     handleSuggestedPrompt,
     handleInsightAction,

@@ -1,4 +1,4 @@
-import { ANALYSIS_SHARE_STORAGE_PREFIX } from '../constants/portalPage'
+import { ANALYSIS_SHARE_STORAGE_PREFIX } from '../constants/analysisPage'
 import type { SharedAnalysisSnapshot } from '../types'
 
 function escapeHtml(value: string): string {

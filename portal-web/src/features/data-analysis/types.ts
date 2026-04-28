@@ -2,11 +2,11 @@ export interface NavItem {
   label: string
   icon: string
   active?: boolean
-  screen?: PortalScreen
+  screen?: AnalysisScreen
   action?: 'create-session'
 }
 
-export type PortalScreen = 'dashboard' | 'sessions' | 'datasets'
+export type AnalysisScreen = 'dashboard' | 'sessions' | 'datasets'
 
 export interface LinkedDatasetSummary {
   id: string
@@ -312,7 +312,7 @@ export interface WorkspacePayload {
   sections: WorkspaceSectionPayload[]
 }
 
-export interface PortalDashboardData {
+export interface AnalysisDashboardData {
   sidebar: SidebarData
   header: HeaderData
   conversation: ConversationData

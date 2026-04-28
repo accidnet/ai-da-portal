@@ -1,18 +1,18 @@
 import { ref, type Ref } from 'vue'
 
 import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions, updateSessionTitle } from '../../../shared/api/portalApi'
-import type { PortalScreen, SessionItem } from '../types'
-import { DEFAULT_SESSION_TITLE, LOCAL_SESSION_ID } from '../constants/portalPage'
+import type { AnalysisScreen, SessionItem } from '../types'
+import { DEFAULT_SESSION_TITLE, LOCAL_SESSION_ID } from '../constants/analysisPage'
 import {
   createSessionState,
   createWelcomeMessages,
   mapSessionSummary,
   resolvePreferredDatasetId,
-} from '../utils/portalPageHelpers'
+} from '../utils/analysisPageHelpers'
 import { mapSnapshotToSessionState, type SessionRuntimeState } from '../utils/sessionState'
 
-export function usePortalSessions(options: {
-  currentScreen: Ref<PortalScreen>
+export function useAnalysisSessions(options: {
+  currentScreen: Ref<AnalysisScreen>
   onSessionDeleted?: (sessionId: string) => void | Promise<void>
 }) {
   const { currentScreen, onSessionDeleted } = options
@@ -210,7 +210,7 @@ export function usePortalSessions(options: {
     }
   }
 
-  async function selectSession(sessionId: string, targetScreen: PortalScreen = currentScreen.value) {
+  async function selectSession(sessionId: string, targetScreen: AnalysisScreen = currentScreen.value) {
     activeSessionId.value = sessionId
     currentScreen.value = targetScreen
     const summary = sessionSummaries.value.find((session) => session.id === sessionId)

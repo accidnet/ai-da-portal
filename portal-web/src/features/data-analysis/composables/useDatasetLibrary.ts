@@ -10,11 +10,11 @@ import {
   uploadDataset,
 } from '../../../shared/api/portalApi'
 import type { DatasetLibraryItem, SessionItem } from '../types'
-import { DEFAULT_SESSION_TITLE } from '../constants/portalPage'
-import { isUploadableDatasetFile, mapDatasetLibraryItem } from '../utils/portalPageHelpers'
+import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
+import { isUploadableDatasetFile, mapDatasetLibraryItem } from '../utils/analysisPageHelpers'
 import { mapDatasetDetailToAsset, type SessionRuntimeState } from '../utils/sessionState'
 
-export function usePortalDatasets(options: {
+export function useDatasetLibrary(options: {
   activeSessionId: Ref<string | null>
   activeSessionSummary: ComputedRef<SessionItem | null>
   sessionStates: Ref<Record<string, SessionRuntimeState>>

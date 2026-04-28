@@ -3,11 +3,11 @@ import type {
   ChatMessage,
   DatasetLibraryItem,
   MessageAttachmentPreview,
-  PortalScreen,
+  AnalysisScreen,
   SessionItem,
   WorkspacePayload,
 } from '../types'
-import { DEFAULT_SESSION_TITLE, SCREEN_HASHES } from '../constants/portalPage'
+import { DEFAULT_SESSION_TITLE, SCREEN_HASHES } from '../constants/analysisPage'
 import type { SessionRuntimeState } from './sessionState'
 import type {
   DatasetLibraryResponse,
@@ -15,7 +15,7 @@ import type {
   SessionSummaryResponse,
 } from '../../../shared/api/portalApi'
 
-export function resolveScreenFromHash(hash = window.location.hash): PortalScreen {
+export function resolveScreenFromHash(hash = window.location.hash): AnalysisScreen {
   const normalizedHash = hash.trim().toLowerCase()
   if (normalizedHash === SCREEN_HASHES.sessions) return 'sessions'
   if (normalizedHash === SCREEN_HASHES.datasets) return 'datasets'

@@ -1,9 +1,9 @@
 import { onUnmounted, ref, watch } from 'vue'
 
-import { ANALYTICS_PANE_WIDTH_STORAGE_KEY, SIDEBAR_WIDTH_STORAGE_KEY } from '../constants/portalPage'
-import { clampAnalyticsPaneWidth, clampSidebarWidth } from '../utils/portalPageHelpers'
+import { ANALYTICS_PANE_WIDTH_STORAGE_KEY, SIDEBAR_WIDTH_STORAGE_KEY } from '../constants/analysisPage'
+import { clampAnalyticsPaneWidth, clampSidebarWidth } from '../utils/analysisPageHelpers'
 
-export function usePortalAnalyticsPane() {
+export function useAnalysisPaneLayout() {
   const sidebarWidth = ref(288)
   const analyticsPaneWidth = ref(420)
   const isResizingSidebar = ref(false)

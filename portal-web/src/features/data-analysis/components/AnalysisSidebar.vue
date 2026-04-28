@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { BackendConnectionStatus, OpenAiAuthStatus, PortalScreen, SidebarData } from '../types'
+import type { BackendConnectionStatus, OpenAiAuthStatus, AnalysisScreen, SidebarData } from '../types'
 
 const props = defineProps<{
   sidebar: SidebarData
   activeSessionId?: string | null
-  activeScreen: PortalScreen
+  activeScreen: AnalysisScreen
   connectionStatus: BackendConnectionStatus
   authStatus: OpenAiAuthStatus
   isConnecting?: boolean
@@ -15,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectSession: [sessionId: string]
-  primaryAction: [screen: PortalScreen]
+  primaryAction: [screen: AnalysisScreen]
   createSession: []
   connectOpenAi: []
   disconnectOpenAi: []

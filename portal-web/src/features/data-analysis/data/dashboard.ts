@@ -1,6 +1,6 @@
-import type { PortalDashboardData } from '../types'
+import type { AnalysisDashboardData } from '../types'
 
-export const portalDashboard: PortalDashboardData = {
+export const analysisDashboard: AnalysisDashboardData = {
   sidebar: {
     productName: 'Data Analysis AI',
     productTagline: 'Data Intelligence',

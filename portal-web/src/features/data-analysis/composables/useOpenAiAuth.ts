@@ -2,8 +2,8 @@ import { onUnmounted, ref } from 'vue'
 
 import { authorizeOpenAi, fetchOpenAiAuthStatus, logoutOpenAi as requestOpenAiLogout } from '../../../shared/api/portalApi'
 import type { OpenAiAuthStatus } from '../types'
-import { OPENAI_AUTH_POPUP_SOURCE } from '../constants/portalPage'
-import { mapOpenAiAuthStatus } from '../utils/portalPageHelpers'
+import { OPENAI_AUTH_POPUP_SOURCE } from '../constants/analysisPage'
+import { mapOpenAiAuthStatus } from '../utils/analysisPageHelpers'
 
 interface OpenAiPopupMessage {
   source?: string
@@ -12,7 +12,7 @@ interface OpenAiPopupMessage {
   account_email?: string
 }
 
-export function usePortalAuth() {
+export function useOpenAiAuth() {
   const authStatus = ref<OpenAiAuthStatus>({
     state: 'disconnected',
     connected: false,
@@ -104,7 +104,7 @@ export function usePortalAuth() {
     authError.value = null
     try {
       const authorization = await authorizeOpenAi()
-      const popup = window.open(authorization.authorization_url, 'portal-openai-auth', buildPopupFeatures())
+      const popup = window.open(authorization.authorization_url, OPENAI_AUTH_POPUP_SOURCE, buildPopupFeatures())
       if (!popup) {
         window.location.assign(authorization.authorization_url)
         return
