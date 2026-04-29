@@ -11,14 +11,14 @@ from domain.analyses.schemas import (
 from domain.datasets.service import DatasetService
 from domain.sessions.service import SessionService
 from domain.workspace.service import WorkspacePlanner
-from infrastructure.llm.client import LlmClient
+from infrastructure.ai.client import AiClient
 
 
 class AnalysisService:
     def __init__(
         self,
         dataset_service: DatasetService | None = None,
-        llm_client: LlmClient | None = None,
+        llm_client: AiClient | None = None,
         session_service: SessionService | None = None,
     ) -> None:
         self._dataset_service = dataset_service or DatasetService()

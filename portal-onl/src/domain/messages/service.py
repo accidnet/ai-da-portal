@@ -15,8 +15,8 @@ from domain.messages.schemas import (
 )
 from domain.shared import AnalyticsPayload
 from domain.sessions.service import SessionService
-from infrastructure.llm.client import LlmClient, LlmClientError
-from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
+from infrastructure.ai.client import AiClient, AiClientError
+from infrastructure.ai.streaming_events import RESPONSE_STREAMING_EVENTS
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class _SnapshotAgent(Protocol):
 class MessageService:
     def __init__(
         self,
-        llm_client: LlmClient,
+        llm_client: AiClient,
         dataset_service: DatasetService,
         session_service: SessionService,
     ) -> None:
@@ -265,7 +265,7 @@ class MessageService:
             )
             if sanitized:
                 return sanitized
-        except LlmClientError as exc:
+        except AiClientError as exc:
             logger.info(
                 "Session title generation failed; using fallback detail=%s", exc
             )
@@ -321,7 +321,7 @@ class MessageService:
         output = final_text or "".join(deltas).strip()
         if output:
             return output
-        raise LlmClientError("OpenAI returned no assistant text.")
+        raise AiClientError("OpenAI returned no assistant text.")
 
     def _extract_output_text(self, payload: dict[str, object]) -> str | None:
         output_text = payload.get("output_text")

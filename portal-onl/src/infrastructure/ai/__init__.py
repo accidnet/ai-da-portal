@@ -1,4 +1,4 @@
-from infrastructure.llm.streaming_events import (
+from infrastructure.ai.streaming_events import (
     RESPONSE_STREAMING_EVENTS,
     ResponseStreamingEventTypes,
 )

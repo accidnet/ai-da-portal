@@ -15,7 +15,7 @@ from domain.datasets.service import DatasetService
 from domain.messages.service import MessageService
 from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
-from infrastructure.llm.client import LlmClient
+from infrastructure.ai.client import AiClient
 
 
 def get_app_settings() -> Settings:
@@ -39,8 +39,8 @@ def get_openai_auth_service() -> OpenAiAuthService:
 
 
 @lru_cache
-def get_llm_client() -> LlmClient:
-    return LlmClient(settings=get_settings(), auth_service=get_openai_auth_service())
+def get_llm_client() -> AiClient:
+    return AiClient(settings=get_settings(), auth_service=get_openai_auth_service())
 
 
 @lru_cache

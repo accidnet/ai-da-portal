@@ -7,17 +7,19 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from core.config import Settings
 from domain.auth.service import OpenAiAuthService
-from infrastructure.llm.input_models import (
+from infrastructure.ai.input_models import (
     EasyInputMessage,
     InputItemList,
     ResponseInputText,
 )
-from infrastructure.llm.schemas import StructuredPrompt
-class LlmClientError(RuntimeError):
+from infrastructure.ai.schemas import StructuredPrompt
+
+
+class AiClientError(RuntimeError):
     pass
 
 
-class LlmClient:
+class AiClient:
     def __init__(
         self,
         settings: Settings,
@@ -54,7 +56,7 @@ class LlmClient:
 
         if output:
             return output
-        raise LlmClientError("OpenAI returned no assistant text.")
+        raise AiClientError("OpenAI returned no assistant text.")
 
     def generate_json(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
@@ -117,7 +119,7 @@ class LlmClient:
 
         access_token = self._auth_service.get_access_token()
         if not access_token:
-            raise LlmClientError(
+            raise AiClientError(
                 "No OpenAI credentials are available. Connect ChatGPT or configure OPENAI_API_KEY."
             )
 
@@ -142,13 +144,13 @@ class LlmClient:
             return cast(Any, client).responses.create(**payload, stream=stream)
         except APIStatusError as exc:
             detail = self._extract_api_error_detail(exc)
-            raise LlmClientError(
+            raise AiClientError(
                 f"OpenAI request failed: {detail or str(exc)}"
             ) from exc
         except (APIConnectionError, APITimeoutError) as exc:
-            raise LlmClientError("OpenAI response could not be processed.") from exc
+            raise AiClientError("OpenAI response could not be processed.") from exc
         except Exception as exc:  # pragma: no cover - SDK-specific fallback
-            raise LlmClientError("OpenAI response could not be processed.") from exc
+            raise AiClientError("OpenAI response could not be processed.") from exc
 
     def _extract_api_error_detail(self, exc: APIStatusError) -> str:
         response = getattr(exc, "response", None)
@@ -199,7 +201,7 @@ class LlmClient:
     def _coerce_dict(self, value: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(value)
         if payload is None:
-            raise LlmClientError("OpenAI JSON response was not an object.")
+            raise AiClientError("OpenAI JSON response was not an object.")
         return payload
 
     def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
@@ -250,12 +252,12 @@ class LlmClient:
         try:
             payload = json.loads(normalized)
         except json.JSONDecodeError as exc:
-            raise LlmClientError(
+            raise AiClientError(
                 "OpenAI returned invalid JSON for structured output."
             ) from exc
 
         if not isinstance(payload, dict):
-            raise LlmClientError(
+            raise AiClientError(
                 "OpenAI returned non-object JSON for structured output."
             )
 

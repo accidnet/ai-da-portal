@@ -17,7 +17,7 @@ from domain.shared import (
 )
 
 
-class FakeLlmClient:
+class FakeAiClient:
     def __init__(self, responses: list[dict[str, object]]) -> None:
         self._responses = responses
         self.calls: list[dict[str, object]] = []
@@ -131,7 +131,7 @@ class FakeAnalysisService:
 
 
 def test_agent_graph_returns_direct_conversation_reply() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [{"id": "resp_1", "output_text": "안녕하세요. 무엇을 도와드릴까요?"}]
     )
     graph = Agent(
@@ -156,7 +156,7 @@ def test_agent_graph_returns_direct_conversation_reply() -> None:
 
 
 def test_agent_initial_input_includes_uploaded_filenames() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [{"id": "resp_1", "output_text": "파일명을 확인했습니다."}]
     )
     graph = Agent(
@@ -182,7 +182,7 @@ def test_agent_initial_input_includes_uploaded_filenames() -> None:
 def test_agent_loads_uploaded_file_by_filename_tool() -> None:
     dataset_service = FakeDatasetService()
     graph = Agent(
-        llm_client=FakeLlmClient(
+        llm_client=FakeAiClient(
             [
                 {
                     "id": "resp_1",
@@ -220,7 +220,7 @@ def test_agent_loads_uploaded_file_by_filename_tool() -> None:
 
 
 def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [
             {
                 "id": "resp_1",
@@ -265,7 +265,7 @@ def test_agent_graph_uses_dataset_context_tool_before_reply() -> None:
 def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
     analysis_service = FakeAnalysisService()
     graph = Agent(
-        llm_client=FakeLlmClient(
+        llm_client=FakeAiClient(
             [
                 {
                     "id": "resp_1",
@@ -309,7 +309,7 @@ def test_agent_graph_runs_analysis_tool_and_keeps_structured_outputs() -> None:
 
 def test_agent_graph_returns_state_when_no_final_message_is_present() -> None:
     graph = Agent(
-        llm_client=FakeLlmClient([{"id": "resp_1", "output": []}]),
+        llm_client=FakeAiClient([{"id": "resp_1", "output": []}]),
         dataset_service=FakeDatasetService(),
         analysis_service=FakeAnalysisService(),
     )
@@ -328,7 +328,7 @@ def test_agent_graph_returns_state_when_no_final_message_is_present() -> None:
 
 
 def test_agent_graph_allows_update_plan_tool() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [
             {
                 "id": "resp_1",
@@ -408,7 +408,7 @@ def test_agent_graph_parses_stream_events_and_executes_tool() -> None:
             },
         ]
     )
-    llm_client = FakeLlmClient([first_stream, second_stream])
+    llm_client = FakeAiClient([first_stream, second_stream])
     graph = Agent(
         llm_client=llm_client,
         dataset_service=FakeDatasetService(),
@@ -435,7 +435,7 @@ def test_agent_graph_parses_stream_events_and_executes_tool() -> None:
 
 
 def test_agent_graph_stream_invoke_yields_output_text_deltas() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [
             FakeStream(
                 [
@@ -488,7 +488,7 @@ def test_agent_graph_stream_invoke_yields_output_text_deltas() -> None:
 
 
 def test_agent_graph_stream_invoke_yields_function_call_argument_sub_messages() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [
             FakeStream(
                 [
@@ -554,7 +554,7 @@ def test_agent_graph_stream_invoke_yields_function_call_argument_sub_messages() 
 
 
 def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [
             FakeStream(
                 [
@@ -616,7 +616,7 @@ def test_agent_graph_stream_invoke_emits_state_after_tool_execution() -> None:
 
 
 def test_agent_graph_stream_invoke_emits_plan_state_on_update_plan_output_item_done() -> None:
-    llm_client = FakeLlmClient(
+    llm_client = FakeAiClient(
         [
             FakeStream(
                 [

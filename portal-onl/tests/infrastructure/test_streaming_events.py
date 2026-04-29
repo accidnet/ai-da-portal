@@ -1,4 +1,4 @@
-from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
+from infrastructure.ai.streaming_events import RESPONSE_STREAMING_EVENTS
 
 
 def test_response_streaming_event_groups() -> None:

@@ -3,8 +3,8 @@ from typing import Any
 import pytest
 
 from core.config import Settings
-from infrastructure.llm import client as llm_client_module
-from infrastructure.llm.client import LlmClient, LlmClientError
+from infrastructure.ai import client as llm_client_module
+from infrastructure.ai.client import AiClient, AiClientError
 
 
 class FakeAuthService:
@@ -94,7 +94,7 @@ def test_llm_client_uses_responses_api_when_api_key_is_configured(
     factory = RecordingOpenAIFactory(sdk_client)
     monkeypatch.setattr(llm_client_module, "OpenAI", factory)
 
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
     )
@@ -129,7 +129,7 @@ def test_llm_client_uses_chatgpt_oauth_token_when_available(
     factory = RecordingOpenAIFactory(sdk_client)
     monkeypatch.setattr(llm_client_module, "OpenAI", factory)
 
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(),
         auth_service=FakeAuthService(access_token="oauth-token", account_id="acct-123"),
     )
@@ -146,12 +146,12 @@ def test_llm_client_uses_chatgpt_oauth_token_when_available(
 
 
 def test_llm_client_raises_when_no_credentials_are_available() -> None:
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(),
         auth_service=FakeAuthService(),
     )
 
-    with pytest.raises(LlmClientError, match="No OpenAI credentials"):
+    with pytest.raises(AiClientError, match="No OpenAI credentials"):
         client.generate(system="system", user_message="user prompt")
 
 
@@ -164,7 +164,7 @@ def test_llm_client_generate_returns_stream_for_oauth() -> None:
             ]
         )
     )
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(),
         auth_service=FakeAuthService(access_token="oauth-token"),
         openai_client=sdk_client,
@@ -190,7 +190,7 @@ def test_llm_client_generate_preserves_stream_events_for_oauth() -> None:
             ]
         )
     )
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(),
         auth_service=FakeAuthService(access_token="oauth-token"),
         openai_client=sdk_client,
@@ -220,7 +220,7 @@ def test_llm_client_generate_json_unwraps_nested_response_payload() -> None:
             }
         )
     )
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
         openai_client=sdk_client,
@@ -254,7 +254,7 @@ def test_llm_client_generate_unwraps_nested_response_payload() -> None:
             }
         )
     )
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
         openai_client=sdk_client,
@@ -285,7 +285,7 @@ def test_llm_client_generate_json_reads_output_json_content() -> None:
             }
         )
     )
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
         openai_client=sdk_client,
@@ -313,7 +313,7 @@ def test_llm_client_create_response_sends_responses_api_tool_payload() -> None:
         }
     )
     sdk_client = FakeOpenAIClient(responses_api)
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
         openai_client=sdk_client,
@@ -356,7 +356,7 @@ def test_llm_client_create_response_unwraps_nested_response_payload() -> None:
         }
     )
     sdk_client = FakeOpenAIClient(responses_api)
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(openai_api_key="test-key"),
         auth_service=FakeAuthService(),
         openai_client=sdk_client,
@@ -389,7 +389,7 @@ def test_llm_client_create_response_uses_streaming_for_oauth_codex() -> None:
         },
     )
     sdk_client = FakeOpenAIClient(responses_api)
-    client = LlmClient(
+    client = AiClient(
         settings=Settings(),
         auth_service=FakeAuthService(access_token="oauth-token", account_id="acct-123"),
         openai_client=sdk_client,

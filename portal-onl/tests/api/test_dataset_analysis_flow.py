@@ -14,7 +14,7 @@ from api.deps import (
 )
 from domain.analyses.schemas import AnalysisRequest
 from domain.messages.service import MessageService
-from infrastructure.llm.client import LlmClient
+from infrastructure.ai.client import AiClient
 from main import app
 
 
@@ -51,7 +51,7 @@ def _upload_sample_csv(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
-class FakeLlmClient(LlmClient):
+class FakeAiClient(AiClient):
     def __init__(self) -> None:
         pass
 
@@ -104,7 +104,7 @@ class FakeLlmClient(LlmClient):
 
 def _override_message_service() -> MessageService:
     return MessageService(
-        llm_client=FakeLlmClient(),
+        llm_client=FakeAiClient(),
         dataset_service=get_dataset_service(),
         session_service=get_session_service(),
     )
@@ -637,14 +637,14 @@ def _override_message_service_with_title_failure() -> MessageService:
     )
 
 
-class FailingTitleOnlyClient(FakeLlmClient):
+class FailingTitleOnlyClient(FakeAiClient):
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
     ) -> str:
         if "세션 제목 생성기" in system:
-            from infrastructure.llm.client import LlmClientError
+            from infrastructure.ai.client import AiClientError
 
-            raise LlmClientError("title failure")
+            raise AiClientError("title failure")
         return super().generate(system, user_message, dataset_ids)
 
 

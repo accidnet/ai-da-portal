@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
+from infrastructure.ai.streaming_events import RESPONSE_STREAMING_EVENTS
 
 
 type StreamEventResult = dict[str, object]
@@ -91,27 +91,6 @@ def _build_handler_map(
             )
         )
     return handlers
-
-
-def _debug_stream_event(event_type: object, payload: dict[str, object]) -> None:
-    QUIET_EVENT_TYPES = {
-        RESPONSE_STREAMING_EVENTS.response.output_text.delta,
-        RESPONSE_STREAMING_EVENTS.response.created,
-        RESPONSE_STREAMING_EVENTS.response.completed,
-        RESPONSE_STREAMING_EVENTS.response.in_progress,
-        RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
-    }
-
-    if event_type in QUIET_EVENT_TYPES:
-        return
-
-    from pprint import pprint
-
-    pprint("[TMP-TYPE]")
-    pprint(event_type)
-    print("[TMP-PAYLOAD]")
-    pprint(payload)
-    print("==" * 60)
 
 
 def _handle_response_completed(

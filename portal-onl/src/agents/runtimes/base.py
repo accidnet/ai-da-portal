@@ -8,8 +8,8 @@ from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from domain.shared import AnalyticsPayload, WorkspacePayload
-from infrastructure.llm.client import LlmClient, LlmClientError
-from infrastructure.llm.input_models import (
+from infrastructure.ai.client import AiClient, AiClientError
+from infrastructure.ai.input_models import (
     EasyInputMessage,
     FunctionCall,
     FunctionCallOutput,
@@ -26,7 +26,7 @@ class BaseAgent:
     def __init__(
         self,
         *,
-        llm_client: LlmClient,
+        llm_client: AiClient,
         dataset_service: DatasetService,
         analysis_service: AnalysisService,
     ) -> None:
@@ -654,4 +654,4 @@ class BaseAgent:
         value = state.get(key)
         if isinstance(value, str) and value:
             return value
-        raise LlmClientError(f"Agent state is missing required field: {key}")
+        raise AiClientError(f"Agent state is missing required field: {key}")

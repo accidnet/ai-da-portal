@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 
 from agents.state import AgentRoute
 from domain.shared import AnalyticsPayload, WorkspacePayload, WorkspaceSectionPayload
-from infrastructure.llm.client import LlmClient, LlmClientError
-from infrastructure.llm.streaming_events import RESPONSE_STREAMING_EVENTS
+from infrastructure.ai.client import AiClient, AiClientError
+from infrastructure.ai.streaming_events import RESPONSE_STREAMING_EVENTS
 
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class PlannedWorkspacePayload(BaseModel):
 
 
 class WorkspacePlanner:
-    def __init__(self, llm_client: LlmClient | None = None) -> None:
+    def __init__(self, llm_client: AiClient | None = None) -> None:
         self._llm_client = llm_client
 
     def plan(
@@ -61,7 +61,7 @@ class WorkspacePlanner:
                 sanitized = self._sanitize_workspace(workspace, analytics)
                 if sanitized.sections:
                     return sanitized
-            except (LlmClientError, ValueError) as exc:
+            except (AiClientError, ValueError) as exc:
                 logger.warning("Workspace planning fell back to heuristic: %s", exc)
 
         return self._fallback_workspace(
@@ -124,7 +124,7 @@ class WorkspacePlanner:
         output = final_text or "".join(deltas).strip()
         if output:
             return output
-        raise LlmClientError("OpenAI returned invalid JSON for structured output.")
+        raise AiClientError("OpenAI returned invalid JSON for structured output.")
 
     def _extract_output_text(self, payload: dict[str, object]) -> str | None:
         output_text = payload.get("output_text")
@@ -161,7 +161,7 @@ class WorkspacePlanner:
     def _extract_json_object(self, raw_text: str) -> dict[str, object]:
         normalized = raw_text.strip()
         if not normalized:
-            raise LlmClientError("OpenAI returned invalid JSON for structured output.")
+            raise AiClientError("OpenAI returned invalid JSON for structured output.")
 
         fence_start = normalized.find("```")
         if fence_start >= 0:
@@ -179,12 +179,12 @@ class WorkspacePlanner:
         try:
             payload = json.loads(normalized)
         except json.JSONDecodeError as exc:
-            raise LlmClientError(
+            raise AiClientError(
                 "OpenAI returned invalid JSON for structured output."
             ) from exc
 
         if not isinstance(payload, dict):
-            raise LlmClientError(
+            raise AiClientError(
                 "OpenAI returned non-object JSON for structured output."
             )
         return payload

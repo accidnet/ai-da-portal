@@ -13,7 +13,7 @@ from agents.runtimes import ChatAgent, ChatStreamingAgent
 from domain.messages.schemas import ChatRequest, ChatResponse
 from domain.messages.service import MessageService
 from domain.messages.stream_service import MessageStreamService
-from infrastructure.llm.client import LlmClientError
+from infrastructure.ai.client import AiClientError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ def send_message(
             len(payload.dataset_ids),
         )
         return service.handle_chat(payload=payload, agent_runtime=agent_runtime)
-    except LlmClientError as exc:
+    except AiClientError as exc:
         logger.exception(
             "Chat request failed session_id=%s dataset_count=%s",
             payload.session_id,

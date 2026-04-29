@@ -10,7 +10,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from agents.runtimes import ChatStreamingAgent
 from domain.messages.service import MessageService
 from domain.messages.schemas import ChatRequest
-from infrastructure.llm.client import LlmClientError
+from infrastructure.ai.client import AiClientError
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class MessageStreamService:
                     agent_runtime=agent_runtime,
                 ):
                     yield self._encode_sse_event(event)
-            except LlmClientError as exc:
+            except AiClientError as exc:
                 logger.exception(
                     "Streaming chat request failed session_id=%s dataset_count=%s",
                     payload.session_id,

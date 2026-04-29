@@ -4,7 +4,7 @@ from domain.shared import AnalyticsPayload, ChartPayload, ChartSeries
 from domain.workspace.service import WorkspacePlanner
 
 
-class PartialWorkspaceLlmClient:
+class PartialWorkspaceAiClient:
     def generate_json(  # type: ignore[no-untyped-def]
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
     ) -> dict[str, object]:
@@ -27,7 +27,7 @@ class FakeStream:
         self.closed = True
 
 
-class StreamingWorkspaceLlmClient:
+class StreamingWorkspaceAiClient:
     def __init__(self) -> None:
         self.stream = FakeStream(
             [
@@ -63,7 +63,7 @@ def test_workspace_planner_accepts_partial_llm_payload(caplog) -> None:
             )
         ]
     )
-    planner = WorkspacePlanner(llm_client=PartialWorkspaceLlmClient())
+    planner = WorkspacePlanner(llm_client=PartialWorkspaceAiClient())
 
     with caplog.at_level(logging.WARNING):
         workspace = planner.plan(
@@ -91,7 +91,7 @@ def test_workspace_planner_consumes_streamed_json_payload() -> None:
             )
         ]
     )
-    llm_client = StreamingWorkspaceLlmClient()
+    llm_client = StreamingWorkspaceAiClient()
     planner = WorkspacePlanner(llm_client=llm_client)
 
     workspace = planner.plan(

@@ -7,7 +7,7 @@ from agents.runtimes.base import BaseAgent
 from agents.state import AgentState
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
-from infrastructure.llm.client import LlmClient
+from infrastructure.ai.client import AiClient
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class ChatStreamingAgent(BaseAgent):
         logger.debug("Agent stream input prepared next_input=%s", next_input)
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 10
+        max_iterations = 1
         iteration_count = 0
 
         while True:
@@ -117,7 +117,7 @@ class ChatStreamingAgent(BaseAgent):
 
 def build_chat_streaming_agent(
     *,
-    llm_client: LlmClient,
+    llm_client: AiClient,
     dataset_service: DatasetService,
     analysis_service: AnalysisService,
 ) -> ChatStreamingAgent:
