@@ -49,6 +49,8 @@ def main() -> None:
         host=settings.host,
         port=settings.port,
         reload=settings.reload,
+        # settings 로그 레벨을 uvicorn 실행 로그에도 동일하게 적용한다.
+        log_level=settings.log_level.lower(),
         factory=False,
         app_dir="src",
     )

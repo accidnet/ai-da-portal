@@ -1,7 +1,6 @@
 import json
 import logging
 from collections.abc import Generator, Iterable
-from dataclasses import dataclass
 from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
@@ -12,7 +11,7 @@ from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.llm.client import LlmClient, LlmClientError
 from infrastructure.llm.input_models import (
     EasyInputMessage,
-    FunctionCall as InputFunctionCall,
+    FunctionCall,
     FunctionCallOutput,
     InputItemList,
     ResponseInputText,
@@ -21,13 +20,6 @@ from tools import registry
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class FunctionCall:
-    call_id: str
-    name: str
-    arguments: dict[str, object]
 
 
 class BaseAgent:
@@ -142,7 +134,7 @@ class BaseAgent:
         return registry.execute_tool(
             function_call.name,
             state,
-            function_call.arguments,
+            self._parse_function_call_arguments(function_call),
             registry.ToolRuntimeContext(
                 dataset_service=self._dataset_service,
                 analysis_service=self._analysis_service,
@@ -158,6 +150,15 @@ class BaseAgent:
                 require_string=self._require_string,
             ),
         )
+
+    def _parse_function_call_arguments(
+        self, function_call: FunctionCall
+    ) -> dict[str, object]:
+        # Responses function_call arguments는 JSON 문자열이므로 도구 호출 직전에 dict로 변환합니다.
+        if not function_call.arguments.strip():
+            return {}
+        loaded = json.loads(function_call.arguments)
+        return loaded if isinstance(loaded, dict) else {}
 
     def _build_function_call_output_item(
         self,
@@ -262,16 +263,12 @@ class BaseAgent:
             arguments = item.get("arguments")
             if not isinstance(call_id, str) or not isinstance(name, str):
                 continue
-            parsed_arguments: dict[str, object] = {}
-            if isinstance(arguments, str) and arguments.strip():
-                loaded = json.loads(arguments)
-                if isinstance(loaded, dict):
-                    parsed_arguments = loaded
+            serialized_arguments = arguments if isinstance(arguments, str) else "{}"
             function_calls.append(
                 FunctionCall(
                     call_id=call_id,
                     name=name,
-                    arguments=parsed_arguments,
+                    arguments=serialized_arguments,
                 )
             )
         return function_calls
@@ -338,7 +335,7 @@ class BaseAgent:
                     else json.dumps(arguments or {}, ensure_ascii=False)
                 )
                 input_items.append(
-                    InputFunctionCall(
+                    FunctionCall(
                         arguments=serialized_arguments,
                         call_id=call_id,
                         name=name,

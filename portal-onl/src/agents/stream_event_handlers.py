@@ -20,9 +20,6 @@ def handle_stream_event(
     normalize_response_payload: ResponseNormalizer,
 ) -> StreamEventResult:
     event_type = payload.get("type")
-
-    _debug_stream_event(event_type, payload)
-
     handler = _build_handler_map(
         payload=payload,
         response_payload=response_payload,

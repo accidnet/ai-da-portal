@@ -9,7 +9,6 @@ from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from infrastructure.llm.client import LlmClient
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -76,6 +75,7 @@ class ChatStreamingAgent(BaseAgent):
         iteration_count = 0
 
         while True:
+            logger.debug(f"Iteration {iteration_count}.")
             if iteration_count >= max_iterations:
                 break
             iteration_count += 1
