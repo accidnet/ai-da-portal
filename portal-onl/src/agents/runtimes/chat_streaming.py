@@ -1,10 +1,11 @@
 import logging
 import json
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from typing import cast
 
 from agents.runtimes.base import BaseAgent
 from agents.state import AgentState
+from agents.stream_event_handlers import handle_stream_event
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from infrastructure.ai.client import AiClient
@@ -13,6 +14,135 @@ logger = logging.getLogger(__name__)
 
 
 class ChatStreamingAgent(BaseAgent):
+    def _parse_stream_response_events(
+        self, stream: object
+    ) -> Generator[dict[str, object], None, dict[str, object]]:
+        response_id: str | None = None
+        final_text: str | None = None
+        text_deltas: list[str] = []
+        function_calls: dict[str, dict[str, object]] = {}
+
+        close = getattr(stream, "close", None)
+        try:
+            for event in cast(Iterable[object], stream):
+                print(event)
+                payload = self._event_to_dict(event)
+                response_payload = self._coerce_optional_dict(payload.get("response"))
+
+                if response_payload is not None and response_id is None:
+                    response_id = self._read_string(response_payload.get("id"))
+
+                result = handle_stream_event(
+                    payload=payload,
+                    response_id=response_id,
+                    response_payload=response_payload,
+                    function_calls=function_calls,
+                    text_deltas=text_deltas,
+                    final_text=final_text,
+                    coerce_optional_dict=self._coerce_optional_dict,
+                    normalize_response_payload=self._normalize_response_payload,
+                )
+                final_text = result["final_text"]
+
+                completed_response = result["completed_response"]
+                if isinstance(completed_response, dict):
+                    output = self._build_stream_output(
+                        function_calls,
+                        final_text,
+                        text_deltas,
+                    )
+                    return self._merge_stream_output(completed_response, output)
+
+                yielded_event = result["yielded_event"]
+                if isinstance(yielded_event, dict):
+                    yield yielded_event
+
+                if result["handled"]:
+                    continue
+        finally:
+            if callable(close):
+                close()
+
+        normalized: dict[str, object] = {}
+        if response_id:
+            normalized["id"] = response_id
+
+        output = self._build_stream_output(function_calls, final_text, text_deltas)
+        if output:
+            normalized["output"] = output
+
+        output_text = final_text or "".join(text_deltas).strip()
+        if output_text:
+            normalized["output_text"] = output_text
+
+        return self._normalize_response_payload(normalized)
+
+    def _merge_stream_output(
+        self,
+        response: dict[str, object],
+        stream_output: list[dict[str, object]],
+    ) -> dict[str, object]:
+        if not stream_output:
+            return self._normalize_response_payload(response)
+
+        normalized = self._normalize_response_payload(response)
+        output = normalized.get("output")
+        if not isinstance(output, list) or not output:
+            normalized["output"] = stream_output
+            return self._normalize_response_payload(normalized)
+
+        existing_call_ids = {
+            item.get("call_id")
+            for item in output
+            if isinstance(item, dict) and item.get("type") == "function_call"
+        }
+        missing_stream_items = [
+            item
+            for item in stream_output
+            if item.get("type") == "function_call"
+            and item.get("call_id") not in existing_call_ids
+        ]
+        if missing_stream_items:
+            normalized["output"] = [*output, *missing_stream_items]
+
+        return self._normalize_response_payload(normalized)
+
+    def _build_stream_output(
+        self,
+        function_calls: dict[str, dict[str, object]],
+        final_text: str | None,
+        text_deltas: list[str],
+    ) -> list[dict[str, object]]:
+        output: list[dict[str, object]] = []
+        seen_call_ids: set[str] = set()
+        for function_call in function_calls.values():
+            call_id = self._read_string(function_call.get("call_id"))
+            name = self._read_string(function_call.get("name"))
+            if not call_id or not name or call_id in seen_call_ids:
+                continue
+            seen_call_ids.add(call_id)
+            output.append(function_call)
+
+        message_text = final_text or "".join(text_deltas).strip()
+        if message_text:
+            output.append(
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": message_text}],
+                }
+            )
+        return output
+
+    def _event_to_dict(self, event: object) -> dict[str, object]:
+        payload = self._coerce_optional_dict(event)
+        if payload is not None:
+            return payload
+
+        event_type = getattr(event, "type", None)
+        if isinstance(event_type, str):
+            return {"type": event_type}
+        return {}
+
     def _handle_after_call_completion(
         self,
         *,
@@ -87,7 +217,7 @@ class ChatStreamingAgent(BaseAgent):
                     "iteration": iteration_count,
                 }
 
-            response = yield from self._stream_response_payload(
+            response = yield from self._parse_stream_response_events(
                 self._llm_client.create_response(
                     **response_kwargs,
                     stream=True,

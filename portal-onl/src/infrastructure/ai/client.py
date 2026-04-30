@@ -1,12 +1,7 @@
 import json
 import re
-from typing import Any, cast
+from typing import Protocol, cast
 
-import httpx
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
-
-from core.config import Settings
-from domain.auth.service import OpenAiAuthService
 from infrastructure.ai.input_models import (
     EasyInputMessage,
     InputItemList,
@@ -19,18 +14,26 @@ class AiClientError(RuntimeError):
     pass
 
 
-class AiClient:
-    def __init__(
+class AiResponseClient(Protocol):
+    def create_response(
         self,
-        settings: Settings,
-        auth_service: OpenAiAuthService,
-        http_client: httpx.Client | None = None,
-        openai_client: object | None = None,
-    ) -> None:
-        self._settings = settings
-        self._auth_service = auth_service
-        self._http_client = http_client
-        self._openai_client = openai_client
+        *,
+        input: list[dict[str, object]],
+        instructions: str | None = None,
+        tools: list[dict[str, object]] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+        reasoning: dict[str, object] | None = None,
+        parallel_tool_calls: bool | None = None,
+        max_output_tokens: int | None = None,
+        stream: bool = False,
+    ) -> object: ...
+
+    def should_stream_generated_text(self) -> bool: ...
+
+
+class AiClient:
+    def __init__(self, response_client: AiResponseClient) -> None:
+        self._response_client = response_client
 
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
@@ -40,16 +43,15 @@ class AiClient:
             user=user_message,
             tools=["dataset_context"] if dataset_ids else [],
         )
-        payload = {
-            "model": self._settings.llm_model,
-            "store": False,
-            "input": self._build_input(prompt.user),
-            "instructions": prompt.system,
-        }
 
-        response = self._responses_create(payload=payload, stream=self._uses_oauth())
+        should_stream = self._response_client.should_stream_generated_text()
+        response = self._response_client.create_response(
+            input=self._build_input(prompt.user),
+            instructions=prompt.system,
+            stream=should_stream,
+        )
 
-        if self._uses_oauth():
+        if should_stream:
             return response
 
         output = self._extract_output_text(self._coerce_dict(response))
@@ -80,98 +82,19 @@ class AiClient:
         max_output_tokens: int | None = None,
         stream: bool = False,
     ) -> object:
-        use_oauth = self._uses_oauth()
-        payload: dict[str, object] = {
-            "model": self._settings.llm_model,
-            "store": False,
-            "input": input,
-        }
-        if instructions:
-            payload["instructions"] = instructions
-        if tools:
-            payload["tools"] = tools
-        if tool_choice is not None:
-            payload["tool_choice"] = tool_choice
-        if reasoning:
-            payload["reasoning"] = reasoning
-        if parallel_tool_calls is not None:
-            payload["parallel_tool_calls"] = parallel_tool_calls
-        if max_output_tokens is not None and not use_oauth:
-            payload["max_output_tokens"] = max_output_tokens
-
-        response = self._responses_create(payload=payload, stream=stream)
+        response = self._response_client.create_response(
+            input=input,
+            instructions=instructions,
+            tools=tools,
+            tool_choice=tool_choice,
+            reasoning=reasoning,
+            parallel_tool_calls=parallel_tool_calls,
+            max_output_tokens=max_output_tokens,
+            stream=stream,
+        )
         if stream:
             return response
         return self._normalize_response_payload(self._coerce_dict(response))
-
-    def _uses_oauth(self) -> bool:
-        return not bool(self._settings.openai_api_key)
-
-    def _get_openai_client(self) -> object:
-        if self._openai_client is not None:
-            return self._openai_client
-
-        if self._settings.openai_api_key:
-            self._openai_client = OpenAI(
-                api_key=self._settings.openai_api_key,
-                http_client=self._http_client,
-            )
-            return self._openai_client
-
-        access_token = self._auth_service.get_access_token()
-        if not access_token:
-            raise AiClientError(
-                "No OpenAI credentials are available. Connect ChatGPT or configure OPENAI_API_KEY."
-            )
-
-        account_id = self._auth_service.get_account_id()
-        default_headers: dict[str, str] = {}
-        if account_id:
-            default_headers["ChatGPT-Account-Id"] = account_id
-
-        self._openai_client = OpenAI(
-            api_key=access_token,
-            base_url=self._settings.openai_codex_api_endpoint.removesuffix(
-                "/responses"
-            ),
-            default_headers=default_headers or None,
-            http_client=self._http_client,
-        )
-        return self._openai_client
-
-    def _responses_create(self, *, payload: dict[str, object], stream: bool) -> object:
-        client = self._get_openai_client()
-        try:
-            return cast(Any, client).responses.create(**payload, stream=stream)
-        except APIStatusError as exc:
-            detail = self._extract_api_error_detail(exc)
-            raise AiClientError(
-                f"OpenAI request failed: {detail or str(exc)}"
-            ) from exc
-        except (APIConnectionError, APITimeoutError) as exc:
-            raise AiClientError("OpenAI response could not be processed.") from exc
-        except Exception as exc:  # pragma: no cover - SDK-specific fallback
-            raise AiClientError("OpenAI response could not be processed.") from exc
-
-    def _extract_api_error_detail(self, exc: APIStatusError) -> str:
-        response = getattr(exc, "response", None)
-        if response is None:
-            return str(exc)
-
-        data = getattr(response, "json", None)
-        if callable(data):
-            try:
-                payload = data()
-            except Exception:  # pragma: no cover - defensive logging path
-                payload = None
-            if payload is not None:
-                return json.dumps(payload, ensure_ascii=False)
-
-        text = getattr(response, "text", None)
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-
-        return str(exc)
 
     def _build_input(self, user_message: str) -> list[dict[str, object]]:
         return InputItemList(
@@ -182,22 +105,6 @@ class AiClient:
                 ),
             )
         ).to_payload()
-
-    def _get_final_response_payload(self, stream: object) -> dict[str, object] | None:
-        get_final_response = getattr(stream, "get_final_response", None)
-        if not callable(get_final_response):
-            return None
-
-        try:
-            final_response = get_final_response()
-        except Exception:
-            return None
-        return self._coerce_optional_dict(final_response)
-
-    def _close_stream(self, stream: object) -> None:
-        close = getattr(stream, "close", None)
-        if callable(close):
-            close()
 
     def _coerce_dict(self, value: object) -> dict[str, object]:
         payload = self._coerce_optional_dict(value)

@@ -3,9 +3,7 @@ from functools import lru_cache
 from fastapi import Depends
 
 from agents.runtimes import (
-    ChatAgent,
     ChatStreamingAgent,
-    build_chat_agent,
     build_chat_streaming_agent,
 )
 from core.config import Settings, get_settings
@@ -16,6 +14,7 @@ from domain.messages.service import MessageService
 from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
 from infrastructure.ai.client import AiClient
+from infrastructure.ai.openai_client import OpenAiResponseClient
 
 
 def get_app_settings() -> Settings:
@@ -40,7 +39,12 @@ def get_openai_auth_service() -> OpenAiAuthService:
 
 @lru_cache
 def get_llm_client() -> AiClient:
-    return AiClient(settings=get_settings(), auth_service=get_openai_auth_service())
+    return AiClient(
+        response_client=OpenAiResponseClient(
+            settings=get_settings(),
+            auth_service=get_openai_auth_service(),
+        )
+    )
 
 
 @lru_cache
@@ -70,14 +74,6 @@ def get_message_stream_service(
     message_service: MessageService = Depends(get_message_service),
 ) -> MessageStreamService:
     return MessageStreamService(message_service=message_service)
-
-
-def get_chat_agent_runtime() -> ChatAgent:
-    return build_chat_agent(
-        llm_client=get_llm_client(),
-        dataset_service=get_dataset_service(),
-        analysis_service=get_analysis_service(),
-    )
 
 
 def get_chat_streaming_agent_runtime() -> ChatStreamingAgent:
