@@ -71,6 +71,7 @@ const {
   syncSessionSummaryWithState,
   loadSessions,
   ensureActiveSession,
+  revealSessionSummary,
   createAndSelectSession,
   selectSession,
   handleRenameSession,
@@ -150,6 +151,7 @@ const {
   ensureSessionState,
   updateSessionTitleLocally,
   syncSessionSummaryWithState,
+  revealSessionSummary,
   loadDatasets,
   openDatasetPicker,
 })
@@ -522,7 +524,7 @@ onBeforeUnmount(() => {
           </button>
         </header>
         <ul class="help-list">
-          <li>좌측의 <strong>새로운 분석</strong>을 누르면 새 세션이 생성됩니다.</li>
+          <li>좌측의 <strong>새로운 분석</strong>을 누른 뒤 첫 메시지를 보내면 새 세션이 생성됩니다.</li>
           <li>데이터 소스 화면에서 파일 업로드 후 활성 세션에 바로 연결할 수 있습니다.</li>
           <li>오른쪽 작업공간의 <strong>공유</strong>는 현재 브라우저 기반 링크 복사, <strong>미리보기</strong>는 새 탭 리포트 열기입니다.</li>
           <li>ChatGPT 연결은 좌측 하단에서 바로 진행할 수 있습니다.</li>
@@ -600,6 +602,14 @@ onBeforeUnmount(() => {
 .analysis-sidebar-shell {
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.analysis-sidebar-shell :deep(.sidebar-card) {
+  flex: 1 1 auto;
+  height: auto;
 }
 
 .analysis-mobile-toolbar {

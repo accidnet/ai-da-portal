@@ -112,6 +112,7 @@ function handleConnectButtonClick() {
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--color-shadow);
+  overflow: hidden;
 }
 
 .brand-block {
@@ -151,6 +152,20 @@ function handleConnectButtonClick() {
 .connection-card {
   display: grid;
   gap: 10px;
+}
+
+.nav-group,
+.connection-card {
+  flex: 0 0 auto;
+}
+
+.sessions-block {
+  min-height: 0;
+  flex: 1 1 auto;
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .nav-item,

@@ -7,6 +7,7 @@ export const SIDEBAR_WIDTH_STORAGE_KEY = 'portal.sidebarWidth'
 export const ANALYSIS_SHARE_STORAGE_PREFIX = 'portal.analysis-share.'
 export const DEFAULT_SESSION_TITLE = 'ChatGPT 분석 세션'
 export const LOCAL_SESSION_ID = 'local-session'
+export const DRAFT_SESSION_ID = 'draft-analysis-session'
 
 export const SCREEN_HASHES: Record<AnalysisScreen, `#/${AnalysisScreen}`> = {
   dashboard: '#/dashboard',

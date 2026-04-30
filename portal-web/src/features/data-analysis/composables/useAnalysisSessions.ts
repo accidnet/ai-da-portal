@@ -2,7 +2,7 @@ import { ref, type Ref } from 'vue'
 
 import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions, updateSessionTitle } from '../../../shared/api/portalApi'
 import type { AnalysisScreen, SessionItem } from '../types'
-import { DEFAULT_SESSION_TITLE, LOCAL_SESSION_ID } from '../constants/analysisPage'
+import { DEFAULT_SESSION_TITLE, DRAFT_SESSION_ID, LOCAL_SESSION_ID } from '../constants/analysisPage'
 import {
   createSessionState,
   createWelcomeMessages,
@@ -21,6 +21,7 @@ export function useAnalysisSessions(options: {
   const sessionSummaries = ref<SessionItem[]>([])
   const sessionStates = ref<Record<string, SessionRuntimeState>>({})
   const hydratedSessionIds = ref<Record<string, boolean>>({})
+  const hiddenSessionSummaries = ref<Record<string, SessionItem>>({})
   const sessionHubError = ref<string | null>(null)
   const isSessionMutating = ref(false)
 
@@ -40,12 +41,24 @@ export function useAnalysisSessions(options: {
 
   function updateSessionSummary(sessionId: string, patch: Partial<SessionItem>) {
     const current = sessionSummaries.value.find((session) => session.id === sessionId)
-    if (!current) {
+    if (current) {
+      Object.assign(current, patch)
+      sessionSummaries.value = [...sessionSummaries.value]
       return
     }
 
-    Object.assign(current, patch)
-    sessionSummaries.value = [...sessionSummaries.value]
+    const hidden = hiddenSessionSummaries.value[sessionId]
+    if (!hidden) {
+      return
+    }
+
+    hiddenSessionSummaries.value = {
+      ...hiddenSessionSummaries.value,
+      [sessionId]: {
+        ...hidden,
+        ...patch,
+      },
+    }
   }
 
   function updateSessionTitleLocally(sessionId: string, title: string) {
@@ -83,8 +96,47 @@ export function useAnalysisSessions(options: {
     })
   }
 
-  function buildSessionTitle(): string {
-    return `분석 세션 ${sessionSummaries.value.length + 1}`
+  function openDraftSession() {
+    // 새 분석은 첫 메시지가 전송되기 전까지 서버 목록에 노출하지 않습니다.
+    activeSessionId.value = DRAFT_SESSION_ID
+    sessionStates.value[DRAFT_SESSION_ID] = createSessionState(DEFAULT_SESSION_TITLE)
+    hydratedSessionIds.value[DRAFT_SESSION_ID] = true
+    currentScreen.value = 'dashboard'
+    sessionHubError.value = null
+  }
+
+  function isTemporarySession(sessionId: string | null): boolean {
+    return sessionId === DRAFT_SESSION_ID || sessionId === LOCAL_SESSION_ID
+  }
+
+  function revealSessionSummary(sessionId: string, fallbackTitle = DEFAULT_SESSION_TITLE) {
+    if (isTemporarySession(sessionId) || sessionSummaries.value.some((session) => session.id === sessionId)) {
+      return
+    }
+
+    const state = sessionStates.value[sessionId]
+    const hidden = hiddenSessionSummaries.value[sessionId]
+    const now = new Date().toISOString()
+    const nextSummary: SessionItem = {
+      ...hidden,
+      id: sessionId,
+      title: state?.title ?? hidden?.title ?? fallbackTitle,
+      messageCount: state?.messages.length ?? hidden?.messageCount ?? 0,
+      datasetCount: state?.datasets.length ?? hidden?.datasetCount ?? 0,
+      preferredDatasetId: state ? resolvePreferredDatasetId(state) : hidden?.preferredDatasetId,
+      lastDataset: state?.datasets[0]
+        ? {
+            id: state.datasets[0].id,
+            filename: state.datasets[0].filename,
+          }
+        : hidden?.lastDataset,
+      updatedAt: hidden?.updatedAt ?? now,
+      createdAt: hidden?.createdAt,
+    }
+
+    sessionSummaries.value = [nextSummary, ...sessionSummaries.value]
+    const { [sessionId]: _revealed, ...remainingHiddenSummaries } = hiddenSessionSummaries.value
+    hiddenSessionSummaries.value = remainingHiddenSummaries
   }
 
   async function loadSessions() {
@@ -92,11 +144,7 @@ export function useAnalysisSessions(options: {
       const sessions = await fetchSessions()
       sessionSummaries.value = sessions.map(mapSessionSummary)
       if (sessionSummaries.value.length === 0) {
-        const created = await createSession(DEFAULT_SESSION_TITLE)
-        sessionSummaries.value = [mapSessionSummary(created)]
-        activeSessionId.value = created.id
-        ensureSessionState(created.id, created.title)
-        hydratedSessionIds.value[created.id] = true
+        openDraftSession()
         return
       }
 
@@ -136,25 +184,27 @@ export function useAnalysisSessions(options: {
       return activeSessionId.value
     }
 
-    activeSessionId.value = LOCAL_SESSION_ID
-    ensureSessionState(LOCAL_SESSION_ID, DEFAULT_SESSION_TITLE)
-    if (!sessionSummaries.value.some((session) => session.id === LOCAL_SESSION_ID)) {
-      sessionSummaries.value = [{ id: LOCAL_SESSION_ID, title: DEFAULT_SESSION_TITLE }, ...sessionSummaries.value]
-    }
-    hydratedSessionIds.value[LOCAL_SESSION_ID] = true
-    return LOCAL_SESSION_ID
+    openDraftSession()
+    return DRAFT_SESSION_ID
   }
 
   async function ensureActiveSession() {
     const currentSessionId = getActiveSessionId()
-    if (sessionStates.value[currentSessionId]) {
+    if (!isTemporarySession(currentSessionId) && sessionStates.value[currentSessionId]) {
       return currentSessionId
     }
 
     const created = await createSession(DEFAULT_SESSION_TITLE)
+    const previousState = sessionStates.value[currentSessionId]
     activeSessionId.value = created.id
-    sessionSummaries.value = [mapSessionSummary(created), ...sessionSummaries.value]
-    ensureSessionState(created.id, created.title)
+    hiddenSessionSummaries.value = {
+      ...hiddenSessionSummaries.value,
+      [created.id]: mapSessionSummary(created),
+    }
+    sessionStates.value[created.id] = previousState ?? createSessionState(created.title)
+    sessionStates.value[created.id].title = created.title
+    delete sessionStates.value[currentSessionId]
+    delete hydratedSessionIds.value[currentSessionId]
     hydratedSessionIds.value[created.id] = true
     return created.id
   }
@@ -194,20 +244,7 @@ export function useAnalysisSessions(options: {
   }
 
   async function createAndSelectSession() {
-    try {
-      isSessionMutating.value = true
-      const created = await createSession(buildSessionTitle())
-      activeSessionId.value = created.id
-      ensureSessionState(created.id, created.title)
-      sessionSummaries.value = [mapSessionSummary(created), ...sessionSummaries.value]
-      hydratedSessionIds.value[created.id] = true
-      currentScreen.value = 'dashboard'
-      sessionHubError.value = null
-    } catch {
-      sessionHubError.value = '새로운 분석 세션을 만들지 못했어요. 잠시 후 다시 시도해 주세요.'
-    } finally {
-      isSessionMutating.value = false
-    }
+    openDraftSession()
   }
 
   async function selectSession(sessionId: string, targetScreen: AnalysisScreen = currentScreen.value) {
@@ -245,6 +282,7 @@ export function useAnalysisSessions(options: {
       sessionSummaries.value = sessionSummaries.value.filter((session) => session.id !== sessionId)
       delete sessionStates.value[sessionId]
       delete hydratedSessionIds.value[sessionId]
+      delete hiddenSessionSummaries.value[sessionId]
       await onSessionDeleted?.(sessionId)
       if (activeSessionId.value === sessionId) {
         const nextSessionId = sessionSummaries.value[0]?.id ?? null
@@ -252,7 +290,7 @@ export function useAnalysisSessions(options: {
         if (nextSessionId) {
           await selectSession(nextSessionId, 'dashboard')
         } else {
-          await createAndSelectSession()
+          openDraftSession()
         }
       }
       sessionHubError.value = null
@@ -277,6 +315,7 @@ export function useAnalysisSessions(options: {
     loadSessions,
     getActiveSessionId,
     ensureActiveSession,
+    revealSessionSummary,
     hydrateSessionSnapshot,
     createAndSelectSession,
     selectSession,

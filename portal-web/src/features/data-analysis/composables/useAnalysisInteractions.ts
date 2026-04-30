@@ -35,6 +35,7 @@ export function useAnalysisInteractions(options: {
   ensureSessionState: (sessionId: string, title: string) => SessionRuntimeState
   updateSessionTitleLocally: (sessionId: string, title: string) => void
   syncSessionSummaryWithState: (sessionId: string) => void
+  revealSessionSummary: (sessionId: string, fallbackTitle?: string) => void
   loadDatasets: () => Promise<void>
   openDatasetPicker: () => void
 }) {
@@ -47,6 +48,7 @@ export function useAnalysisInteractions(options: {
     ensureSessionState,
     updateSessionTitleLocally,
     syncSessionSummaryWithState,
+    revealSessionSummary,
     loadDatasets,
     openDatasetPicker,
   } = options
@@ -283,6 +285,7 @@ export function useAnalysisInteractions(options: {
       if (nextSessionTitle) {
         updateSessionTitleLocally(sessionId, nextSessionTitle)
       }
+      revealSessionSummary(sessionId, nextSessionTitle || sessionState.title)
 
       let attachmentPreview: MessageAttachmentPreview | undefined
 
