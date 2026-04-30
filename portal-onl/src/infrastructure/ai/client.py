@@ -78,6 +78,7 @@ class AiClient:
         reasoning: dict[str, object] | None = None,
         parallel_tool_calls: bool | None = None,
         max_output_tokens: int | None = None,
+        stream: bool = False,
     ) -> object:
         use_oauth = self._uses_oauth()
         payload: dict[str, object] = {
@@ -98,8 +99,8 @@ class AiClient:
         if max_output_tokens is not None and not use_oauth:
             payload["max_output_tokens"] = max_output_tokens
 
-        response = self._responses_create(payload=payload, stream=use_oauth)
-        if use_oauth:
+        response = self._responses_create(payload=payload, stream=stream)
+        if stream:
             return response
         return self._normalize_response_payload(self._coerce_dict(response))
 

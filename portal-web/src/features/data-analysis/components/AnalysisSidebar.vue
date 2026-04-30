@@ -69,17 +69,19 @@ function handleConnectButtonClick() {
 
     <div class="sessions-block">
       <p class="section-label">최근 세션</p>
-      <button
-        v-for="session in sidebar.recentSessions"
-        :key="session.id ?? session.title"
-        type="button"
-        class="session-item"
-        :class="{ 'session-item--active': session.id && session.id === activeSessionId }"
-        @click="session.id && emit('selectSession', session.id)"
-      >
-        {{ session.title }}
-      </button>
-      <p v-if="sidebar.recentSessions.length === 0" class="empty-state">표시할 세션이 아직 없어요.</p>
+      <div class="sessions-list">
+        <button
+          v-for="session in sidebar.recentSessions"
+          :key="session.id ?? session.title"
+          type="button"
+          class="session-item"
+          :class="{ 'session-item--active': session.id && session.id === activeSessionId }"
+          @click="session.id && emit('selectSession', session.id)"
+        >
+          {{ session.title }}
+        </button>
+        <p v-if="sidebar.recentSessions.length === 0" class="empty-state">표시할 세션이 아직 없어요.</p>
+      </div>
     </div>
 
     <div class="connection-card">
@@ -162,10 +164,17 @@ function handleConnectButtonClick() {
 .sessions-block {
   min-height: 0;
   flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.sessions-list {
+  min-height: 0;
+  display: grid;
   align-content: start;
+  gap: 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 
 .nav-item,
@@ -238,7 +247,9 @@ function handleConnectButtonClick() {
 
 .session-item {
   width: 100%;
+  min-height: 44px;
   appearance: none;
+  display: block;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;

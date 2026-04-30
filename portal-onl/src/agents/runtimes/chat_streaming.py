@@ -71,7 +71,7 @@ class ChatStreamingAgent(BaseAgent):
         logger.debug("Agent stream input prepared next_input=%s", next_input)
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 1
+        max_iterations = 10
         iteration_count = 0
 
         while True:
@@ -88,7 +88,10 @@ class ChatStreamingAgent(BaseAgent):
                 }
 
             response = yield from self._stream_response_payload(
-                self._llm_client.create_response(**response_kwargs),
+                self._llm_client.create_response(
+                    **response_kwargs,
+                    stream=True,
+                ),
             )
 
             response_id = response.get("id")

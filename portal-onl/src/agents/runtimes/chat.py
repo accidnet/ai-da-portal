@@ -23,7 +23,10 @@ class ChatAgent(BaseAgent):
             iteration_count += 1
 
             response = self._read_response_payload(
-                self._llm_client.create_response(**self._response_kwargs(next_input))
+                self._llm_client.create_response(
+                    **self._response_kwargs(next_input),
+                    stream=False,
+                )
             )
 
             response_id = response.get("id")

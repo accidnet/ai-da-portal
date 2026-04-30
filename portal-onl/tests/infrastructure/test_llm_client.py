@@ -375,7 +375,7 @@ def test_llm_client_create_response_unwraps_nested_response_payload() -> None:
     assert payload["output_text"] == "ok"
 
 
-def test_llm_client_create_response_uses_streaming_for_oauth_codex() -> None:
+def test_llm_client_create_response_uses_streaming_when_requested() -> None:
     responses_api = FakeResponsesApi(
         stream_events=[],
         stream_final_response={
@@ -403,6 +403,7 @@ def test_llm_client_create_response_uses_streaming_for_oauth_codex() -> None:
                 "content": [{"type": "input_text", "text": "분석해줘"}],
             }
         ],
+        stream=True,
     )
 
     assert isinstance(payload, FakeStream)
