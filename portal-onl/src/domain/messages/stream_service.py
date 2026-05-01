@@ -134,42 +134,24 @@ class MessageStreamService:
         self, *, stream_request: MessageStreamRequest, files: list[UploadFile]
     ) -> tuple[ChatRequest, list[ChatInteractionDataset]]:
         #  session_id가 없을 경우 오류 발생
-        if not stream_request.session_id.strip():
+        session_id = stream_request.session_id.strip()
+        if not session_id:
             raise ValueError("session_id is required.")
+        if files:
+            raise ValueError("Upload datasets before starting a chat stream.")
 
-        # 빈 dataset id 제거
-        attached_dataset_ids = [
-            dataset_id
-            for dataset_id in stream_request.attached_dataset_ids
-            if dataset_id.strip()
-        ]
+        # 업로드 API에서 받은 dataset id의 빈 값과 중복을 제거합니다.
+        uploaded_dataset_ids = self._filter_dataset_ids(
+            stream_request.uploaded_dataset_ids
+        )
 
-        uploaded_dataset_ids: list[str] = []
         interaction_datasets: list[ChatInteractionDataset] = []
-
-        # 전달받은 데이터 파일에 대해서 저장 및 데이터 정보 추출
-        for file in files:
-            detail = await self._dataset_service.upload(
-                file,
-                session_id=stream_request.session_id,
-            )
-            uploaded_dataset_ids.append(detail.id)
-            preview = self._dataset_service.get_preview(detail.id)
-            profile = self._dataset_service.get_profile(detail.id)
-            interaction_datasets.append(
-                ChatInteractionDataset(
-                    detail=detail,
-                    preview=preview,
-                    profile=profile,
-                )
-            )
-        resolved_dataset_ids = [*uploaded_dataset_ids, *attached_dataset_ids]
 
         return (
             ChatRequest(
-                session_id=stream_request.session_id,
+                session_id=session_id,
                 message=stream_request.message,
-                dataset_ids=resolved_dataset_ids,
+                dataset_ids=uploaded_dataset_ids,
             ),
             interaction_datasets,
         )
@@ -408,8 +390,19 @@ class MessageStreamService:
         return f"{cleaned[:29].rstrip()}…"
 
     def _filter_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
-        # multipart form에서 넘어온 등록 데이터셋 ID 중 빈 값만 제거합니다.
-        return [dataset_id for dataset_id in dataset_ids if dataset_id.strip()]
+        # multipart form에서 넘어온 업로드 데이터셋 ID 중 빈 값과 중복을 제거합니다.
+        return self._dedupe_dataset_ids(dataset_ids)
+
+    def _dedupe_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
+        seen: set[str] = set()
+        resolved_dataset_ids: list[str] = []
+        for dataset_id in dataset_ids:
+            normalized_dataset_id = dataset_id.strip()
+            if not normalized_dataset_id or normalized_dataset_id in seen:
+                continue
+            seen.add(normalized_dataset_id)
+            resolved_dataset_ids.append(normalized_dataset_id)
+        return resolved_dataset_ids
 
     def _encode_sse_event(self, event: dict[str, object]) -> str:
         event_type = event.get("type")

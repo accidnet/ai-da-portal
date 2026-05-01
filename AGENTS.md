@@ -7,7 +7,7 @@
 - `portal-web`: Vue 3 + TypeScript + Vite 기반 프론트엔드
 - `portal-onl`: FastAPI기반 Python 백엔드
 
-## 코딩 가이드라인
+## 개발 가이드라인
 
 - 구현에 바로 들어가기 전에 먼저 코드베이스와 변경 범위를 확인
 - 동시에 작업이 가능한 경우에는 병렬로 처리할 것

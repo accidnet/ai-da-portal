@@ -96,7 +96,12 @@ class MessageService:
         interaction_dataset: ChatInteractionDataset | None = None
 
         if file is not None:
-            detail = await self._dataset_service.upload(file, session_id=session_id)
+            detail = await self._dataset_service.upload(file)
+            self._session_service.attach_dataset(
+                session_id,
+                detail.id,
+                title=detail.filename,
+            )
             preview = self._dataset_service.get_preview(detail.id)
             profile = self._dataset_service.get_profile(detail.id)
             interaction_dataset = ChatInteractionDataset(

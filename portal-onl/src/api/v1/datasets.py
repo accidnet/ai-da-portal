@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
-from api.deps import get_dataset_service
+from api.deps import get_dataset_service, get_session_service
 from domain.datasets.schemas import (
     DatasetDeleteResponse,
     DatasetInfo,
@@ -9,6 +9,7 @@ from domain.datasets.schemas import (
     DatasetSummary,
 )
 from domain.datasets.service import DatasetService
+from domain.sessions.service import SessionService
 
 router = APIRouter()
 
@@ -27,8 +28,21 @@ async def upload_dataset(
     file: UploadFile = File(...),
     session_id: str | None = Form(default=None),
     service: DatasetService = Depends(get_dataset_service),
+    session_service: SessionService = Depends(get_session_service),
 ) -> DatasetInfo:
-    return await service.upload(file, session_id=session_id)
+    if session_id is None or not session_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="session_id is required.",
+        )
+
+    dataset = await service.upload(file)
+    session_service.attach_dataset(
+        session_id.strip(),
+        dataset.id,
+        title=dataset.filename,
+    )
+    return dataset
 
 
 @router.get("/{dataset_id}", response_model=DatasetInfo)

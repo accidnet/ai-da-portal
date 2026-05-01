@@ -2,9 +2,11 @@ import { computed, ref, type ComputedRef } from 'vue'
 
 import {
   createAnalysis,
+  fetchDatasetPreview,
+  fetchDatasetProfile,
   streamChatMessage,
+  uploadDataset,
   type AgentStateStreamPayload,
-  type ChatInteractionDataset,
   type ChatSubMessageStreamEvent,
 } from '../../../shared/api/portalApi'
 import type { ChatMessage, ChatSubMessage, MessageAttachmentPreview } from '../types'
@@ -24,7 +26,7 @@ import {
   openAnalysisPreview,
   saveSharedAnalysisSnapshot,
 } from '../utils/analysisShare'
-import { mapDatasetAsset, type SessionRuntimeState } from '../utils/sessionState'
+import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessionState'
 
 export function useAnalysisInteractions(options: {
   activeSessionState: ComputedRef<SessionRuntimeState | null>
@@ -256,57 +258,24 @@ export function useAnalysisInteractions(options: {
     ]
 
     try {
-      const streamedDatasetRef: { current: ChatInteractionDataset[] } = { current: [] }
       const shouldSeparateNextTextSegment: { current: boolean } = { current: false }
-      const response = await streamChatMessage({
-            sessionId,
-            message: userMessage,
-            datasetIds: sessionState.datasets.map((dataset) => dataset.id),
-            files: attachedFiles,
-          }, {
-            signal: chatStreamController.signal,
-            onTextSegmentStart() {
-              shouldSeparateNextTextSegment.current = true
-            },
-            onDelta(delta) {
-              const current = sessionState.messages[assistantMessageIndex]
-              if (!current || current.role !== 'assistant') return
-              sessionState.messages = sessionState.messages.map((entry, index) =>
-                index === assistantMessageIndex
-                  ? {
-                      ...entry,
-                      text: `${
-                        shouldSeparateNextTextSegment.current && entry.text.trim()
-                          ? `${entry.text}\n\n`
-                          : entry.text
-                      }${delta}`,
-                    }
-                  : entry,
-              )
-              shouldSeparateNextTextSegment.current = false
-            },
-            onSubMessage(event) {
-              applyStreamingSubMessage(assistantMessageIndex, sessionState, event)
-            },
-            onState(state) {
-              applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
-            },
-            onDataset(dataset) {
-              streamedDatasetRef.current = [...streamedDatasetRef.current, dataset]
-            },
-          })
-      const nextSessionTitle = response.session_title?.trim()
-
-      if (nextSessionTitle) {
-        updateSessionTitleLocally(sessionId, nextSessionTitle)
-      }
-      revealSessionSummary(sessionId, nextSessionTitle || sessionState.title)
-
       let attachmentPreview: MessageAttachmentPreview | undefined
 
-      const uploadedDatasets = streamedDatasetRef.current
-      if (uploadedDatasets.length > 0) {
-        const datasets = uploadedDatasets.map(mapDatasetAsset)
+      if (hasAttachedFiles) {
+        const uploadedDatasets = await Promise.all(
+          attachedFiles.map(async (file) => {
+            // 채팅 스트림의 중복 업로드를 막기 위해 업로드 API에서 데이터셋을 먼저 확정합니다.
+            const detail = await uploadDataset(file, sessionId)
+            const [preview, profile] = await Promise.all([
+              fetchDatasetPreview(detail.id),
+              fetchDatasetProfile(detail.id),
+            ])
+            return { detail, preview, profile, size: file.size }
+          }),
+        )
+        const datasets = uploadedDatasets.map(({ detail, preview, profile }) =>
+          mapDatasetInfoToAsset({ detail, preview, profile }),
+        )
         const uploadedDatasetIds = new Set(datasets.map((dataset) => dataset.id))
         sessionState.datasets = [
           ...datasets,
@@ -316,23 +285,64 @@ export function useAnalysisInteractions(options: {
           index === userMessageIndex
             ? {
                 ...entry,
-                attachmentStatus: hasAttachedFiles
-                  ? {
-                      filename: formatAttachmentName(attachedFiles),
-                      meta: formatAttachmentMeta(attachedFiles, '업로드 완료'),
-                    }
-                  : entry.attachmentStatus,
+                attachmentStatus: {
+                  filename: formatAttachmentName(attachedFiles),
+                  meta: formatAttachmentMeta(attachedFiles, '업로드 완료'),
+                },
               }
             : entry,
         )
         const uploadedDataset = uploadedDatasets[0]
         attachmentPreview = createAttachmentPreview(
           uploadedDataset.detail.filename,
-          attachedFiles[0]?.size ?? 0,
+          uploadedDataset.size,
           uploadedDataset.preview,
         )
         await loadDatasets()
       }
+
+      const response = await streamChatMessage(
+        {
+          sessionId,
+          message: userMessage,
+          datasetIds: sessionState.datasets.map((dataset) => dataset.id),
+        },
+        {
+          signal: chatStreamController.signal,
+          onTextSegmentStart() {
+            shouldSeparateNextTextSegment.current = true
+          },
+          onDelta(delta) {
+            const current = sessionState.messages[assistantMessageIndex]
+            if (!current || current.role !== 'assistant') return
+            sessionState.messages = sessionState.messages.map((entry, index) =>
+              index === assistantMessageIndex
+                ? {
+                    ...entry,
+                    text: `${
+                      shouldSeparateNextTextSegment.current && entry.text.trim()
+                        ? `${entry.text}\n\n`
+                        : entry.text
+                    }${delta}`,
+                  }
+                : entry,
+            )
+            shouldSeparateNextTextSegment.current = false
+          },
+          onSubMessage(event) {
+            applyStreamingSubMessage(assistantMessageIndex, sessionState, event)
+          },
+          onState(state) {
+            applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
+          },
+        },
+      )
+      const nextSessionTitle = response.session_title?.trim()
+
+      if (nextSessionTitle) {
+        updateSessionTitleLocally(sessionId, nextSessionTitle)
+      }
+      revealSessionSummary(sessionId, nextSessionTitle || sessionState.title)
 
       const streamedAssistantText =
         sessionState.messages[assistantMessageIndex]?.role === 'assistant'

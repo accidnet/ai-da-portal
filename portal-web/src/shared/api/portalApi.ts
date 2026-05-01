@@ -515,7 +515,7 @@ export async function sendChatMessage(
 }
 
 export async function streamChatMessage(
-  payload: { sessionId: string; message: string; datasetIds?: string[]; files?: File[] },
+  payload: { sessionId: string; message: string; datasetIds?: string[] },
   options: StreamChatMessageOptions = {},
 ): Promise<ChatResponse> {
   const headers: Record<string, string> = {
@@ -525,10 +525,7 @@ export async function streamChatMessage(
   formData.append('session_id', payload.sessionId)
   formData.append('message', payload.message)
   for (const datasetId of payload.datasetIds ?? []) {
-    formData.append('attached_dataset_ids', datasetId)
-  }
-  for (const file of payload.files ?? []) {
-    formData.append('file', file)
+    formData.append('uploaded_dataset_ids', datasetId)
   }
 
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
@@ -671,15 +668,13 @@ export async function streamChatMessage(
 
 export async function uploadDataset(
   file: File,
-  sessionId?: string | null,
+  sessionId: string,
   signal?: AbortSignal,
 ): Promise<DatasetInfoResponse> {
   const formData = new FormData()
   formData.append('file', file)
 
-  if (sessionId) {
-    formData.append('session_id', sessionId)
-  }
+  formData.append('session_id', sessionId)
 
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets/upload`, {
     method: 'POST',
@@ -688,7 +683,15 @@ export async function uploadDataset(
   })
 
   if (!response.ok) {
-    throw new Error(`Dataset upload failed with status ${response.status}`)
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Dataset upload failed with status ${response.status}`)
   }
 
   return (await response.json()) as DatasetInfoResponse

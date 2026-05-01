@@ -26,9 +26,7 @@ class DatasetService:
         self._datasets: dict[str, _DatasetRecord] = {}
         self._session_service = session_service
 
-    async def upload(
-        self, file: UploadFile, session_id: str | None = None
-    ) -> DatasetInfo:
+    async def upload(self, file: UploadFile) -> DatasetInfo:
         # dataset 고유 id 부여
         dataset_id = str(uuid4())
 
@@ -48,22 +46,20 @@ class DatasetService:
         dataframe = self._load_dataframe(content, suffix=suffix)
 
         # Dataset 기본 정보
-        datset_info = DatasetInfo(
+        dataset_info = DatasetInfo(
             id=dataset_id,
             filename=file.filename or "dataset.csv",
             storage_path=str(storage_path),
             created_at=datetime.now(UTC),
         )
-        self._datasets[dataset_id] = _DatasetRecord(detail=datset_info, dataframe=dataframe)
 
-        if session_id is not None and self._session_service is not None:
-            self._session_service.attach_dataset(
-                session_id,
-                dataset_id,
-                title=file.filename or "Uploaded dataset",
-            )
+        # 클래스 변수에 할당
+        self._datasets[dataset_id] = _DatasetRecord(
+            dataset_info=dataset_info,
+            dataframe=dataframe,
+        )
 
-        return datset_info
+        return dataset_info
 
     def list_datasets(self) -> list[DatasetSummary]:
         return sorted(
@@ -73,7 +69,7 @@ class DatasetService:
         )
 
     def get(self, dataset_id: str) -> DatasetInfo:
-        return self._get_record(dataset_id).detail
+        return self._get_record(dataset_id).dataset_info
 
     def get_profile(self, dataset_id: str) -> DatasetProfileResponse:
         record = self._get_record(dataset_id)
@@ -94,8 +90,8 @@ class DatasetService:
         if not self._datasets:
             return None
         return max(
-            self._datasets.values(), key=lambda record: record.detail.created_at
-        ).detail.id
+            self._datasets.values(), key=lambda record: record.dataset_info.created_at
+        ).dataset_info.id
 
     def get_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
         filenames: list[str] = []
@@ -103,7 +99,7 @@ class DatasetService:
             record = self._datasets.get(dataset_id)
             if record is None:
                 continue
-            filename = record.detail.filename
+            filename = record.dataset_info.filename
             if filename not in filenames:
                 filenames.append(filename)
         return filenames
@@ -111,16 +107,16 @@ class DatasetService:
     def load_uploaded_file_by_filename(self, filename: str) -> dict[str, object]:
         normalized_filename = Path(filename).name
         record = self._find_record_by_filename(normalized_filename)
-        if record is None or record.detail.storage_path is None:
+        if record is None or record.dataset_info.storage_path is None:
             raise FileNotFoundError(normalized_filename)
 
-        storage_path = Path(record.detail.storage_path)
+        storage_path = Path(record.dataset_info.storage_path)
         dataframe = self._infer_datetime_columns(load_dataframe(storage_path))
         preview = build_preview_from_dataframe(dataframe)
 
         return {
             "filename": normalized_filename,
-            "dataset_id": record.detail.id,
+            "dataset_id": record.dataset_info.id,
             "storage_path": str(storage_path),
             "row_count": int(len(dataframe.index)),
             "column_count": int(len(dataframe.columns)),
@@ -153,11 +149,11 @@ class DatasetService:
         return record
 
     def _build_summary(self, record: "_DatasetRecord") -> DatasetSummary:
-        linked_sessions = self._linked_sessions(record.detail.id)
+        linked_sessions = self._linked_sessions(record.dataset_info.id)
         linked_session_ids = [session_id for session_id, _ in linked_sessions]
         latest_used_at = linked_sessions[0][1] if linked_sessions else None
         return DatasetSummary(
-            **record.detail.model_dump(),
+            **record.dataset_info.model_dump(),
             row_count=len(record.dataframe.index),
             column_count=len(record.dataframe.columns),
             linked_session_count=len(linked_session_ids),
@@ -183,11 +179,11 @@ class DatasetService:
         candidates = [
             record
             for record in self._datasets.values()
-            if record.detail.filename == filename and record.detail.storage_path is not None
+            if record.dataset_info.filename == filename and record.dataset_info.storage_path is not None
         ]
         if not candidates:
             return None
-        return max(candidates, key=lambda record: record.detail.created_at)
+        return max(candidates, key=lambda record: record.dataset_info.created_at)
 
     def _load_dataframe(self, content: bytes, suffix: str) -> pd.DataFrame:
         normalized_suffix = suffix.lower()
@@ -222,5 +218,5 @@ class DatasetService:
 
 @dataclass(slots=True)
 class _DatasetRecord:
-    detail: DatasetInfo
+    dataset_info: DatasetInfo
     dataframe: pd.DataFrame

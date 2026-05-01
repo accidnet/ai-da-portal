@@ -21,20 +21,20 @@ class ChatRequest(BaseModel):
 class MessageStreamRequest(BaseModel):
     session_id: str
     message: str = ""
-    attached_dataset_ids: list[str] = Field(default_factory=list)
+    uploaded_dataset_ids: list[str] = Field(default_factory=list)
 
     @classmethod
     def as_form(
         cls,
         session_id: Annotated[str, Form(...)],
         message: Annotated[str, Form()] = "",
-        attached_dataset_ids: Annotated[list[str] | None, Form()] = None,
+        uploaded_dataset_ids: Annotated[list[str] | None, Form()] = None,
     ) -> "MessageStreamRequest":
         # multipart form 필드를 스트리밍 요청 DTO로 바인딩합니다.
         return cls(
             session_id=session_id,
             message=message,
-            attached_dataset_ids=list(attached_dataset_ids or []),
+            uploaded_dataset_ids=list(uploaded_dataset_ids or []),
         )
 
     def to_chat_request(self, dataset_ids: list[str]) -> ChatRequest:
