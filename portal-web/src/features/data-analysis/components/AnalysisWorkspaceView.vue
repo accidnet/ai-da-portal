@@ -36,7 +36,7 @@ defineProps<{
 
 const emit = defineEmits<{
   attach: []
-  dropFile: [file: File]
+  dropFile: [files: File[]]
   removeAttachment: []
   send: [message: string]
   resizeStart: [event: PointerEvent]
@@ -67,7 +67,7 @@ const emit = defineEmits<{
       :attached-file-name="pendingAttachmentName"
       :attached-file-meta="pendingAttachmentMeta"
       @attach="emit('attach')"
-      @drop-file="(file) => emit('dropFile', file)"
+      @drop-file="(files) => emit('dropFile', files)"
       @remove-attachment="emit('removeAttachment')"
       @send="(message) => emit('send', message)"
     />

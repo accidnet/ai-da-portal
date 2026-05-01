@@ -54,7 +54,7 @@ export function useAnalysisInteractions(options: {
   } = options
 
   const interactionPickerRef = ref<HTMLInputElement | null>(null)
-  const pendingAttachment = ref<File | null>(null)
+  const pendingAttachment = ref<File[]>([])
   const chatError = ref<string | null>(null)
   const analyticsError = ref<string | null>(null)
   const exportMessage = ref<string | null>(null)
@@ -77,7 +77,7 @@ export function useAnalysisInteractions(options: {
   }
 
   function clearPendingAttachment() {
-    pendingAttachment.value = null
+    pendingAttachment.value = []
   }
 
   function clearInteractionFeedback() {
@@ -86,20 +86,34 @@ export function useAnalysisInteractions(options: {
     exportMessage.value = null
   }
 
-  function queueInteractionFile(file: File, setUploadError: (message: string | null) => void) {
-    if (!isUploadableDatasetFile(file)) {
+  function formatAttachmentName(files: File[]): string {
+    if (files.length === 0) return ''
+    if (files.length === 1) return files[0].name
+    return `${files[0].name} 외 ${files.length - 1}개`
+  }
+
+  function formatAttachmentMeta(files: File[], suffix?: string): string {
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0)
+    const base = `${files.length}개 파일 · ${formatFileSize(totalSize)}`
+    return suffix ? `${base} · ${suffix}` : base
+  }
+
+  function queueInteractionFile(files: File | File[], setUploadError: (message: string | null) => void) {
+    const nextFiles = Array.isArray(files) ? files : [files]
+    const invalidFile = nextFiles.find((file) => !isUploadableDatasetFile(file))
+    if (invalidFile) {
       setUploadError('CSV 또는 스프레드시트 파일만 업로드할 수 있어요.')
       return
     }
     setUploadError(null)
-    pendingAttachment.value = file
+    pendingAttachment.value = nextFiles
   }
 
   function handleInteractionFileChange(event: Event, setUploadError: (message: string | null) => void) {
     const input = event.target as HTMLInputElement
-    const file = input.files?.[0]
+    const files = Array.from(input.files ?? [])
     input.value = ''
-    if (file) queueInteractionFile(file, setUploadError)
+    if (files.length) queueInteractionFile(files, setUploadError)
   }
 
   function applyStreamingAssistantState(
@@ -209,23 +223,24 @@ export function useAnalysisInteractions(options: {
     setUploadError(null)
     const sessionId = await ensureActiveSession()
     const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
-    const attachedFile = pendingAttachment.value
-    const userMessage = message || (attachedFile ? `${attachedFile.name} 파일을 분석해줘.` : '')
+    const attachedFiles = pendingAttachment.value
+    const hasAttachedFiles = attachedFiles.length > 0
+    const userMessage = message || (hasAttachedFiles ? `${formatAttachmentName(attachedFiles)} 파일을 분석해줘.` : '')
     const userMessageEntry: ChatMessage = {
       role: 'user',
       text: userMessage,
-      attachmentStatus: attachedFile
+      attachmentStatus: hasAttachedFiles
         ? {
-            filename: attachedFile.name,
-            meta: formatFileSize(attachedFile.size),
+            filename: formatAttachmentName(attachedFiles),
+            meta: formatAttachmentMeta(attachedFiles),
           }
         : undefined,
     }
     const userMessageIndex = sessionState.messages.length
     sessionState.messages = [...sessionState.messages, userMessageEntry]
     isSending.value = true
-    isSendingInteraction.value = Boolean(attachedFile)
-    pendingAttachment.value = null
+    isSendingInteraction.value = hasAttachedFiles
+    pendingAttachment.value = []
     const assistantMessageIndex = sessionState.messages.length
     const chatStreamController = new AbortController()
     activeChatStreamController = chatStreamController
@@ -241,13 +256,13 @@ export function useAnalysisInteractions(options: {
     ]
 
     try {
-      const streamedDatasetRef: { current: ChatInteractionDataset | null } = { current: null }
+      const streamedDatasetRef: { current: ChatInteractionDataset[] } = { current: [] }
       const shouldSeparateNextTextSegment: { current: boolean } = { current: false }
       const response = await streamChatMessage({
             sessionId,
             message: userMessage,
             datasetIds: sessionState.datasets.map((dataset) => dataset.id),
-            file: attachedFile,
+            files: attachedFiles,
           }, {
             signal: chatStreamController.signal,
             onTextSegmentStart() {
@@ -277,7 +292,7 @@ export function useAnalysisInteractions(options: {
               applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
             },
             onDataset(dataset) {
-              streamedDatasetRef.current = dataset
+              streamedDatasetRef.current = [...streamedDatasetRef.current, dataset]
             },
           })
       const nextSessionTitle = response.session_title?.trim()
@@ -289,26 +304,31 @@ export function useAnalysisInteractions(options: {
 
       let attachmentPreview: MessageAttachmentPreview | undefined
 
-      const uploadedDataset = streamedDatasetRef.current
-      if (uploadedDataset !== null) {
-        const dataset = mapDatasetAsset(uploadedDataset)
-        sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
+      const uploadedDatasets = streamedDatasetRef.current
+      if (uploadedDatasets.length > 0) {
+        const datasets = uploadedDatasets.map(mapDatasetAsset)
+        const uploadedDatasetIds = new Set(datasets.map((dataset) => dataset.id))
+        sessionState.datasets = [
+          ...datasets,
+          ...sessionState.datasets.filter((item) => !uploadedDatasetIds.has(item.id)),
+        ]
         sessionState.messages = sessionState.messages.map((entry, index) =>
           index === userMessageIndex
             ? {
                 ...entry,
-                attachmentStatus: attachedFile
+                attachmentStatus: hasAttachedFiles
                   ? {
-                      filename: attachedFile.name,
-                      meta: `${formatFileSize(attachedFile.size)} · 업로드 완료`,
+                      filename: formatAttachmentName(attachedFiles),
+                      meta: formatAttachmentMeta(attachedFiles, '업로드 완료'),
                     }
                   : entry.attachmentStatus,
               }
             : entry,
         )
+        const uploadedDataset = uploadedDatasets[0]
         attachmentPreview = createAttachmentPreview(
           uploadedDataset.detail.filename,
-          attachedFile?.size ?? 0,
+          attachedFiles[0]?.size ?? 0,
           uploadedDataset.preview,
         )
         await loadDatasets()
@@ -361,16 +381,16 @@ export function useAnalysisInteractions(options: {
         index === userMessageIndex
           ? {
               ...entry,
-              attachmentStatus: attachedFile
+              attachmentStatus: hasAttachedFiles
                 ? {
-                    filename: attachedFile.name,
-                    meta: `${formatFileSize(attachedFile.size)} · 업로드 실패`,
+                    filename: formatAttachmentName(attachedFiles),
+                    meta: formatAttachmentMeta(attachedFiles, '업로드 실패'),
                   }
                 : entry.attachmentStatus,
             }
           : entry,
       )
-      pendingAttachment.value = attachedFile
+      pendingAttachment.value = attachedFiles
       if (!hasVisibleAssistantContent(sessionState.messages[assistantMessageIndex])) {
         sessionState.messages = sessionState.messages.filter(
           (_, index) => index !== assistantMessageIndex,

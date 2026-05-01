@@ -5,7 +5,7 @@ import type {
   WorkspacePayload,
 } from '../types'
 import type {
-  DatasetDetailResponse,
+  DatasetInfoResponse,
   DatasetProfileResponse,
   DatasetPreviewResponse,
   SessionSnapshotDatasetResponse,
@@ -40,7 +40,6 @@ export function mapDatasetAsset(payload: SessionSnapshotDatasetResponse): Datase
   return {
     id: payload.detail.id,
     filename: payload.detail.filename,
-    contentType: payload.detail.content_type,
     createdAt: payload.detail.created_at,
     preview: {
       columns: payload.preview.columns,
@@ -50,15 +49,14 @@ export function mapDatasetAsset(payload: SessionSnapshotDatasetResponse): Datase
   }
 }
 
-export function mapDatasetDetailToAsset(payload: {
-  detail: DatasetDetailResponse
+export function mapDatasetInfoToAsset(payload: {
+  detail: DatasetInfoResponse
   preview?: DatasetPreviewResponse | null
   profile?: DatasetProfileResponse | null
 }): DatasetAsset {
   return {
     id: payload.detail.id,
     filename: payload.detail.filename,
-    contentType: payload.detail.content_type,
     createdAt: payload.detail.created_at,
     preview: payload.preview
       ? {

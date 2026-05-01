@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from api.deps import (
@@ -6,6 +6,7 @@ from api.deps import (
     get_message_stream_service,
 )
 from agents.runtimes import ChatStreamingAgent
+from domain.messages.schemas import MessageStreamRequest
 from domain.messages.stream_service import MessageStreamService
 
 router = APIRouter()
@@ -21,11 +22,13 @@ def send_message() -> None:
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def stream_message(
-    request: Request,
+    stream_request: MessageStreamRequest = Depends(MessageStreamRequest.as_form),
+    files: list[UploadFile] | None = File(None, alias="file"),
     stream_service: MessageStreamService = Depends(get_message_stream_service),
     agent_runtime: ChatStreamingAgent = Depends(get_chat_streaming_agent_runtime),
 ) -> StreamingResponse:
     return await stream_service.create_streaming_response(
-        request=request,
+        stream_request=stream_request,
+        files=files or [],
         agent_runtime=agent_runtime,
     )

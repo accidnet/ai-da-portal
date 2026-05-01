@@ -188,6 +188,18 @@ const composer = computed<ComposerData>(() => {
   }
 })
 
+const pendingAttachmentName = computed(() => {
+  if (pendingAttachment.value.length === 0) return null
+  if (pendingAttachment.value.length === 1) return pendingAttachment.value[0].name
+  return `${pendingAttachment.value[0].name} 외 ${pendingAttachment.value.length - 1}개`
+})
+
+const pendingAttachmentMeta = computed(() => {
+  if (pendingAttachment.value.length === 0) return null
+  const totalSize = pendingAttachment.value.reduce((sum, file) => sum + file.size, 0)
+  return `${pendingAttachment.value.length}개 파일 · ${formatFileSize(totalSize)} · 메시지와 함께 전송`
+})
+
 const sharedAnalysisCreatedAtLabel = computed(() => {
   if (!sharedAnalysis.value) return ''
   return new Intl.DateTimeFormat('ko-KR', {
@@ -232,8 +244,8 @@ async function handleWorkspaceSend(message: string) {
   })
 }
 
-function handleWorkspaceDropFile(file: File) {
-  queueInteractionFile(file, (message) => {
+function handleWorkspaceDropFile(files: File[]) {
+  queueInteractionFile(files, (message) => {
     uploadError.value = message
   })
 }
@@ -451,8 +463,8 @@ onBeforeUnmount(() => {
           :is-compact-layout="isCompactLayout"
           :is-analytics-panel-open="isAnalyticsPanelOpen"
           :can-export-report="canExportReport"
-          :pending-attachment-name="pendingAttachment?.name ?? null"
-          :pending-attachment-meta="pendingAttachment ? `${formatFileSize(pendingAttachment.size)} · 메시지와 함께 전송` : null"
+          :pending-attachment-name="pendingAttachmentName"
+          :pending-attachment-meta="pendingAttachmentMeta"
           @attach="openInteractionPicker"
           @drop-file="handleWorkspaceDropFile"
           @remove-attachment="clearPendingAttachment"
@@ -501,6 +513,7 @@ onBeforeUnmount(() => {
       ref="interactionPickerRef"
       class="dataset-picker"
       type="file"
+      multiple
       accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       @change="onInteractionFileChange"
     />

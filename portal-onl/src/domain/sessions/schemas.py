@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from agents.state import AgentRoute, PlanStep
 from domain.datasets.schemas import (
-    DatasetDetail,
+    DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
@@ -53,7 +53,7 @@ class SessionMessage(BaseModel):
 
 
 class SessionSnapshotDataset(BaseModel):
-    detail: DatasetDetail
+    detail: DatasetInfo
     preview: DatasetPreviewResponse
     profile: DatasetProfileResponse
 

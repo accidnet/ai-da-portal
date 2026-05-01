@@ -7,7 +7,7 @@ from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from domain.shared import AnalyticsPayload, WorkspacePayload
-from infrastructure.ai.client import AiClient, AiClientError
+from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
 from infrastructure.ai.input_models import (
     EasyInputMessage,
     FunctionCall,
@@ -438,28 +438,10 @@ class BaseAgent:
             *(tool_outputs or []),
         ]
 
-    def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
-        if isinstance(value, dict):
-            return cast(dict[str, object], value)
-
-        model_dump = getattr(value, "model_dump", None)
-        if callable(model_dump):
-            dumped = model_dump(mode="python")
-            if isinstance(dumped, dict):
-                return cast(dict[str, object], dumped)
-
-        to_dict = getattr(value, "to_dict", None)
-        if callable(to_dict):
-            dumped = to_dict()
-            if isinstance(dumped, dict):
-                return cast(dict[str, object], dumped)
-
-        return None
-
     def _normalize_response_payload(
         self, response: dict[str, object]
     ) -> dict[str, object]:
-        nested_response = self._coerce_optional_dict(response.get("response"))
+        nested_response = coerce_optional_dict(response.get("response"))
         normalized = nested_response if nested_response is not None else dict(response)
 
         output_text = normalized.get("output_text")

@@ -8,7 +8,7 @@ from agents.state import AgentState
 from agents.stream_event_handlers import handle_stream_event
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
-from infrastructure.ai.client import AiClient
+from infrastructure.ai.client import AiClient, coerce_optional_dict
 
 logger = logging.getLogger(__name__)
 
@@ -18,47 +18,42 @@ class ChatStreamingAgent(BaseAgent):
         self, stream: object
     ) -> Generator[dict[str, object], None, dict[str, object]]:
         response_id: str | None = None
-        final_text: str | None = None
         text_deltas: list[str] = []
         function_calls: dict[str, dict[str, object]] = {}
 
         close = getattr(stream, "close", None)
         try:
             for event in cast(Iterable[object], stream):
-                print(event)
-                payload = self._event_to_dict(event)
-                response_payload = self._coerce_optional_dict(payload.get("response"))
+                # TODO: 해당 부분은 AI Client 부분에서 처리되어서 넘어올수있게끔 가능한 지 확인 후 수정
+                payload = coerce_optional_dict(event)
 
+                if payload is None:
+                    self._log_unhandled_stream_event(event)
+                    continue
+
+                response_payload = coerce_optional_dict(payload.get("response"))
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
 
                 result = handle_stream_event(
                     payload=payload,
                     response_id=response_id,
-                    response_payload=response_payload,
                     function_calls=function_calls,
                     text_deltas=text_deltas,
-                    final_text=final_text,
-                    coerce_optional_dict=self._coerce_optional_dict,
                     normalize_response_payload=self._normalize_response_payload,
                 )
-                final_text = result["final_text"]
 
-                completed_response = result["completed_response"]
+                completed_response = result.completed_response
                 if isinstance(completed_response, dict):
                     output = self._build_stream_output(
                         function_calls,
-                        final_text,
                         text_deltas,
                     )
                     return self._merge_stream_output(completed_response, output)
 
-                yielded_event = result["yielded_event"]
+                yielded_event = result.yielded_event
                 if isinstance(yielded_event, dict):
                     yield yielded_event
-
-                if result["handled"]:
-                    continue
         finally:
             if callable(close):
                 close()
@@ -67,15 +62,25 @@ class ChatStreamingAgent(BaseAgent):
         if response_id:
             normalized["id"] = response_id
 
-        output = self._build_stream_output(function_calls, final_text, text_deltas)
+        output = self._build_stream_output(function_calls, text_deltas)
         if output:
             normalized["output"] = output
 
-        output_text = final_text or "".join(text_deltas).strip()
+        output_text = "".join(text_deltas).strip()
         if output_text:
             normalized["output_text"] = output_text
 
         return self._normalize_response_payload(normalized)
+
+    def _log_unhandled_stream_event(self, event: object) -> None:
+        if event is None or event == "" or event == [] or event == {}:
+            return
+
+        logger.warning(
+            "Unhandled stream event payload type=%s value=%r",
+            type(event).__name__,
+            event,
+        )
 
     def _merge_stream_output(
         self,
@@ -110,7 +115,6 @@ class ChatStreamingAgent(BaseAgent):
     def _build_stream_output(
         self,
         function_calls: dict[str, dict[str, object]],
-        final_text: str | None,
         text_deltas: list[str],
     ) -> list[dict[str, object]]:
         output: list[dict[str, object]] = []
@@ -123,7 +127,7 @@ class ChatStreamingAgent(BaseAgent):
             seen_call_ids.add(call_id)
             output.append(function_call)
 
-        message_text = final_text or "".join(text_deltas).strip()
+        message_text = "".join(text_deltas).strip()
         if message_text:
             output.append(
                 {
@@ -132,16 +136,6 @@ class ChatStreamingAgent(BaseAgent):
                 }
             )
         return output
-
-    def _event_to_dict(self, event: object) -> dict[str, object]:
-        payload = self._coerce_optional_dict(event)
-        if payload is not None:
-            return payload
-
-        event_type = getattr(event, "type", None)
-        if isinstance(event_type, str):
-            return {"type": event_type}
-        return {}
 
     def _handle_after_call_completion(
         self,

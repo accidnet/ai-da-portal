@@ -9,7 +9,7 @@ from domain.auth.service import OpenAiAuthService
 from infrastructure.ai.client import AiClientError
 
 
-class OpenAiResponseClient:
+class OpenAiProvider:
     def __init__(
         self,
         settings: Settings,

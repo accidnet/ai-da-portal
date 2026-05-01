@@ -16,7 +16,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   send: [message: string]
   attach: []
-  dropFile: [file: File]
+  dropFile: [files: File[]]
   removeAttachment: []
 }>()
 
@@ -204,13 +204,13 @@ function handleDrop(event: DragEvent) {
 
   event.preventDefault()
   isDragActive.value = false
-  const file = event.dataTransfer?.files?.[0]
+  const files = Array.from(event.dataTransfer?.files ?? [])
 
-  if (!file) {
+  if (!files.length) {
     return
   }
 
-  emit('dropFile', file)
+  emit('dropFile', files)
 }
 
 function syncTextareaHeight() {

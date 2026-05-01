@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from api.deps import get_dataset_service
 from domain.datasets.schemas import (
     DatasetDeleteResponse,
-    DatasetDetail,
+    DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,
     DatasetSummary,
@@ -21,20 +21,20 @@ def list_datasets(
 
 
 @router.post(
-    "/upload", response_model=DatasetDetail, status_code=status.HTTP_201_CREATED
+    "/upload", response_model=DatasetInfo, status_code=status.HTTP_201_CREATED
 )
 async def upload_dataset(
     file: UploadFile = File(...),
     session_id: str | None = Form(default=None),
     service: DatasetService = Depends(get_dataset_service),
-) -> DatasetDetail:
+) -> DatasetInfo:
     return await service.upload(file, session_id=session_id)
 
 
-@router.get("/{dataset_id}", response_model=DatasetDetail)
+@router.get("/{dataset_id}", response_model=DatasetInfo)
 def get_dataset(
     dataset_id: str, service: DatasetService = Depends(get_dataset_service)
-) -> DatasetDetail:
+) -> DatasetInfo:
     try:
         return service.get(dataset_id)
     except KeyError as exc:

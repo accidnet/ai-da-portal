@@ -45,10 +45,9 @@ export interface SessionUpdatePayload {
   preferred_dataset_id?: string | null
 }
 
-export interface DatasetDetailResponse {
+export interface DatasetInfoResponse {
   id: string
   filename: string
-  content_type: string | null
   storage_path: string | null
   created_at: string
 }
@@ -66,7 +65,6 @@ export interface SessionDatasetLinkResponse {
 export interface DatasetLibraryResponse {
   id: string
   filename: string
-  content_type: string | null
   storage_path: string | null
   created_at: string
   row_count: number
@@ -117,7 +115,7 @@ export interface SessionSnapshotMessageResponse {
 }
 
 export interface SessionSnapshotDatasetResponse {
-  detail: DatasetDetailResponse
+  detail: DatasetInfoResponse
   preview: DatasetPreviewResponse
   profile: DatasetProfileResponse
 }
@@ -210,7 +208,7 @@ export interface ChatResponse {
 }
 
 export interface ChatInteractionDataset {
-  detail: DatasetDetailResponse
+  detail: DatasetInfoResponse
   preview: DatasetPreviewResponse
   profile: DatasetProfileResponse
 }
@@ -517,34 +515,26 @@ export async function sendChatMessage(
 }
 
 export async function streamChatMessage(
-  payload: { sessionId: string; message: string; datasetIds?: string[]; file?: File | null },
+  payload: { sessionId: string; message: string; datasetIds?: string[]; files?: File[] },
   options: StreamChatMessageOptions = {},
 ): Promise<ChatResponse> {
   const headers: Record<string, string> = {
     Accept: 'text/event-stream',
   }
-  let body: BodyInit
-
-  if (payload.file) {
-    const formData = new FormData()
-    formData.append('session_id', payload.sessionId)
-    formData.append('message', payload.message)
-    formData.append('dataset_ids_json', JSON.stringify(payload.datasetIds ?? []))
-    formData.append('file', payload.file)
-    body = formData
-  } else {
-    headers['Content-Type'] = 'application/json'
-    body = JSON.stringify({
-      session_id: payload.sessionId,
-      message: payload.message,
-      dataset_ids: payload.datasetIds ?? [],
-    })
+  const formData = new FormData()
+  formData.append('session_id', payload.sessionId)
+  formData.append('message', payload.message)
+  for (const datasetId of payload.datasetIds ?? []) {
+    formData.append('attached_dataset_ids', datasetId)
+  }
+  for (const file of payload.files ?? []) {
+    formData.append('file', file)
   }
 
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
     method: 'POST',
     headers,
-    body,
+    body: formData,
     signal: options.signal,
   })
 
@@ -683,7 +673,7 @@ export async function uploadDataset(
   file: File,
   sessionId?: string | null,
   signal?: AbortSignal,
-): Promise<DatasetDetailResponse> {
+): Promise<DatasetInfoResponse> {
   const formData = new FormData()
   formData.append('file', file)
 
@@ -701,7 +691,7 @@ export async function uploadDataset(
     throw new Error(`Dataset upload failed with status ${response.status}`)
   }
 
-  return (await response.json()) as DatasetDetailResponse
+  return (await response.json()) as DatasetInfoResponse
 }
 
 export async function fetchDatasetPreview(
@@ -827,7 +817,7 @@ export async function detachDatasetFromSession(
 export async function deleteDataset(
   datasetId: string,
   signal?: AbortSignal,
-): Promise<DatasetDetailResponse> {
+): Promise<DatasetInfoResponse> {
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets/${datasetId}`, {
     method: 'DELETE',
     headers: {
@@ -848,7 +838,7 @@ export async function deleteDataset(
     throw new Error(detail || `Dataset delete failed with status ${response.status}`)
   }
 
-  return (await response.json()) as DatasetDetailResponse
+  return (await response.json()) as DatasetInfoResponse
 }
 
 export async function createAnalysis(

@@ -5,15 +5,14 @@ from pydantic import BaseModel, Field
 from domain.shared import DatasetProfilePayload
 
 
-class DatasetDetail(BaseModel):
+class DatasetInfo(BaseModel):
     id: str
     filename: str
-    content_type: str | None = None
     storage_path: str | None = None
     created_at: datetime
 
 
-class DatasetSummary(DatasetDetail):
+class DatasetSummary(DatasetInfo):
     row_count: int
     column_count: int
     linked_session_count: int

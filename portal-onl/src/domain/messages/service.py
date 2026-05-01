@@ -1,11 +1,11 @@
 import logging
 import re
-from collections.abc import Generator, Iterable
+from collections.abc import Iterable
 from typing import Protocol, cast
 
 from fastapi import UploadFile
 
-from agents.runtimes import ChatAgent, ChatStreamingAgent
+from agents.runtimes import ChatAgent
 from agents.state import AgentRoute
 from domain.datasets.service import DatasetService
 from domain.messages.schemas import (
@@ -41,13 +41,7 @@ class MessageService:
         self, payload: ChatRequest, agent_runtime: ChatAgent
     ) -> ChatResponse:
         agent_runtime = cast(ChatAgent, agent_runtime)
-        session = self._session_service.ensure_session(payload.session_id)
-        session_title = self._resolve_session_title(
-            session_id=payload.session_id,
-            current_title=session.title,
-            user_message=payload.message,
-        )
-        session_dataset_ids = self._session_service.get_dataset_ids(payload.session_id)
+        session_title, session_dataset_ids = self.resolve_chat_context(payload)
         logger.debug(
             "Handling chat session_id=%s dataset_ids=%s session_dataset_ids=%s",
             payload.session_id,
@@ -62,7 +56,7 @@ class MessageService:
                 "session_dataset_ids": session_dataset_ids,
             }
         )
-        snapshot = self._snapshot_state(agent_runtime, state)
+        snapshot = self.snapshot_state(agent_runtime, state)
         logger.debug(
             "Agent graph completed session_id=%s route=%s tools=%s has_analytics=%s",
             payload.session_id,
@@ -71,22 +65,10 @@ class MessageService:
             snapshot["analytics"] is not None,
         )
 
-        snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
-        resolved_dataset_id = snapshot["resolved_dataset_id"]
-        if resolved_dataset_id is not None:
-            snapshot_dataset_ids = [resolved_dataset_id, *snapshot_dataset_ids]
-
-        self._session_service.record_chat(
-            session_id=payload.session_id,
-            user_message=payload.message,
-            assistant_message=snapshot["assistant_message"],
-            route=snapshot["route"],
-            used_tools=snapshot["used_tools"],
-            plan=snapshot["plan"],
-            plan_explanation=snapshot["plan_explanation"],
-            dataset_ids=snapshot_dataset_ids,
-            analytics=snapshot["analytics"],
-            workspace=snapshot["workspace"],
+        self.record_chat_snapshot(
+            payload=payload,
+            snapshot=snapshot,
+            session_dataset_ids=session_dataset_ids,
         )
 
         return ChatResponse(
@@ -101,69 +83,6 @@ class MessageService:
             analytics=snapshot["analytics"],
             workspace=snapshot["workspace"],
         )
-
-    def stream_chat(
-        self, payload: ChatRequest, agent_runtime: ChatStreamingAgent
-    ) -> Generator[dict[str, object], None, None]:
-        agent_runtime = cast(ChatStreamingAgent, agent_runtime)
-        session = self._session_service.ensure_session(payload.session_id)
-        session_title = self._resolve_session_title(
-            session_id=payload.session_id,
-            current_title=session.title,
-            user_message=payload.message,
-        )
-        session_dataset_ids = self._session_service.get_dataset_ids(payload.session_id)
-        logger.debug(
-            "Streaming chat session_id=%s dataset_ids=%s session_dataset_ids=%s",
-            payload.session_id,
-            payload.dataset_ids,
-            session_dataset_ids,
-        )
-
-        state = yield from agent_runtime.invoke(
-            {
-                "session_id": payload.session_id,
-                "message": payload.message,
-                "dataset_ids": payload.dataset_ids,
-                "session_dataset_ids": session_dataset_ids,
-            }
-        )
-
-        snapshot = self._snapshot_state(agent_runtime, state)
-
-        snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
-        resolved_dataset_id = snapshot["resolved_dataset_id"]
-        if resolved_dataset_id is not None:
-            snapshot_dataset_ids = [resolved_dataset_id, *snapshot_dataset_ids]
-
-        self._session_service.record_chat(
-            session_id=payload.session_id,
-            user_message=payload.message,
-            assistant_message=snapshot["assistant_message"],
-            route=snapshot["route"],
-            used_tools=snapshot["used_tools"],
-            plan=snapshot["plan"],
-            plan_explanation=snapshot["plan_explanation"],
-            dataset_ids=snapshot_dataset_ids,
-            analytics=snapshot["analytics"],
-            workspace=snapshot["workspace"],
-        )
-
-        yield {
-            "type": RESPONSE_STREAMING_EVENTS.response.completed,
-            "response": ChatResponse(
-                session_id=payload.session_id,
-                session_title=session_title,
-                assistant_message=snapshot["assistant_message"],
-                route=snapshot["route"],
-                used_tools=snapshot["used_tools"],
-                plan=snapshot["plan"],
-                plan_explanation=snapshot["plan_explanation"],
-                status=snapshot["status"],
-                analytics=snapshot["analytics"],
-                workspace=snapshot["workspace"],
-            ).model_dump(mode="json"),
-        }
 
     async def prepare_chat_request(
         self,
@@ -194,6 +113,48 @@ class MessageService:
                 dataset_ids=resolved_dataset_ids,
             ),
             interaction_dataset,
+        )
+
+    def resolve_chat_context(self, payload: ChatRequest) -> tuple[str, list[str]]:
+        # 채팅 실행 전 세션 제목과 세션 데이터셋을 동일한 방식으로 확정합니다.
+        session = self._session_service.ensure_session(payload.session_id)
+        session_title = self._resolve_session_title(
+            session_id=payload.session_id,
+            current_title=session.title,
+            user_message=payload.message,
+        )
+        session_dataset_ids = self._session_service.get_dataset_ids(payload.session_id)
+        return session_title, session_dataset_ids
+
+    def snapshot_state(
+        self, agent_runtime: _SnapshotAgent, state: dict[str, object]
+    ) -> dict[str, object]:
+        return self._snapshot_state(agent_runtime, state)
+
+    def record_chat_snapshot(
+        self,
+        *,
+        payload: ChatRequest,
+        snapshot: dict[str, object],
+        session_dataset_ids: list[str],
+    ) -> None:
+        # 업로드/분석으로 확정된 데이터셋을 대화 기록에 함께 남깁니다.
+        snapshot_dataset_ids = payload.dataset_ids or session_dataset_ids
+        resolved_dataset_id = snapshot["resolved_dataset_id"]
+        if resolved_dataset_id is not None:
+            snapshot_dataset_ids = [resolved_dataset_id, *snapshot_dataset_ids]
+
+        self._session_service.record_chat(
+            session_id=payload.session_id,
+            user_message=payload.message,
+            assistant_message=snapshot["assistant_message"],
+            route=snapshot["route"],
+            used_tools=snapshot["used_tools"],
+            plan=snapshot["plan"],
+            plan_explanation=snapshot["plan_explanation"],
+            dataset_ids=snapshot_dataset_ids,
+            analytics=snapshot["analytics"],
+            workspace=snapshot["workspace"],
         )
 
     def _resolve_session_title(

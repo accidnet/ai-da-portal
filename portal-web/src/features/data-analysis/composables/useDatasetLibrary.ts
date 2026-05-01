@@ -12,7 +12,7 @@ import {
 import type { DatasetLibraryItem, SessionItem } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import { isUploadableDatasetFile, mapDatasetLibraryItem } from '../utils/analysisPageHelpers'
-import { mapDatasetDetailToAsset, type SessionRuntimeState } from '../utils/sessionState'
+import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessionState'
 
 export function useDatasetLibrary(options: {
   activeSessionId: Ref<string | null>
@@ -102,7 +102,7 @@ export function useDatasetLibrary(options: {
       const sessionId = await ensureActiveSession()
       const detail = await uploadDataset(file, sessionId)
       const [preview, profile] = await Promise.all([fetchDatasetPreview(detail.id), fetchDatasetProfile(detail.id)])
-      const dataset = mapDatasetDetailToAsset({ detail, preview, profile })
+      const dataset = mapDatasetInfoToAsset({ detail, preview, profile })
       const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
       sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
       sessionState.analyticsPayload = null
@@ -152,11 +152,10 @@ export function useDatasetLibrary(options: {
       const details = await ensureDatasetLibraryDetails(datasetId)
       if (details) {
         const state = ensureSessionState(sessionId, activeSessionSummary.value?.title ?? DEFAULT_SESSION_TITLE)
-        const asset = mapDatasetDetailToAsset({
+        const asset = mapDatasetInfoToAsset({
           detail: {
             id: details.id,
             filename: details.filename,
-            content_type: details.contentType,
             storage_path: details.storagePath,
             created_at: details.createdAt,
           },

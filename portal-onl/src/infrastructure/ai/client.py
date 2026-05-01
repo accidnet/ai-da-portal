@@ -14,7 +14,7 @@ class AiClientError(RuntimeError):
     pass
 
 
-class AiResponseClient(Protocol):
+class AiProvider(Protocol):
     def create_response(
         self,
         *,
@@ -31,9 +31,29 @@ class AiResponseClient(Protocol):
     def should_stream_generated_text(self) -> bool: ...
 
 
+def coerce_optional_dict(value: object) -> dict[str, object] | None:
+    # SDK/Pydantic 응답 객체를 내부 처리용 dict로 통일합니다.
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(mode="python")
+        if isinstance(dumped, dict):
+            return cast(dict[str, object], dumped)
+
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        dumped = to_dict()
+        if isinstance(dumped, dict):
+            return cast(dict[str, object], dumped)
+
+    return None
+
+
 class AiClient:
-    def __init__(self, response_client: AiResponseClient) -> None:
-        self._response_client = response_client
+    def __init__(self, provider: AiProvider) -> None:
+        self._provider = provider
 
     def generate(
         self, system: str, user_message: str, dataset_ids: list[str] | None = None
@@ -44,8 +64,8 @@ class AiClient:
             tools=["dataset_context"] if dataset_ids else [],
         )
 
-        should_stream = self._response_client.should_stream_generated_text()
-        response = self._response_client.create_response(
+        should_stream = self._provider.should_stream_generated_text()
+        response = self._provider.create_response(
             input=self._build_input(prompt.user),
             instructions=prompt.system,
             stream=should_stream,
@@ -82,7 +102,7 @@ class AiClient:
         max_output_tokens: int | None = None,
         stream: bool = False,
     ) -> object:
-        response = self._response_client.create_response(
+        response = self._provider.create_response(
             input=input,
             instructions=instructions,
             tools=tools,
@@ -107,33 +127,15 @@ class AiClient:
         ).to_payload()
 
     def _coerce_dict(self, value: object) -> dict[str, object]:
-        payload = self._coerce_optional_dict(value)
+        payload = coerce_optional_dict(value)
         if payload is None:
             raise AiClientError("OpenAI JSON response was not an object.")
         return payload
 
-    def _coerce_optional_dict(self, value: object) -> dict[str, object] | None:
-        if isinstance(value, dict):
-            return cast(dict[str, object], value)
-
-        model_dump = getattr(value, "model_dump", None)
-        if callable(model_dump):
-            dumped = model_dump(mode="python")
-            if isinstance(dumped, dict):
-                return cast(dict[str, object], dumped)
-
-        to_dict = getattr(value, "to_dict", None)
-        if callable(to_dict):
-            dumped = to_dict()
-            if isinstance(dumped, dict):
-                return cast(dict[str, object], dumped)
-
-        return None
-
     def _normalize_response_payload(
         self, response: dict[str, object]
     ) -> dict[str, object]:
-        nested_response = self._coerce_optional_dict(response.get("response"))
+        nested_response = coerce_optional_dict(response.get("response"))
         normalized = nested_response if nested_response is not None else dict(response)
 
         output_text = normalized.get("output_text")
@@ -190,7 +192,7 @@ class AiClient:
         if isinstance(output_text, str) and output_text.strip():
             return output_text.strip()
 
-        nested_response = self._coerce_optional_dict(data.get("response"))
+        nested_response = coerce_optional_dict(data.get("response"))
         if nested_response is not None:
             nested_text = self._extract_output_text(
                 nested_response, allow_raw_json_fallback=False
@@ -202,14 +204,14 @@ class AiClient:
         if isinstance(output, list):
             collected: list[str] = []
             for item in output:
-                item_payload = self._coerce_optional_dict(item)
+                item_payload = coerce_optional_dict(item)
                 if item_payload is None:
                     continue
                 content = item_payload.get("content")
                 if not isinstance(content, list):
                     continue
                 for entry in content:
-                    entry_payload = self._coerce_optional_dict(entry)
+                    entry_payload = coerce_optional_dict(entry)
                     if entry_payload is None:
                         continue
                     text = entry_payload.get("text")
@@ -224,9 +226,9 @@ class AiClient:
 
         choices = data.get("choices")
         if isinstance(choices, list) and choices:
-            first_choice = self._coerce_optional_dict(choices[0])
+            first_choice = coerce_optional_dict(choices[0])
             if first_choice is not None:
-                message = self._coerce_optional_dict(first_choice.get("message"))
+                message = coerce_optional_dict(first_choice.get("message"))
                 if message is not None:
                     content = message.get("content")
                     if isinstance(content, str) and content.strip():
@@ -234,7 +236,7 @@ class AiClient:
                     if isinstance(content, list):
                         parts: list[str] = []
                         for item in content:
-                            item_payload = self._coerce_optional_dict(item)
+                            item_payload = coerce_optional_dict(item)
                             if item_payload is None:
                                 continue
                             text = item_payload.get("text")

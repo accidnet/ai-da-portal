@@ -7,12 +7,12 @@ from uuid import uuid4
 import pandas as pd
 from fastapi import UploadFile
 
-from core.paths import UPLOADED_DATASETS_DIR
+from core.paths import UPLOADED_DATASET_DIR
 from domain.datasets.preview import build_preview_from_dataframe
 from domain.datasets.profiling import build_profile_from_dataframe
 from domain.datasets.schemas import (
     DatasetDeleteResponse,
-    DatasetDetail,
+    DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,
     DatasetSummary,
@@ -28,7 +28,7 @@ class DatasetService:
 
     async def upload(
         self, file: UploadFile, session_id: str | None = None
-    ) -> DatasetDetail:
+    ) -> DatasetInfo:
         # dataset 고유 id 부여
         dataset_id = str(uuid4())
 
@@ -41,18 +41,20 @@ class DatasetService:
         # file 읽기
         content = await file.read()
 
+        # file 저장
         storage_path = self._store_uploaded_file(dataset_id, filename, content)
 
         # dataframe으로 변환
         dataframe = self._load_dataframe(content, suffix=suffix)
-        detail = DatasetDetail(
+
+        # Dataset 기본 정보
+        datset_info = DatasetInfo(
             id=dataset_id,
             filename=file.filename or "dataset.csv",
-            content_type=file.content_type,
             storage_path=str(storage_path),
             created_at=datetime.now(UTC),
         )
-        self._datasets[dataset_id] = _DatasetRecord(detail=detail, dataframe=dataframe)
+        self._datasets[dataset_id] = _DatasetRecord(detail=datset_info, dataframe=dataframe)
 
         if session_id is not None and self._session_service is not None:
             self._session_service.attach_dataset(
@@ -61,7 +63,7 @@ class DatasetService:
                 title=file.filename or "Uploaded dataset",
             )
 
-        return detail
+        return datset_info
 
     def list_datasets(self) -> list[DatasetSummary]:
         return sorted(
@@ -70,7 +72,7 @@ class DatasetService:
             reverse=True,
         )
 
-    def get(self, dataset_id: str) -> DatasetDetail:
+    def get(self, dataset_id: str) -> DatasetInfo:
         return self._get_record(dataset_id).detail
 
     def get_profile(self, dataset_id: str) -> DatasetProfileResponse:
@@ -171,9 +173,9 @@ class DatasetService:
     def _store_uploaded_file(
         self, dataset_id: str, filename: str, content: bytes
     ) -> Path:
-        UPLOADED_DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+        UPLOADED_DATASET_DIR.mkdir(parents=True, exist_ok=True)
         safe_name = Path(filename).name or "dataset.csv"
-        stored_path = UPLOADED_DATASETS_DIR / f"{dataset_id}__{safe_name}"
+        stored_path = UPLOADED_DATASET_DIR / f"{dataset_id}__{safe_name}"
         stored_path.write_bytes(content)
         return stored_path
 
@@ -220,5 +222,5 @@ class DatasetService:
 
 @dataclass(slots=True)
 class _DatasetRecord:
-    detail: DatasetDetail
+    detail: DatasetInfo
     dataframe: pd.DataFrame

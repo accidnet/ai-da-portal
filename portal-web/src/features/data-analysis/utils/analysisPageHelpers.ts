@@ -47,7 +47,6 @@ export function mapDatasetLibraryItem(dataset: DatasetLibraryResponse): DatasetL
   return {
     id: dataset.id,
     filename: dataset.filename,
-    contentType: dataset.content_type,
     storagePath: dataset.storage_path,
     createdAt: dataset.created_at,
     rowCount: dataset.row_count,

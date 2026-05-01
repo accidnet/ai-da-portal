@@ -27,7 +27,6 @@ export interface SessionItem {
 export interface DatasetLibraryItem {
   id: string
   filename: string
-  contentType: string | null
   storagePath: string | null
   createdAt: string
   rowCount: number
@@ -184,7 +183,6 @@ export interface DatasetPreview {
 export interface DatasetAsset {
   id: string
   filename: string
-  contentType: string | null
   createdAt: string
   preview?: DatasetPreview | null
   profile?: DatasetProfile | null

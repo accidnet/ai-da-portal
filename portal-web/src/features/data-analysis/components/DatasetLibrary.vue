@@ -27,7 +27,7 @@ const filteredDatasets = computed(() => {
   const keyword = props.searchQuery.trim().toLowerCase()
   const filtered = keyword
     ? props.datasets.filter((dataset) => {
-        const haystacks = [dataset.filename, dataset.contentType ?? '', dataset.storagePath ?? '']
+        const haystacks = [dataset.filename, dataset.storagePath ?? '']
         return haystacks.some((value) => value.toLowerCase().includes(keyword))
       })
     : props.datasets
@@ -133,7 +133,7 @@ function toggleSortOrder() {
               <td>
                 <div class="dataset-name-cell">
                   <strong>{{ dataset.filename }}</strong>
-                  <span>{{ dataset.contentType ?? 'type 미지정' }}</span>
+                  <span>{{ dataset.storagePath ?? '저장 경로 미지정' }}</span>
                 </div>
               </td>
               <td>{{ formatDate(dataset.createdAt) }}</td>

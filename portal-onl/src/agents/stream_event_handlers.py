@@ -1,93 +1,75 @@
 from collections.abc import Callable
 
+from pydantic import BaseModel
+
+from infrastructure.ai.client import coerce_optional_dict
 from infrastructure.ai.streaming_events import RESPONSE_STREAMING_EVENTS
 
-
-type StreamEventResult = dict[str, object]
-type DictCoercer = Callable[[object], dict[str, object] | None]
 type ResponseNormalizer = Callable[[dict[str, object]], dict[str, object]]
+
+
+class StreamEventResult(BaseModel):
+    yielded_event: dict[str, object] | None = None
+    completed_response: dict[str, object] | None = None
 
 
 def handle_stream_event(
     *,
     payload: dict[str, object],
     response_id: str | None,
-    response_payload: dict[str, object] | None,
     function_calls: dict[str, dict[str, object]],
     text_deltas: list[str],
-    final_text: str | None,
-    coerce_optional_dict: DictCoercer,
     normalize_response_payload: ResponseNormalizer,
 ) -> StreamEventResult:
     event_type = payload.get("type")
     handler = _build_handler_map(
         payload=payload,
-        response_payload=response_payload,
         response_id=response_id,
         function_calls=function_calls,
         text_deltas=text_deltas,
-        final_text=final_text,
-        coerce_optional_dict=coerce_optional_dict,
         normalize_response_payload=normalize_response_payload,
     ).get(event_type)
     if handler is not None:
         return handler()
 
-    return _build_result(
-        handled=False,
-        yielded_event=None,
-        completed_response=None,
-        final_text=final_text,
-    )
+    return StreamEventResult()
 
 
 def _build_handler_map(
     *,
     payload: dict[str, object],
-    response_payload: dict[str, object] | None,
     response_id: str | None,
     function_calls: dict[str, dict[str, object]],
     text_deltas: list[str],
-    final_text: str | None,
-    coerce_optional_dict: DictCoercer,
     normalize_response_payload: ResponseNormalizer,
 ) -> dict[object, Callable[[], StreamEventResult]]:
     handlers: dict[object, Callable[[], StreamEventResult]] = {
         RESPONSE_STREAMING_EVENTS.response.output_text.delta: lambda: _handle_output_text_delta(
-            payload, response_id, text_deltas, final_text
+            payload, response_id, text_deltas
         ),
         RESPONSE_STREAMING_EVENTS.message.delta: lambda: _handle_output_text_delta(
-            payload, response_id, text_deltas, final_text
-        ),
-        RESPONSE_STREAMING_EVENTS.response.output_text.done: lambda: _handle_output_text_done(
-            payload, final_text
-        ),
-        RESPONSE_STREAMING_EVENTS.message.completed: lambda: _handle_output_text_done(
-            payload, final_text
+            payload, response_id, text_deltas
         ),
         RESPONSE_STREAMING_EVENTS.response.output_item.added: lambda: _handle_output_item_add(
             payload,
             function_calls,
-            final_text,
-            coerce_optional_dict,
         ),
         RESPONSE_STREAMING_EVENTS.response.output_item.done: lambda: _handle_output_item_done(
             payload,
             function_calls,
-            final_text,
-            coerce_optional_dict,
         ),
         RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta: lambda: _handle_function_call_arguments_delta(
-            payload, function_calls, final_text
+            payload, function_calls
         ),
         RESPONSE_STREAMING_EVENTS.response.function_call_arguments.done: lambda: _handle_function_call_arguments_done(
-            payload, function_calls, final_text
+            payload, function_calls
         ),
     }
+    response_payload = coerce_optional_dict(payload.get("response"))
     if response_payload is not None:
         handlers[RESPONSE_STREAMING_EVENTS.response.completed] = (
             lambda: _handle_response_completed(
-                response_payload, final_text, normalize_response_payload
+                response_payload, normalize_response_payload
             )
         )
     return handlers
@@ -95,14 +77,10 @@ def _build_handler_map(
 
 def _handle_response_completed(
     response_payload: dict[str, object],
-    final_text: str | None,
     normalize_response_payload: ResponseNormalizer,
 ) -> StreamEventResult:
-    return _build_result(
-        handled=True,
-        yielded_event=None,
+    return StreamEventResult(
         completed_response=normalize_response_payload(response_payload),
-        final_text=final_text,
     )
 
 
@@ -110,107 +88,57 @@ def _handle_output_text_delta(
     payload: dict[str, object],
     response_id: str | None,
     text_deltas: list[str],
-    final_text: str | None,
 ) -> StreamEventResult:
     delta = payload.get("delta") or payload.get("text")
     if isinstance(delta, str) and delta:
         text_deltas.append(delta)
-        return _build_result(
-            handled=True,
+        return StreamEventResult(
             yielded_event={
                 "type": RESPONSE_STREAMING_EVENTS.response.output_text.delta,
                 "delta": delta,
                 "response_id": response_id,
             },
-            completed_response=None,
-            final_text=final_text,
         )
 
-    return _build_result(
-        handled=True,
-        yielded_event=None,
-        completed_response=None,
-        final_text=final_text,
-    )
-
-
-def _handle_output_text_done(
-    payload: dict[str, object],
-    final_text: str | None,
-) -> StreamEventResult:
-    text = payload.get("text") or payload.get("delta")
-    return _build_result(
-        handled=True,
-        yielded_event=None,
-        completed_response=None,
-        final_text=(
-            text.strip() if isinstance(text, str) and text.strip() else final_text
-        ),
-    )
+    return StreamEventResult()
 
 
 def _handle_output_item_add(
     payload: dict[str, object],
     function_calls: dict[str, dict[str, object]],
-    final_text: str | None,
-    coerce_optional_dict: DictCoercer,
 ) -> StreamEventResult:
     item = coerce_optional_dict(payload.get("item"))
     if item is not None:
         _collect_stream_function_call(function_calls, item)
 
-    return _build_result(
-        handled=True,
-        yielded_event=None,
-        completed_response=None,
-        final_text=final_text,
-    )
+    return StreamEventResult()
 
 
 def _handle_output_item_done(
     payload: dict[str, object],
     function_calls: dict[str, dict[str, object]],
-    final_text: str | None,
-    coerce_optional_dict: DictCoercer,
 ) -> StreamEventResult:
     item = coerce_optional_dict(payload.get("item"))
     if item is not None:
         _collect_stream_function_call(function_calls, item)
 
-    return _build_result(
-        handled=True,
-        yielded_event=None,
-        completed_response=None,
-        final_text=final_text,
-    )
+    return StreamEventResult()
 
 
 def _handle_function_call_arguments_delta(
     payload: dict[str, object],
     function_calls: dict[str, dict[str, object]],
-    final_text: str | None,
 ) -> StreamEventResult:
     _append_function_call_arguments(function_calls, payload)
-    return _build_result(
-        handled=True,
-        yielded_event=None,
-        completed_response=None,
-        final_text=final_text,
-    )
+    return StreamEventResult()
 
 
 def _handle_function_call_arguments_done(
     payload: dict[str, object],
     function_calls: dict[str, dict[str, object]],
-    final_text: str | None,
 ) -> StreamEventResult:
     _append_function_call_arguments(function_calls, payload)
-    return _build_result(
-        handled=True,
-        yielded_event=None,
-        completed_response=None,
-        final_text=final_text,
-    )
+    return StreamEventResult()
 
 
 def _collect_stream_function_call(
@@ -303,21 +231,6 @@ def _append_function_call_arguments(
             entry.get("arguments") if isinstance(entry.get("arguments"), str) else ""
         )
     return streamed_event
-
-
-def _build_result(
-    *,
-    handled: bool,
-    yielded_event: dict[str, object] | None,
-    completed_response: dict[str, object] | None,
-    final_text: str | None,
-) -> StreamEventResult:
-    return {
-        "handled": handled,
-        "yielded_event": yielded_event,
-        "completed_response": completed_response,
-        "final_text": final_text,
-    }
 
 
 def _read_string(value: object) -> str | None:
