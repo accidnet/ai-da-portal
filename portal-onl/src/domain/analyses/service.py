@@ -17,12 +17,12 @@ from infrastructure.ai.client import AiClient
 class AnalysisService:
     def __init__(
         self,
-        dataset_service: DatasetService | None = None,
-        llm_client: AiClient | None = None,
-        session_service: SessionService | None = None,
+        dataset_service: DatasetService,
+        llm_client: AiClient | None,
+        session_service: SessionService,
     ) -> None:
-        self._dataset_service = dataset_service or DatasetService()
-        self._session_service = session_service or SessionService()
+        self._dataset_service = dataset_service
+        self._session_service = session_service
         self._analyses: dict[str, _AnalysisRecord] = {}
         self._workspace_planner = WorkspacePlanner(llm_client=llm_client)
 

@@ -14,6 +14,71 @@ logger = logging.getLogger(__name__)
 
 
 class ChatStreamingAgent(BaseAgent):
+
+    def invoke(
+        self, state: AgentState
+    ) -> Generator[dict[str, object], None, AgentState]:
+
+        working_state = cast(AgentState, dict(state))
+        working_state.setdefault("used_tools", [])
+        working_state.setdefault("status", "queued")
+        last_state_fingerprint = json.dumps(
+            self._build_state_event(working_state)["state"],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+        # 사용자 메세지를 포함하여 AI API input으로 사용하기 위한 빌드
+        inputs = self._build_inputs(
+            message=self._require_string(working_state, "message"),
+            dataset_ids=working_state.get("dataset_ids", []),
+        )
+
+        # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
+        max_iterations = 10
+        iteration_count = 0
+        while True:
+            if iteration_count >= max_iterations:
+                break
+            iteration_count += 1
+
+            if iteration_count > 1:
+                yield {
+                    "type": "agent.text_segment.start",
+                    "iteration": iteration_count,
+                }
+
+            response_kwargs = self._response_kwargs(inputs)
+            response = yield from self._parse_stream_response_events(
+                self._llm_client.create_response(
+                    **response_kwargs,
+                    stream=True,
+                ),
+            )
+
+            response_id = response.get("id")
+            if isinstance(response_id, str) and response_id:
+                working_state["response_id"] = response_id
+
+            result_state, updated_input, state_event, last_state_fingerprint = (
+                self._handle_after_call_completion(
+                    working_state=working_state,
+                    response=response,
+                    next_input=inputs,
+                    last_state_fingerprint=last_state_fingerprint,
+                )
+            )
+            if state_event is not None:
+                yield state_event
+            if updated_input is not None:
+                inputs = updated_input
+                continue
+            if result_state is not None:
+                return result_state
+
+        working_state.setdefault("route", "conversation")
+        return working_state
+
     def _parse_stream_response_events(
         self, stream: object
     ) -> Generator[dict[str, object], None, dict[str, object]]:
@@ -179,67 +244,6 @@ class ChatStreamingAgent(BaseAgent):
             return working_state, None, None, last_state_fingerprint
 
         return None, None, None, last_state_fingerprint
-
-    def invoke(
-        self, state: AgentState
-    ) -> Generator[dict[str, object], None, AgentState]:
-        working_state = cast(AgentState, dict(state))
-        working_state.setdefault("used_tools", [])
-        working_state.setdefault("status", "queued")
-        last_state_fingerprint = json.dumps(
-            self._build_state_event(working_state)["state"],
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        next_input = self._build_initial_input(working_state)
-        logger.debug("Agent stream input prepared next_input=%s", next_input)
-
-        # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 10
-        iteration_count = 0
-
-        while True:
-            logger.debug(f"Iteration {iteration_count}.")
-            if iteration_count >= max_iterations:
-                break
-            iteration_count += 1
-
-            response_kwargs = self._response_kwargs(next_input)
-            if iteration_count > 1:
-                yield {
-                    "type": "agent.text_segment.start",
-                    "iteration": iteration_count,
-                }
-
-            response = yield from self._parse_stream_response_events(
-                self._llm_client.create_response(
-                    **response_kwargs,
-                    stream=True,
-                ),
-            )
-
-            response_id = response.get("id")
-            if isinstance(response_id, str) and response_id:
-                working_state["response_id"] = response_id
-
-            result_state, updated_input, state_event, last_state_fingerprint = (
-                self._handle_after_call_completion(
-                    working_state=working_state,
-                    response=response,
-                    next_input=next_input,
-                    last_state_fingerprint=last_state_fingerprint,
-                )
-            )
-            if state_event is not None:
-                yield state_event
-            if updated_input is not None:
-                next_input = updated_input
-                continue
-            if result_state is not None:
-                return result_state
-
-        working_state.setdefault("route", "conversation")
-        return working_state
 
 
 def build_chat_streaming_agent(

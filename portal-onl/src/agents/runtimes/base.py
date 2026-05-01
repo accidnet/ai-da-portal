@@ -9,6 +9,7 @@ from domain.datasets.service import DatasetService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
 from infrastructure.ai.input_models import (
+    Message,
     EasyInputMessage,
     FunctionCall,
     FunctionCallOutput,
@@ -16,7 +17,6 @@ from infrastructure.ai.input_models import (
     ResponseInputText,
 )
 from tools import registry
-
 
 logger = logging.getLogger(__name__)
 
@@ -87,44 +87,29 @@ class BaseAgent:
             ),
         }
 
-    def _build_initial_input(self, state: AgentState) -> list[dict[str, object]]:
-        available_dataset_ids = self._available_dataset_ids(state)
-        available_uploaded_filenames = self._available_uploaded_filenames(
-            available_dataset_ids
+    def _build_developer_input(self, *, dataset_ids: list[str]):
+        payload = {"dataset_ids": dataset_ids}
+        return Message(
+            role="developer",
+            content=(ResponseInputText(text=f"다음의 정보를 활용하세요.\n{payload}")),
         )
-        payload = {
-            "session_id": self._require_string(state, "session_id"),
-            "requested_dataset_ids": state.get("dataset_ids", []),
-            "session_dataset_ids": state.get("session_dataset_ids", []),
-            "latest_dataset_id": self._dataset_service.get_latest_dataset_id(),
-            "available_uploaded_filenames": available_uploaded_filenames,
-            "latest_uploaded_filename": (
-                available_uploaded_filenames[0]
-                if available_uploaded_filenames
-                else None
-            ),
-        }
-        return InputItemList(
-            items=(
-                EasyInputMessage(
-                    role="developer",
-                    # typed content는 단일 항목이어도 튜플로 전달합니다.
-                    content=(
-                        ResponseInputText(
-                            text="다음의 정보를 활용하세요.\n"
-                            + json.dumps(payload, ensure_ascii=False)
-                        ),
-                    ),
-                ),
-                EasyInputMessage(
-                    role="user",
-                    # 입력 모델 시그니처에 맞춰 사용자 메시지도 typed content로 구성합니다.
-                    content=(
-                        ResponseInputText(text=self._require_string(state, "message")),
-                    ),
-                ),
-            )
-        ).to_payload()
+
+    def _build_inputs(
+        self,
+        *,
+        message: str,
+        dataset_ids: list[str],
+        inputs: list | None = None
+    ) -> list[dict[str, object]]:
+
+        if not inputs:
+            inputs = []
+        if dataset_ids:
+            inputs.append(self._build_developer_input(dataset_ids=dataset_ids))
+
+        inputs.append(Message(role="user", content=(ResponseInputText(text=message),)))
+
+        return InputItemList(items=inputs).to_payload()
 
     def _execute_function_call(
         self, state: AgentState, function_call: FunctionCall
@@ -141,7 +126,7 @@ class BaseAgent:
                     state=tool_state,
                     preferred_dataset_id=preferred_dataset_id,
                 ),
-                available_dataset_ids=self._available_dataset_ids,
+                available_dataset_ids=self._available_dataset_ids_from_state,
                 read_string=self._read_string,
                 read_bool=lambda value, default: self._read_bool(
                     value, default=default
@@ -209,11 +194,8 @@ class BaseAgent:
             "status": snapshot["status"],
         }
 
-    def _available_dataset_ids(self, state: AgentState) -> list[str]:
-        combined = [
-            *state.get("dataset_ids", []),
-            *state.get("session_dataset_ids", []),
-        ]
+    def _available_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
+        combined = [*dataset_ids]
         latest_dataset_id = self._dataset_service.get_latest_dataset_id()
         if latest_dataset_id:
             combined.append(latest_dataset_id)
@@ -222,6 +204,9 @@ class BaseAgent:
             if dataset_id not in unique_ids:
                 unique_ids.append(dataset_id)
         return unique_ids
+
+    def _available_dataset_ids_from_state(self, state: AgentState) -> list[str]:
+        return self._available_dataset_ids(state.get("dataset_ids", []))
 
     def _available_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
         get_uploaded_filenames = getattr(
@@ -238,7 +223,6 @@ class BaseAgent:
             preferred_dataset_id,
             state.get("resolved_dataset_id"),
             *(state.get("dataset_ids", [])),
-            *(state.get("session_dataset_ids", [])),
             self._dataset_service.get_latest_dataset_id(),
         ]
         for candidate in candidates:
@@ -456,12 +440,12 @@ class BaseAgent:
         return normalized
 
     def _response_kwargs(
-        self, next_input: list[dict[str, object]]
+        self, inputs: list[dict[str, object]]
     ) -> dict[str, object]:
         # 요청 파라미터는 두 실행 방식에서 동일하게 사용합니다.
         return {
             "instructions": load_prompt("base.md"),
-            "input": next_input,
+            "input": inputs,
             "tools": registry.get_tool_definitions(),
             "tool_choice": "auto",
             "parallel_tool_calls": False,

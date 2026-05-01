@@ -4,6 +4,7 @@ import {
   createAnalysis,
   fetchDatasetPreview,
   fetchDatasetProfile,
+  resolveSessionTitle,
   streamChatMessage,
   uploadDataset,
   type AgentStateStreamPayload,
@@ -228,6 +229,7 @@ export function useAnalysisInteractions(options: {
     const attachedFiles = pendingAttachment.value
     const hasAttachedFiles = attachedFiles.length > 0
     const userMessage = message || (hasAttachedFiles ? `${formatAttachmentName(attachedFiles)} 파일을 분석해줘.` : '')
+    const shouldResolveSessionTitle = !sessionState.messages.some((entry) => entry.role === 'user')
     const userMessageEntry: ChatMessage = {
       role: 'user',
       text: userMessage,
@@ -260,6 +262,16 @@ export function useAnalysisInteractions(options: {
     try {
       const shouldSeparateNextTextSegment: { current: boolean } = { current: false }
       let attachmentPreview: MessageAttachmentPreview | undefined
+      if (shouldResolveSessionTitle) {
+        void resolveSessionTitle(sessionId, userMessage)
+          .then((response) => {
+            const title = response.title.trim()
+            if (!title) return
+            updateSessionTitleLocally(sessionId, title)
+            revealSessionSummary(sessionId, title)
+          })
+          .catch(() => undefined)
+      }
 
       if (hasAttachedFiles) {
         const uploadedDatasets = await Promise.all(
@@ -337,12 +349,7 @@ export function useAnalysisInteractions(options: {
           },
         },
       )
-      const nextSessionTitle = response.session_title?.trim()
-
-      if (nextSessionTitle) {
-        updateSessionTitleLocally(sessionId, nextSessionTitle)
-      }
-      revealSessionSummary(sessionId, nextSessionTitle || sessionState.title)
+      revealSessionSummary(sessionId, sessionState.title)
 
       const streamedAssistantText =
         sessionState.messages[assistantMessageIndex]?.role === 'assistant'
@@ -359,7 +366,6 @@ export function useAnalysisInteractions(options: {
           sessionState.messages[assistantMessageIndex]?.role === 'assistant'
             ? sessionState.messages[assistantMessageIndex].subMessages ?? []
             : [],
-        route: response.route,
         usedTools: response.used_tools,
         plan: response.plan,
         planExplanation: response.plan_explanation?.trim() || undefined,

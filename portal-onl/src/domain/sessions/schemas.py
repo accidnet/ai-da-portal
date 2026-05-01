@@ -21,6 +21,15 @@ class SessionUpdateRequest(BaseModel):
     preferred_dataset_id: str | None = None
 
 
+class SessionTitleRequest(BaseModel):
+    user_message: str
+
+
+class SessionTitleResponse(BaseModel):
+    session_id: str
+    title: str
+
+
 class SessionLastDataset(BaseModel):
     id: str
     filename: str

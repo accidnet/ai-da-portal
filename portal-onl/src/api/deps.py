@@ -11,8 +11,10 @@ from domain.datasets.service import DatasetService
 from domain.messages.service import MessageService
 from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
+from domain.sessions.title_service import SessionTitleService
 from infrastructure.ai.client import AiClient
 from infrastructure.ai.openai_client import OpenAiProvider
+from infrastructure.db.repositories import MessageRepository, SessionRepository
 
 
 def get_app_settings() -> Settings:
@@ -20,8 +22,21 @@ def get_app_settings() -> Settings:
 
 
 @lru_cache
+def get_session_repository() -> SessionRepository:
+    return SessionRepository()
+
+
+@lru_cache
+def get_message_repository() -> MessageRepository:
+    return MessageRepository()
+
+
+@lru_cache
 def get_session_service() -> SessionService:
-    return SessionService()
+    return SessionService(
+        repository=get_session_repository(),
+        message_repository=get_message_repository(),
+    )
 
 
 @lru_cache
@@ -62,16 +77,22 @@ def get_analysis_service() -> AnalysisService:
 @lru_cache
 def get_message_service() -> MessageService:
     return MessageService(
-        llm_client=get_llm_client(),
         dataset_service=get_dataset_service(),
         session_service=get_session_service(),
+        message_repository=get_message_repository(),
     )
 
 
 def get_message_stream_service() -> MessageStreamService:
     return MessageStreamService(
+        session_service=get_session_service(),
+        message_repository=get_message_repository(),
+    )
+
+
+def get_session_title_service() -> SessionTitleService:
+    return SessionTitleService(
         llm_client=get_llm_client(),
-        dataset_service=get_dataset_service(),
         session_service=get_session_service(),
     )
 

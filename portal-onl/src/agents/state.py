@@ -14,7 +14,6 @@ class AgentState(TypedDict, total=False):
     session_id: str
     message: str
     dataset_ids: list[str]
-    session_dataset_ids: list[str]
     route: AgentRoute
     plan: list[PlanStep]
     plan_explanation: str | None

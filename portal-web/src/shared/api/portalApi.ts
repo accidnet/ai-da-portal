@@ -45,6 +45,11 @@ export interface SessionUpdatePayload {
   preferred_dataset_id?: string | null
 }
 
+export interface SessionTitleResponse {
+  session_id: string
+  title: string
+}
+
 export interface DatasetInfoResponse {
   id: string
   filename: string
@@ -95,11 +100,15 @@ export interface DatasetProfileResponse {
   }
 }
 
+export type ChatRoute = 'conversation' | 'dataset_analysis' | 'analysis_request'
+
+export type ChatStatus = 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
+
 export interface SessionSnapshotMessageResponse {
   role: 'user' | 'assistant'
   author?: string | null
   text?: string | null
-  route?: 'conversation' | 'dataset_analysis' | 'analysis_request' | null
+  route?: ChatRoute | null
   used_tools?: string[] | null
   plan?: Array<{
     step: string
@@ -130,17 +139,13 @@ export interface SessionSnapshotResponse {
 }
 
 export interface ChatResponse {
-  session_id: string
-  session_title?: string | null
   assistant_message: string
-  route: 'conversation' | 'dataset_analysis' | 'analysis_request'
   used_tools: string[]
   plan: Array<{
     step: string
     status: 'pending' | 'in_progress' | 'completed'
   }>
   plan_explanation?: string | null
-  status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
   analytics: {
     summary_cards: Array<{
       label: string
@@ -207,19 +212,13 @@ export interface ChatResponse {
   } | null
 }
 
-export interface ChatInteractionDataset {
-  detail: DatasetInfoResponse
-  preview: DatasetPreviewResponse
-  profile: DatasetProfileResponse
-}
-
 export interface AgentStateStreamPayload {
-  route: ChatResponse['route']
+  route: ChatRoute
   assistant_message: string
   used_tools: ChatResponse['used_tools']
   plan: ChatResponse['plan']
   plan_explanation?: string | null
-  status: ChatResponse['status']
+  status: ChatStatus
   analytics: ChatResponse['analytics'] | null
   workspace: ChatResponse['workspace'] | null
   resolved_dataset_id?: string | null
@@ -249,7 +248,6 @@ interface ChatStreamEvent {
   detail?: string
   state?: AgentStateStreamPayload
   response?: ChatResponse
-  dataset?: ChatInteractionDataset | null
 }
 
 export interface StreamChatMessageOptions {
@@ -258,7 +256,6 @@ export interface StreamChatMessageOptions {
   onDelta?: (delta: string) => void
   onSubMessage?: (event: ChatSubMessageStreamEvent) => void
   onState?: (state: AgentStateStreamPayload) => void
-  onDataset?: (dataset: ChatInteractionDataset) => void
 }
 
 export interface AnalysisResponse {
@@ -266,7 +263,7 @@ export interface AnalysisResponse {
   session_id: string
   dataset_id: string | null
   analysis_type: string
-  status: 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
+  status: ChatStatus
   created_at: string
   analytics: ChatResponse['analytics']
   workspace: ChatResponse['workspace']
@@ -363,6 +360,28 @@ export async function createSession(
   }
 
   return (await response.json()) as SessionDetailResponse
+}
+
+export async function resolveSessionTitle(
+  sessionId: string,
+  userMessage: string,
+  signal?: AbortSignal,
+): Promise<SessionTitleResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions/${sessionId}/title`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_message: userMessage }),
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Session title resolve failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as SessionTitleResponse
 }
 
 export async function fetchSessions(signal?: AbortSignal): Promise<SessionSummaryResponse[]> {
@@ -520,18 +539,17 @@ export async function streamChatMessage(
 ): Promise<ChatResponse> {
   const headers: Record<string, string> = {
     Accept: 'text/event-stream',
-  }
-  const formData = new FormData()
-  formData.append('session_id', payload.sessionId)
-  formData.append('message', payload.message)
-  for (const datasetId of payload.datasetIds ?? []) {
-    formData.append('uploaded_dataset_ids', datasetId)
+    'Content-Type': 'application/json',
   }
 
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages/stream`, {
     method: 'POST',
     headers,
-    body: formData,
+    body: JSON.stringify({
+      session_id: payload.sessionId,
+      message: payload.message,
+      uploaded_dataset_ids: payload.datasetIds ?? [],
+    }),
     signal: options.signal,
   })
 
@@ -557,7 +575,7 @@ export async function streamChatMessage(
   let completedResponse: ChatResponse | null = null
 
   const processEvent = (event: ChatStreamEvent, fallbackType = '') => {
-    const eventType = event.type || fallbackType
+    const eventType = fallbackType || event.type
 
     if (eventType === 'response.output_text.delta' && typeof event.delta === 'string') {
       options.onDelta?.(event.delta)
@@ -573,8 +591,9 @@ export async function streamChatMessage(
       const isReservedEvent =
         eventType === 'agent.state'
         || eventType === 'agent.text_segment.start'
-        || eventType === 'dataset.ready'
+        || eventType === 'chat.completed'
         || eventType === 'response.completed'
+        || eventType === 'message.completed'
         || eventType === 'error'
 
       if (!isReservedEvent && (typeof event.delta === 'string' || typeof event.arguments === 'string' || typeof event.text === 'string')) {
@@ -597,12 +616,14 @@ export async function streamChatMessage(
       return
     }
 
-    if (eventType === 'dataset.ready' && event.dataset) {
-      options.onDataset?.(event.dataset)
-      return
-    }
-
-    if (eventType === 'response.completed' && event.response) {
+    if (
+      (
+        eventType === 'chat.completed'
+        || eventType === 'message.completed'
+        || eventType === 'response.completed'
+      )
+      && event.response
+    ) {
       completedResponse = event.response
       return
     }

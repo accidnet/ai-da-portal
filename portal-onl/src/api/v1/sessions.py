@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, status
 from fastapi import HTTPException
 
-from api.deps import get_dataset_service, get_session_service
+from api.deps import (
+    get_dataset_service,
+    get_session_service,
+    get_session_title_service,
+)
 from domain.datasets.service import DatasetService
 from domain.sessions.schemas import (
     SessionCreateRequest,
@@ -11,9 +15,12 @@ from domain.sessions.schemas import (
     SessionDetail,
     SessionSnapshotResponse,
     SessionSummary,
+    SessionTitleRequest,
+    SessionTitleResponse,
     SessionUpdateRequest,
 )
 from domain.sessions.service import SessionService
+from domain.sessions.title_service import SessionTitleService
 
 router = APIRouter()
 
@@ -64,6 +71,25 @@ def update_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' was not found.",
         ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/{session_id}/title", response_model=SessionTitleResponse)
+def resolve_session_title(
+    session_id: str,
+    payload: SessionTitleRequest,
+    title_service: SessionTitleService = Depends(get_session_title_service),
+) -> SessionTitleResponse:
+    try:
+        title = title_service.resolve_title(
+            session_id=session_id,
+            user_message=payload.user_message,
+        )
+        return SessionTitleResponse(session_id=session_id, title=title)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
