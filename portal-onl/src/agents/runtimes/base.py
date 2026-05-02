@@ -87,11 +87,13 @@ class BaseAgent:
             ),
         }
 
-    def _build_developer_input(self, *, dataset_ids: list[str]):
+    def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
+        """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 변환합니다."""
+
         payload = {"dataset_ids": dataset_ids}
         return Message(
             role="developer",
-            content=(ResponseInputText(text=f"다음의 정보를 활용하세요.\n{payload}")),
+            content=(ResponseInputText(text=f"다음의 정보를 활용하세요.\n{payload}"),),
         )
 
     def _build_inputs(
