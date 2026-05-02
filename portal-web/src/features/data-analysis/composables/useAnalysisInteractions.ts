@@ -260,7 +260,7 @@ export function useAnalysisInteractions(options: {
     ]
 
     try {
-      const shouldSeparateNextTextSegment: { current: boolean } = { current: false }
+      const shouldSeparateNextAgentIteration: { current: boolean } = { current: false }
       let attachmentPreview: MessageAttachmentPreview | undefined
       if (shouldResolveSessionTitle) {
         void resolveSessionTitle(sessionId, userMessage)
@@ -321,8 +321,8 @@ export function useAnalysisInteractions(options: {
         },
         {
           signal: chatStreamController.signal,
-          onTextSegmentStart() {
-            shouldSeparateNextTextSegment.current = true
+          onAgentIterationStart() {
+            shouldSeparateNextAgentIteration.current = true
           },
           onDelta(delta) {
             const current = sessionState.messages[assistantMessageIndex]
@@ -332,14 +332,14 @@ export function useAnalysisInteractions(options: {
                 ? {
                     ...entry,
                     text: `${
-                      shouldSeparateNextTextSegment.current && entry.text.trim()
+                      shouldSeparateNextAgentIteration.current && entry.text.trim()
                         ? `${entry.text}\n\n`
                         : entry.text
                     }${delta}`,
                   }
                 : entry,
             )
-            shouldSeparateNextTextSegment.current = false
+            shouldSeparateNextAgentIteration.current = false
           },
           onSubMessage(event) {
             applyStreamingSubMessage(assistantMessageIndex, sessionState, event)

@@ -441,10 +441,10 @@ class BaseAgent:
 
         return normalized
 
-    def _response_kwargs(
+    def _build_llm_request_kwargs(
         self, inputs: list[dict[str, object]]
     ) -> dict[str, object]:
-        # 요청 파라미터는 두 실행 방식에서 동일하게 사용합니다.
+        # 외부 LLM API 호출에 필요한 요청 파라미터를 구성합니다.
         return {
             "instructions": load_prompt("base.md"),
             "input": inputs,

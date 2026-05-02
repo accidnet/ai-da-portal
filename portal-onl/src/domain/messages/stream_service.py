@@ -8,9 +8,9 @@ from fastapi.responses import StreamingResponse
 
 from agents.runtimes import ChatStreamingAgent
 from agents.state import AgentRoute
+from core.sse import SseEvent
 from domain.messages.schemas import (
     MessageStreamRequest,
-    SseEvent,
 )
 from domain.sessions.service import SessionService
 from domain.shared import AnalyticsPayload, WorkspacePayload
@@ -113,13 +113,7 @@ class MessageStreamService:
                     state = cast(dict[str, object], exc.value)
                     break
 
-                event_type = event.get("type")
-                yield self._encode_sse_event(
-                    SseEvent(
-                        event_type=event_type if isinstance(event_type, str) else None,
-                        data=event,
-                    )
-                )
+                yield self._encode_sse_event(self._coerce_sse_event(event))
 
             snapshot = self._snapshot_state(agent_runtime, state)
             self._record_chat_snapshot(
@@ -249,3 +243,14 @@ class MessageStreamService:
         event_type = event.event_type or "message"
         encoded = json.dumps(event.data, ensure_ascii=False)
         return f"event: {event_type}\ndata: {encoded}\n\n"
+
+    def _coerce_sse_event(self, event: dict[str, object] | SseEvent) -> SseEvent:
+        """에이전트 이벤트를 SSE 이벤트 모델로 정규화합니다."""
+        if isinstance(event, SseEvent):
+            return event
+
+        event_type = event.get("type")
+        return SseEvent(
+            event_type=event_type if isinstance(event_type, str) else None,
+            data=event,
+        )

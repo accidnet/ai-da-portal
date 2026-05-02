@@ -6,18 +6,20 @@ from typing import cast
 from agents.runtimes.base import BaseAgent
 from agents.state import AgentState
 from agents.stream_event_handlers import handle_stream_event
+from core.sse import SseEvent
 from domain.analyses.service import AnalysisService
 from domain.datasets.service import DatasetService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 
 logger = logging.getLogger(__name__)
+AgentStreamEvent = dict[str, object] | SseEvent
 
 
 class ChatStreamingAgent(BaseAgent):
 
     def invoke(
         self, state: AgentState
-    ) -> Generator[dict[str, object], None, AgentState]:
+    ) -> Generator[AgentStreamEvent, None, AgentState]:
 
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
@@ -38,20 +40,24 @@ class ChatStreamingAgent(BaseAgent):
         max_iterations = 10
         iteration_count = 0
         while True:
+
             if iteration_count >= max_iterations:
                 break
+
             iteration_count += 1
 
-            if iteration_count > 1:
-                yield {
-                    "type": "agent.text_segment.start",
+            # iteration이 시작할때마다 프론트에 전달
+            yield SseEvent(
+                event_type="agent.iteration.start",
+                data={
                     "iteration": iteration_count,
-                }
+                },
+            )
 
-            response_kwargs = self._response_kwargs(inputs)
+            # 외부 LLM API 호출
             response = yield from self._parse_stream_response_events(
                 self._llm_client.create_response(
-                    **response_kwargs,
+                    **self._build_llm_request_kwargs(inputs),
                     stream=True,
                 ),
             )
