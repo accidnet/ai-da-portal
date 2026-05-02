@@ -21,6 +21,13 @@ class MessageStreamRequest(BaseModel):
     uploaded_dataset_ids: list[str] = Field(default_factory=list)
 
 
+class SseEvent(BaseModel):
+    """SSE 인코딩에 사용할 이벤트 타입과 payload를 표현합니다."""
+
+    event_type: str | None = None
+    data: dict[str, object]
+
+
 class ChatResponse(BaseModel):
     session_id: str
     assistant_message: str

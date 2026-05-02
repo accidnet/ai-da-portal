@@ -76,7 +76,6 @@ class ChatStreamingAgent(BaseAgent):
             if result_state is not None:
                 return result_state
 
-        working_state.setdefault("route", "conversation")
         return working_state
 
     def _parse_stream_response_events(

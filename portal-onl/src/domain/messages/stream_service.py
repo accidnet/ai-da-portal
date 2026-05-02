@@ -10,6 +10,7 @@ from agents.runtimes import ChatStreamingAgent
 from agents.state import AgentRoute
 from domain.messages.schemas import (
     MessageStreamRequest,
+    SseEvent,
 )
 from domain.sessions.service import SessionService
 from domain.shared import AnalyticsPayload, WorkspacePayload
@@ -114,8 +115,10 @@ class MessageStreamService:
 
                 event_type = event.get("type")
                 yield self._encode_sse_event(
-                    event_type=event_type if isinstance(event_type, str) else None,
-                    data=event,
+                    SseEvent(
+                        event_type=event_type if isinstance(event_type, str) else None,
+                        data=event,
+                    )
                 )
 
             snapshot = self._snapshot_state(agent_runtime, state)
@@ -127,31 +130,33 @@ class MessageStreamService:
             )
 
             yield self._encode_sse_event(
-                event_type=CHAT_COMPLETED_EVENT_TYPE,
-                data={
-                    "response": {
-                        "assistant_message": snapshot["assistant_message"],
-                        "used_tools": snapshot["used_tools"],
-                        "plan": snapshot["plan"],
-                        "plan_explanation": snapshot["plan_explanation"],
-                        "analytics": (
-                            snapshot["analytics"].model_dump(mode="json")
-                            if isinstance(
-                                snapshot["analytics"],
-                                AnalyticsPayload,
-                            )
-                            else None
-                        ),
-                        "workspace": (
-                            snapshot["workspace"].model_dump(mode="json")
-                            if isinstance(
-                                snapshot["workspace"],
-                                WorkspacePayload,
-                            )
-                            else None
-                        ),
+                SseEvent(
+                    event_type=CHAT_COMPLETED_EVENT_TYPE,
+                    data={
+                        "response": {
+                            "assistant_message": snapshot["assistant_message"],
+                            "used_tools": snapshot["used_tools"],
+                            "plan": snapshot["plan"],
+                            "plan_explanation": snapshot["plan_explanation"],
+                            "analytics": (
+                                snapshot["analytics"].model_dump(mode="json")
+                                if isinstance(
+                                    snapshot["analytics"],
+                                    AnalyticsPayload,
+                                )
+                                else None
+                            ),
+                            "workspace": (
+                                snapshot["workspace"].model_dump(mode="json")
+                                if isinstance(
+                                    snapshot["workspace"],
+                                    WorkspacePayload,
+                                )
+                                else None
+                            ),
+                        },
                     },
-                },
+                )
             )
         except AiClientError as exc:
             logger.exception(
@@ -160,8 +165,10 @@ class MessageStreamService:
                 len(dataset_ids),
             )
             yield self._encode_sse_event(
-                event_type="error",
-                data={"type": "error", "detail": str(exc)},
+                SseEvent(
+                    event_type="error",
+                    data={"type": "error", "detail": str(exc)},
+                )
             )
 
     def _record_chat_snapshot(
@@ -236,12 +243,9 @@ class MessageStreamService:
             ),
         }
 
-    def _encode_sse_event(
-        self, *, event_type: str | None, data: dict[str, object]
-    ) -> str:
-        """이벤트 타입과 payload dict를 SSE 문자열로 인코딩합니다."""
+    def _encode_sse_event(self, event: SseEvent) -> str:
+        """SSE 이벤트 모델을 클라이언트 전송 문자열로 인코딩합니다."""
         # 이벤트 타입이 없으면 SSE 기본 이벤트명인 message로 보냅니다.
-        if not event_type:
-            event_type = "message"
-        encoded = json.dumps(data, ensure_ascii=False)
+        event_type = event.event_type or "message"
+        encoded = json.dumps(event.data, ensure_ascii=False)
         return f"event: {event_type}\ndata: {encoded}\n\n"
