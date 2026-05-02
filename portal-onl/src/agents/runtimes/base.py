@@ -5,7 +5,7 @@ from typing import Literal, cast
 from agents.prompt_loader import load_prompt
 from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from domain.analyses.service import AnalysisService
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
 from infrastructure.ai.input_models import (
@@ -26,7 +26,7 @@ class BaseAgent:
         self,
         *,
         llm_client: AiClient,
-        dataset_service: DatasetService,
+        dataset_service: DatasetApplicationService,
         analysis_service: AnalysisService,
     ) -> None:
         self._llm_client = llm_client

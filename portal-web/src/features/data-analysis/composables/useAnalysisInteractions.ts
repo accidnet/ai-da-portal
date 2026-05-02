@@ -459,11 +459,6 @@ export function useAnalysisInteractions(options: {
     }
   }
 
-  async function handleSuggestedPrompt(prompt: string, setUploadError: (message: string | null) => void) {
-    if (!prompt || isSending.value || isRunningAnalysis.value) return
-    await handleSendMessage(prompt, { setUploadError })
-  }
-
   async function handleInsightAction() {
     if (isSending.value || isRunningAnalysis.value) return
     if (activeDataset.value) {
@@ -544,7 +539,6 @@ export function useAnalysisInteractions(options: {
     handleSendMessage,
     cancelActiveChatStream,
     runAnalysis,
-    handleSuggestedPrompt,
     handleInsightAction,
     exportAnalyticsReport,
     shareAnalyticsReport,

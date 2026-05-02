@@ -95,7 +95,6 @@ class DatasetProfilePayload(BaseModel):
     row_count: int
     column_count: int
     columns: list[DatasetColumnProfile] = Field(default_factory=list)
-    suggested_prompts: list[str] = Field(default_factory=list)
 
 
 class AnalyticsPayload(BaseModel):

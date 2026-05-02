@@ -27,7 +27,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  promptClick: [prompt: string]
   toggleFullscreen: []
   exportReport: []
   shareReport: []
@@ -76,7 +75,6 @@ function normalizeDatasetProfile(payload: AnalyticsPayload['dataset_profile'] | 
       nullRatio: column.null_ratio,
       sampleValues: column.sample_values,
     })),
-    suggestedPrompts: payload.suggested_prompts,
   }
 }
 
@@ -230,13 +228,6 @@ function visualizationComponent(section: WorkspaceSectionPayload) {
             <span>{{ column.dtype }} · 결측 {{ Math.round(column.nullRatio * 100) }}%</span>
             <small v-if="column.sampleValues.length">예시값: {{ column.sampleValues.join(', ') }}</small>
           </article>
-        </div>
-
-        <div v-if="backendDatasetProfile?.suggestedPrompts.length" class="prompt-list">
-          <p>추천 프롬프트</p>
-          <button v-for="prompt in backendDatasetProfile.suggestedPrompts" :key="prompt" type="button" :disabled="isLoading" @click="emit('promptClick', prompt)">
-            {{ prompt }}
-          </button>
         </div>
       </section>
     </template>

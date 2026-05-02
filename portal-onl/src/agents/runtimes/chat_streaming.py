@@ -8,7 +8,7 @@ from agents.state import AgentState
 from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from domain.analyses.service import AnalysisService
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 
 logger = logging.getLogger(__name__)
@@ -254,7 +254,7 @@ class ChatStreamingAgent(BaseAgent):
 def build_chat_streaming_agent(
     *,
     llm_client: AiClient,
-    dataset_service: DatasetService,
+    dataset_service: DatasetApplicationService,
     analysis_service: AnalysisService,
 ) -> ChatStreamingAgent:
     return ChatStreamingAgent(

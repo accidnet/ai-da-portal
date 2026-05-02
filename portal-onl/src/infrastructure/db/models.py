@@ -114,6 +114,19 @@ class UserMessageDatasetLinkOrm(Base):
     user_message: Mapped[UserMessageOrm] = relationship(back_populates="dataset_links")
 
 
+class DatasetOrm(Base):
+    """업로드 데이터셋의 파일 메타데이터를 저장하는 ORM 모델입니다."""
+
+    __tablename__ = "datasets"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class BotResponseOrm(Base):
     """사용자 메시지에 대응하는 봇 응답과 응답 메타데이터를 저장합니다."""
 

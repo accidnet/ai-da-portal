@@ -1,8 +1,25 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import pandas as pd
 
+from domain.datasets.schemas import DatasetPreviewPayload
 from domain.shared import DatasetColumnProfile, DatasetProfilePayload
+
+
+def build_preview_from_dataframe(
+    dataframe: pd.DataFrame, max_rows: int = 10, max_columns: int = 20
+) -> DatasetPreviewPayload:
+    preview_columns = list(dataframe.columns[:max_columns])
+    columns = [str(column) for column in preview_columns]
+    preview_frame = dataframe.loc[:, preview_columns].head(max_rows).copy()
+    preview_frame = preview_frame.where(pd.notna(preview_frame), None)
+    rows = [
+        {key: _coerce_preview_value(value) for key, value in row.items()}
+        for row in preview_frame.to_dict(orient="records")
+    ]
+    return DatasetPreviewPayload(columns=columns, rows=rows)
 
 
 def build_profile_from_dataframe(dataframe: pd.DataFrame) -> DatasetProfilePayload:
@@ -19,8 +36,24 @@ def build_profile_from_dataframe(dataframe: pd.DataFrame) -> DatasetProfilePaylo
         row_count=int(len(dataframe)),
         column_count=int(len(dataframe.columns)),
         columns=columns,
-        suggested_prompts=_build_suggested_prompts(dataframe),
     )
+
+
+def _coerce_preview_value(value: object) -> str | int | float | None:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float)):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray, str)):
+        return ", ".join(str(item) for item in value)
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(value)
 
 
 def _normalize_dtype(series: pd.Series) -> str:
@@ -52,34 +85,3 @@ def _sample_values(series: pd.Series, max_samples: int = 3) -> list[str]:
         else:
             samples.append(str(value))
     return samples
-
-
-def _build_suggested_prompts(dataframe: pd.DataFrame) -> list[str]:
-    numeric_columns = [
-        str(column)
-        for column in dataframe.columns
-        if pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    datetime_columns = [
-        str(column)
-        for column in dataframe.columns
-        if pd.api.types.is_datetime64_any_dtype(dataframe[column])
-    ]
-    categorical_columns = [
-        str(column)
-        for column in dataframe.columns
-        if not pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-
-    prompts: list[str] = []
-    if numeric_columns:
-        prompts.append(f"Compare trends in {numeric_columns[0]} across time or groups.")
-    if datetime_columns and numeric_columns:
-        prompts.append(f"Plot {numeric_columns[0]} over {datetime_columns[0]} and highlight anomalies.")
-    if categorical_columns and numeric_columns:
-        prompts.append(
-            f"Aggregate {numeric_columns[0]} by {categorical_columns[0]} and explain the top segments."
-        )
-    if len(prompts) < 3:
-        prompts.append("Summarize missing values and outlier risk in this dataset.")
-    return prompts[:3]

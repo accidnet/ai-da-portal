@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from domain.datasets.profiling import build_profile_from_dataframe
+from application.datasets.inspection import build_profile_from_dataframe
 from domain.shared import (
     AnalyticsPayload,
     ChartId,

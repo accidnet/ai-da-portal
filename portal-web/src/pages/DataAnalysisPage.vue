@@ -139,7 +139,6 @@ const {
   handleInteractionFileChange,
   handleSendMessage,
   cancelActiveChatStream,
-  handleSuggestedPrompt,
   exportAnalyticsReport,
   shareAnalyticsReport,
 } = useAnalysisInteractions({
@@ -252,13 +251,6 @@ function handleWorkspaceDropFile(files: File[]) {
 
 function onInteractionFileChange(event: Event) {
   handleInteractionFileChange(event, (message) => {
-    uploadError.value = message
-  })
-}
-
-async function onSuggestedPrompt(prompt: string) {
-  if (isUploading.value) return
-  await handleSuggestedPrompt(prompt, (message) => {
     uploadError.value = message
   })
 }
@@ -470,7 +462,6 @@ onBeforeUnmount(() => {
           @remove-attachment="clearPendingAttachment"
           @send="handleWorkspaceSend"
           @resize-start="startAnalyticsPaneResize"
-          @prompt-click="onSuggestedPrompt"
           @toggle-fullscreen="toggleAnalyticsFullscreen"
           @export-report="exportAnalyticsReport"
           @share-report="shareAnalyticsReport"

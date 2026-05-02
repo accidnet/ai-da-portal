@@ -8,7 +8,7 @@ from domain.analyses.schemas import (
     AnalysisDetail,
     AnalysisRequest,
 )
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from domain.sessions.service import SessionService
 from domain.workspace.service import WorkspacePlanner
 from infrastructure.ai.client import AiClient
@@ -17,7 +17,7 @@ from infrastructure.ai.client import AiClient
 class AnalysisService:
     def __init__(
         self,
-        dataset_service: DatasetService,
+        dataset_service: DatasetApplicationService,
         llm_client: AiClient | None,
         session_service: SessionService,
     ) -> None:

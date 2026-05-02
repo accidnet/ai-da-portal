@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -8,8 +7,10 @@ import pandas as pd
 from fastapi import UploadFile
 
 from core.paths import UPLOADED_DATASET_DIR
-from domain.datasets.preview import build_preview_from_dataframe
-from domain.datasets.profiling import build_profile_from_dataframe
+from application.datasets.inspection import (
+    build_preview_from_dataframe,
+    build_profile_from_dataframe,
+)
 from domain.datasets.schemas import (
     DatasetDeleteResponse,
     DatasetInfo,
@@ -18,12 +19,18 @@ from domain.datasets.schemas import (
     DatasetSummary,
 )
 from domain.sessions.service import SessionService
+from infrastructure.db.models import DatasetOrm
+from infrastructure.db.repositories import DatasetRepository
 from tools.dataframe_loader import load_dataframe
 
 
-class DatasetService:
-    def __init__(self, session_service: SessionService | None = None) -> None:
-        self._datasets: dict[str, _DatasetRecord] = {}
+class DatasetApplicationService:
+    def __init__(
+        self,
+        dataset_repository: DatasetRepository,
+        session_service: SessionService | None = None,
+    ) -> None:
+        self._dataset_repository = dataset_repository
         self._session_service = session_service
 
     async def upload(self, file: UploadFile) -> DatasetInfo:
@@ -43,80 +50,72 @@ class DatasetService:
         storage_path = self._store_uploaded_file(dataset_id, filename, content)
 
         # dataframe으로 변환
-        dataframe = self._load_dataframe(content, suffix=suffix)
+        self._load_dataframe(content, suffix=suffix)
 
         # Dataset 기본 정보
-        dataset_info = DatasetInfo(
-            id=dataset_id,
-            filename=file.filename or "dataset.csv",
+        dataset = self._dataset_repository.create(
+            dataset_id=dataset_id,
+            filename=filename,
             storage_path=str(storage_path),
             created_at=datetime.now(UTC),
         )
-
-        # 클래스 변수에 할당
-        self._datasets[dataset_id] = _DatasetRecord(
-            dataset_info=dataset_info,
-            dataframe=dataframe,
-        )
-
-        return dataset_info
+        return self._to_dataset_info(dataset)
 
     def list_datasets(self) -> list[DatasetSummary]:
-        return sorted(
-            (self._build_summary(record) for record in self._datasets.values()),
-            key=lambda detail: detail.created_at,
-            reverse=True,
-        )
+        return [
+            self._build_summary(dataset)
+            for dataset in self._dataset_repository.list_datasets()
+        ]
 
     def get(self, dataset_id: str) -> DatasetInfo:
-        return self._get_record(dataset_id).dataset_info
+        return self._to_dataset_info(self._dataset_repository.get_or_raise(dataset_id))
 
     def get_profile(self, dataset_id: str) -> DatasetProfileResponse:
-        record = self._get_record(dataset_id)
         return DatasetProfileResponse(
             dataset_id=dataset_id,
-            profile=build_profile_from_dataframe(record.dataframe),
+            profile=build_profile_from_dataframe(self.get_dataframe(dataset_id)),
         )
 
     def get_preview(self, dataset_id: str) -> DatasetPreviewResponse:
-        record = self._get_record(dataset_id)
-        columns, rows = build_preview_from_dataframe(record.dataframe)
-        return DatasetPreviewResponse(dataset_id=dataset_id, columns=columns, rows=rows)
+        preview = build_preview_from_dataframe(self.get_dataframe(dataset_id))
+        return DatasetPreviewResponse(
+            dataset_id=dataset_id,
+            columns=preview.columns,
+            rows=preview.rows,
+        )
 
     def get_dataframe(self, dataset_id: str) -> pd.DataFrame:
-        return self._get_record(dataset_id).dataframe.copy()
+        dataset = self._dataset_repository.get_or_raise(dataset_id)
+        return self._load_dataframe_from_dataset(dataset)
 
     def get_latest_dataset_id(self) -> str | None:
-        if not self._datasets:
-            return None
-        return max(
-            self._datasets.values(), key=lambda record: record.dataset_info.created_at
-        ).dataset_info.id
+        dataset = self._dataset_repository.get_latest()
+        return dataset.id if dataset is not None else None
 
     def get_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
         filenames: list[str] = []
         for dataset_id in dataset_ids:
-            record = self._datasets.get(dataset_id)
-            if record is None:
+            dataset = self._dataset_repository.get(dataset_id)
+            if dataset is None:
                 continue
-            filename = record.dataset_info.filename
+            filename = dataset.filename
             if filename not in filenames:
                 filenames.append(filename)
         return filenames
 
     def load_uploaded_file_by_filename(self, filename: str) -> dict[str, object]:
         normalized_filename = Path(filename).name
-        record = self._find_record_by_filename(normalized_filename)
-        if record is None or record.dataset_info.storage_path is None:
+        dataset = self._dataset_repository.find_latest_by_filename(normalized_filename)
+        if dataset is None:
             raise FileNotFoundError(normalized_filename)
 
-        storage_path = Path(record.dataset_info.storage_path)
-        dataframe = self._infer_datetime_columns(load_dataframe(storage_path))
+        storage_path = Path(dataset.storage_path)
+        dataframe = self._load_dataframe_from_dataset(dataset)
         preview = build_preview_from_dataframe(dataframe)
 
         return {
             "filename": normalized_filename,
-            "dataset_id": record.dataset_info.id,
+            "dataset_id": dataset.id,
             "storage_path": str(storage_path),
             "row_count": int(len(dataframe.index)),
             "column_count": int(len(dataframe.columns)),
@@ -130,8 +129,8 @@ class DatasetService:
                 for column, count in dataframe.isna().sum().items()
             },
             "preview": {
-                "columns": preview[0],
-                "rows": preview[1],
+                "columns": preview.columns,
+                "rows": preview.rows,
             },
         }
 
@@ -139,23 +138,18 @@ class DatasetService:
         linked_sessions = self._linked_sessions(dataset_id)
         if linked_sessions:
             raise ValueError("Dataset is still linked to one or more sessions.")
-        del self._datasets[dataset_id]
+        self._dataset_repository.delete(dataset_id)
         return DatasetDeleteResponse(id=dataset_id, deleted=True)
 
-    def _get_record(self, dataset_id: str) -> "_DatasetRecord":
-        record = self._datasets.get(dataset_id)
-        if record is None:
-            raise KeyError(dataset_id)
-        return record
-
-    def _build_summary(self, record: "_DatasetRecord") -> DatasetSummary:
-        linked_sessions = self._linked_sessions(record.dataset_info.id)
+    def _build_summary(self, dataset: DatasetOrm) -> DatasetSummary:
+        linked_sessions = self._linked_sessions(dataset.id)
         linked_session_ids = [session_id for session_id, _ in linked_sessions]
         latest_used_at = linked_sessions[0][1] if linked_sessions else None
+        dataframe = self._load_dataframe_from_dataset(dataset)
         return DatasetSummary(
-            **record.dataset_info.model_dump(),
-            row_count=len(record.dataframe.index),
-            column_count=len(record.dataframe.columns),
+            **self._to_dataset_info(dataset).model_dump(),
+            row_count=len(dataframe.index),
+            column_count=len(dataframe.columns),
             linked_session_count=len(linked_session_ids),
             linked_session_ids=linked_session_ids,
             latest_used_at=latest_used_at,
@@ -174,16 +168,6 @@ class DatasetService:
         stored_path = UPLOADED_DATASET_DIR / f"{dataset_id}__{safe_name}"
         stored_path.write_bytes(content)
         return stored_path
-
-    def _find_record_by_filename(self, filename: str) -> "_DatasetRecord | None":
-        candidates = [
-            record
-            for record in self._datasets.values()
-            if record.dataset_info.filename == filename and record.dataset_info.storage_path is not None
-        ]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda record: record.dataset_info.created_at)
 
     def _load_dataframe(self, content: bytes, suffix: str) -> pd.DataFrame:
         normalized_suffix = suffix.lower()
@@ -215,8 +199,13 @@ class DatasetService:
                 inferred[column] = converted
         return inferred
 
+    def _load_dataframe_from_dataset(self, dataset: DatasetOrm) -> pd.DataFrame:
+        return self._infer_datetime_columns(load_dataframe(Path(dataset.storage_path)))
 
-@dataclass(slots=True)
-class _DatasetRecord:
-    dataset_info: DatasetInfo
-    dataframe: pd.DataFrame
+    def _to_dataset_info(self, dataset: DatasetOrm) -> DatasetInfo:
+        return DatasetInfo(
+            id=dataset.id,
+            filename=dataset.filename,
+            storage_path=dataset.storage_path,
+            created_at=dataset.created_at,
+        )

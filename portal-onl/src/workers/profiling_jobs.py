@@ -1,6 +1,6 @@
 import pandas as pd
 
-from domain.datasets.profiling import build_profile_from_dataframe
+from application.datasets.inspection import build_profile_from_dataframe
 
 
 def run_dataset_profile(dataset_id: str) -> dict[str, object]:

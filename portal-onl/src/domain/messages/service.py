@@ -5,7 +5,7 @@ from fastapi import UploadFile
 
 from agents.runtimes import ChatAgent
 from agents.state import AgentRoute
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from domain.messages.schemas import (
     ChatInteractionDataset,
     ChatRequest,
@@ -28,7 +28,7 @@ class MessageService:
 
     def __init__(
         self,
-        dataset_service: DatasetService,
+        dataset_service: DatasetApplicationService,
         session_service: SessionService,
         message_repository: MessageRepository,
     ) -> None:

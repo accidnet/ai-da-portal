@@ -1,6 +1,6 @@
 from agents.runtimes.base import BaseAgent
 from domain.analyses.service import AnalysisService
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient
 
 
@@ -11,7 +11,7 @@ class ChatAgent(BaseAgent):
 def build_chat_agent(
     *,
     llm_client: AiClient,
-    dataset_service: DatasetService,
+    dataset_service: DatasetApplicationService,
     analysis_service: AnalysisService,
 ) -> ChatAgent:
     return ChatAgent(

@@ -40,7 +40,6 @@ const emit = defineEmits<{
   removeAttachment: []
   send: [message: string]
   resizeStart: [event: PointerEvent]
-  promptClick: [prompt: string]
   toggleFullscreen: []
   exportReport: []
   shareReport: []
@@ -98,7 +97,6 @@ const emit = defineEmits<{
         :is-fullscreen="isAnalyticsFullscreen"
         :export-disabled="!canExportReport"
         :share-disabled="!canExportReport"
-        @prompt-click="(prompt) => emit('promptClick', prompt)"
         @toggle-fullscreen="emit('toggleFullscreen')"
         @export-report="emit('exportReport')"
         @share-report="emit('shareReport')"

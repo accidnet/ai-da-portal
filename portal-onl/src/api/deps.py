@@ -7,14 +7,18 @@ from agents.runtimes import (
 from core.config import Settings, get_settings
 from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
 from domain.analyses.service import AnalysisService
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from domain.messages.service import MessageService
 from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService
 from infrastructure.ai.client import AiClient
 from infrastructure.ai.openai_client import OpenAiProvider
-from infrastructure.db.repositories import MessageRepository, SessionRepository
+from infrastructure.db.repositories import (
+    DatasetRepository,
+    MessageRepository,
+    SessionRepository,
+)
 
 
 def get_app_settings() -> Settings:
@@ -29,6 +33,11 @@ def get_session_repository() -> SessionRepository:
 @lru_cache
 def get_message_repository() -> MessageRepository:
     return MessageRepository()
+
+
+@lru_cache
+def get_dataset_repository() -> DatasetRepository:
+    return DatasetRepository()
 
 
 @lru_cache
@@ -61,8 +70,11 @@ def get_llm_client() -> AiClient:
 
 
 @lru_cache
-def get_dataset_service() -> DatasetService:
-    return DatasetService(session_service=get_session_service())
+def get_dataset_service() -> DatasetApplicationService:
+    return DatasetApplicationService(
+        dataset_repository=get_dataset_repository(),
+        session_service=get_session_service(),
+    )
 
 
 @lru_cache

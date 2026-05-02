@@ -32,7 +32,6 @@ export function mapDatasetProfile(payload: DatasetProfileResponse['profile']): D
       nullRatio: column.null_ratio,
       sampleValues: column.sample_values,
     })),
-    suggestedPrompts: payload.suggested_prompts,
   }
 }
 

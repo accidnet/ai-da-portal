@@ -59,7 +59,6 @@ export function useDatasetLibrary(options: {
           nullRatio: column.null_ratio,
           sampleValues: column.sample_values,
         })),
-        suggestedPrompts: profile.profile.suggested_prompts,
       }
       datasetsLibrary.value = [...datasetsLibrary.value]
     } catch {
@@ -178,7 +177,6 @@ export function useDatasetLibrary(options: {
                     null_ratio: column.nullRatio,
                     sample_values: column.sampleValues,
                   })),
-                  suggested_prompts: details.profile.suggestedPrompts,
                 },
               }
             : null,

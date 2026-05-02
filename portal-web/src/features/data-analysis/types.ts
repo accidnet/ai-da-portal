@@ -172,7 +172,6 @@ export interface DatasetProfile {
   rowCount: number
   columnCount: number
   columns: DatasetColumnProfile[]
-  suggestedPrompts: string[]
 }
 
 export interface DatasetPreview {
@@ -271,7 +270,6 @@ export interface AnalyticsPayload {
       null_ratio: number
       sample_values: string[]
     }>
-    suggested_prompts: string[]
   } | null
 }
 

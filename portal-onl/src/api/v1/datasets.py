@@ -8,7 +8,7 @@ from domain.datasets.schemas import (
     DatasetProfileResponse,
     DatasetSummary,
 )
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from domain.sessions.service import SessionService
 
 router = APIRouter()
@@ -16,7 +16,7 @@ router = APIRouter()
 
 @router.get("", response_model=list[DatasetSummary])
 def list_datasets(
-    service: DatasetService = Depends(get_dataset_service),
+    service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> list[DatasetSummary]:
     return service.list_datasets()
 
@@ -27,7 +27,7 @@ def list_datasets(
 async def upload_dataset(
     file: UploadFile = File(...),
     session_id: str | None = Form(default=None),
-    service: DatasetService = Depends(get_dataset_service),
+    service: DatasetApplicationService = Depends(get_dataset_service),
     session_service: SessionService = Depends(get_session_service),
 ) -> DatasetInfo:
     if session_id is None or not session_id.strip():
@@ -47,7 +47,7 @@ async def upload_dataset(
 
 @router.get("/{dataset_id}", response_model=DatasetInfo)
 def get_dataset(
-    dataset_id: str, service: DatasetService = Depends(get_dataset_service)
+    dataset_id: str, service: DatasetApplicationService = Depends(get_dataset_service)
 ) -> DatasetInfo:
     try:
         return service.get(dataset_id)
@@ -61,7 +61,7 @@ def get_dataset(
 @router.get("/{dataset_id}/profile", response_model=DatasetProfileResponse)
 def get_dataset_profile(
     dataset_id: str,
-    service: DatasetService = Depends(get_dataset_service),
+    service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetProfileResponse:
     try:
         return service.get_profile(dataset_id)
@@ -75,7 +75,7 @@ def get_dataset_profile(
 @router.get("/{dataset_id}/preview", response_model=DatasetPreviewResponse)
 def get_dataset_preview(
     dataset_id: str,
-    service: DatasetService = Depends(get_dataset_service),
+    service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetPreviewResponse:
     try:
         return service.get_preview(dataset_id)
@@ -94,7 +94,7 @@ def get_dataset_preview(
 @router.delete("/{dataset_id}", response_model=DatasetDeleteResponse)
 def delete_dataset(
     dataset_id: str,
-    service: DatasetService = Depends(get_dataset_service),
+    service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetDeleteResponse:
     try:
         return service.delete(dataset_id)

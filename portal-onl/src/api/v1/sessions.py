@@ -6,7 +6,7 @@ from api.deps import (
     get_session_service,
     get_session_title_service,
 )
-from domain.datasets.service import DatasetService
+from application.datasets.service import DatasetApplicationService
 from domain.sessions.schemas import (
     SessionCreateRequest,
     SessionDatasetLinkRequest,
@@ -36,7 +36,7 @@ def create_session(
 @router.get("", response_model=list[SessionSummary])
 def list_sessions(
     service: SessionService = Depends(get_session_service),
-    dataset_service: DatasetService = Depends(get_dataset_service),
+    dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> list[SessionSummary]:
     return service.list_sessions(dataset_service)
 
@@ -45,7 +45,7 @@ def list_sessions(
 def get_session(
     session_id: str,
     service: SessionService = Depends(get_session_service),
-    dataset_service: DatasetService = Depends(get_dataset_service),
+    dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> SessionDetail:
     try:
         return service.hydrate_session_detail(session_id, dataset_service)
@@ -61,7 +61,7 @@ def update_session(
     session_id: str,
     payload: SessionUpdateRequest,
     service: SessionService = Depends(get_session_service),
-    dataset_service: DatasetService = Depends(get_dataset_service),
+    dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> SessionDetail:
     try:
         service.update(session_id, payload)
@@ -120,7 +120,7 @@ def attach_session_dataset(
     session_id: str,
     payload: SessionDatasetLinkRequest,
     session_service: SessionService = Depends(get_session_service),
-    dataset_service: DatasetService = Depends(get_dataset_service),
+    dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> SessionDatasetLinkResponse:
     try:
         dataset_service.get(payload.dataset_id)
@@ -140,7 +140,7 @@ def detach_session_dataset(
     session_id: str,
     dataset_id: str,
     session_service: SessionService = Depends(get_session_service),
-    dataset_service: DatasetService = Depends(get_dataset_service),
+    dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> SessionDatasetLinkResponse:
     try:
         dataset_service.get(dataset_id)
@@ -163,7 +163,7 @@ def detach_session_dataset(
 def get_session_snapshot(
     session_id: str,
     session_service: SessionService = Depends(get_session_service),
-    dataset_service: DatasetService = Depends(get_dataset_service),
+    dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> SessionSnapshotResponse:
     try:
         return session_service.get_snapshot(session_id, dataset_service)

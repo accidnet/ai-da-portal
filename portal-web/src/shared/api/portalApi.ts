@@ -96,7 +96,6 @@ export interface DatasetProfileResponse {
       null_ratio: number
       sample_values: string[]
     }>
-    suggested_prompts: string[]
   }
 }
 
@@ -184,7 +183,6 @@ export interface ChatResponse {
         null_ratio: number
         sample_values: string[]
       }>
-    suggested_prompts: string[]
     } | null
   } | null
   workspace: {

@@ -1,8 +1,13 @@
 from datetime import UTC, datetime
 import re
-from typing import TYPE_CHECKING
+from typing import Protocol
 from uuid import uuid4
 
+from domain.datasets.schemas import (
+    DatasetInfo,
+    DatasetPreviewResponse,
+    DatasetProfileResponse,
+)
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from domain.sessions.schemas import (
     SessionCreateRequest,
@@ -24,8 +29,15 @@ from infrastructure.db.models import (
 )
 from infrastructure.db.repositories import MessageRepository, SessionRepository
 
-if TYPE_CHECKING:
-    from domain.datasets.service import DatasetService
+
+class _SessionDatasetReader(Protocol):
+    """세션 스냅샷 생성에 필요한 데이터셋 조회 인터페이스입니다."""
+
+    def get(self, dataset_id: str) -> DatasetInfo: ...
+
+    def get_preview(self, dataset_id: str) -> DatasetPreviewResponse: ...
+
+    def get_profile(self, dataset_id: str) -> DatasetProfileResponse: ...
 
 
 class SessionService:
@@ -61,7 +73,9 @@ class SessionService:
         session = self._get_or_create_session(session_id, title=title)
         return self._build_session_detail(session, dataset_service=None)
 
-    def list_sessions(self, dataset_service: "DatasetService") -> list[SessionSummary]:
+    def list_sessions(
+        self, dataset_service: "_SessionDatasetReader"
+    ) -> list[SessionSummary]:
         sessions = self._repository.list_sessions()
         return [
             self._build_session_detail(session, dataset_service) for session in sessions
@@ -196,7 +210,7 @@ class SessionService:
         )
 
     def get_snapshot(
-        self, session_id: str, dataset_service: "DatasetService"
+        self, session_id: str, dataset_service: "_SessionDatasetReader"
     ) -> SessionSnapshotResponse:
         session = self._repository.get_or_raise(session_id)
         datasets: list[SessionSnapshotDataset] = []
@@ -256,7 +270,7 @@ class SessionService:
         )
 
     def _build_session_detail(
-        self, session: SessionOrm, dataset_service: "DatasetService | None"
+        self, session: SessionOrm, dataset_service: "_SessionDatasetReader | None"
     ) -> SessionDetail:
         last_dataset = self._build_last_dataset(session, dataset_service)
         return SessionDetail(
@@ -271,13 +285,13 @@ class SessionService:
         )
 
     def hydrate_session_detail(
-        self, session_id: str, dataset_service: "DatasetService"
+        self, session_id: str, dataset_service: "_SessionDatasetReader"
     ) -> SessionDetail:
         session = self._repository.get_or_raise(session_id)
         return self._build_session_detail(session, dataset_service)
 
     def _build_last_dataset(
-        self, session: SessionOrm, dataset_service: "DatasetService | None"
+        self, session: SessionOrm, dataset_service: "_SessionDatasetReader | None"
     ) -> SessionLastDataset | None:
         if dataset_service is None or not session.dataset_links:
             return None
