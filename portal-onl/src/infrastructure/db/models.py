@@ -122,6 +122,8 @@ class DatasetOrm(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    preview: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    profile: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

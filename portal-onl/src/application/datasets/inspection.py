@@ -4,8 +4,7 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-from domain.datasets.schemas import DatasetPreviewPayload
-from domain.shared import DatasetColumnProfile, DatasetProfilePayload
+from .dto import DatasetColumnProfile, DatasetPreviewPayload, DatasetProfilePayload
 
 
 def build_preview_from_dataframe(

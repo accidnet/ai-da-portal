@@ -5,6 +5,7 @@ type StringReader = Callable[[object], str | None]
 
 
 def tool_definition() -> dict[str, object]:
+    """업로드 파일 재조회용 에이전트 tool 정의를 반환합니다."""
     return {
         "type": "function",
         "name": "load_uploaded_dataset_file",
@@ -31,6 +32,7 @@ def execute(
     dataset_service,
     read_string: StringReader,
 ) -> dict[str, object]:
+    """파일명으로 업로드 데이터셋을 찾아 요약 정보를 반환합니다."""
     filename = read_string(arguments.get("filename"))
     if filename is None:
         return {"ok": False, "error": "filename is required."}

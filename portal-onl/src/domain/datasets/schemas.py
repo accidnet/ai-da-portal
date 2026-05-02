@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from domain.shared import DatasetProfilePayload
+from application.datasets.dto import DatasetProfilePayload
 
 
 class DatasetInfo(BaseModel):
@@ -23,13 +23,6 @@ class DatasetSummary(DatasetInfo):
 class DatasetDeleteResponse(BaseModel):
     id: str
     deleted: bool
-
-
-class DatasetPreviewPayload(BaseModel):
-    """DataFrame에서 생성한 데이터셋 미리보기 payload입니다."""
-
-    columns: list[str] = Field(default_factory=list)
-    rows: list[dict[str, str | int | float | None]] = Field(default_factory=list)
 
 
 class DatasetPreviewResponse(BaseModel):

@@ -15,14 +15,18 @@ class DatasetRepository:
         dataset_id: str,
         filename: str,
         storage_path: str,
+        preview: dict[str, object],
+        profile: dict[str, object],
         created_at: datetime,
     ) -> DatasetOrm:
-        """새 데이터셋 메타데이터를 저장하고 로드된 ORM 객체를 반환합니다."""
+        """새 데이터셋 메타데이터와 분석용 요약 payload를 저장합니다."""
         with SessionLocal() as db:
             dataset = DatasetOrm(
                 id=dataset_id,
                 filename=filename,
                 storage_path=storage_path,
+                preview=preview,
+                profile=profile,
                 created_at=created_at,
             )
             db.add(dataset)

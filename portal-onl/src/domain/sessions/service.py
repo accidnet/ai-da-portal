@@ -70,7 +70,9 @@ class SessionService:
     def ensure_session(
         self, session_id: str, *, title: str | None = None
     ) -> SessionDetail:
-        session = self._get_or_create_session(session_id, title=title)
+        session = self._get_session(session_id)
+        if session is None:
+            session = self._create_session(session_id, title=title)
         return self._build_session_detail(session, dataset_service=None)
 
     def list_sessions(
@@ -126,7 +128,9 @@ class SessionService:
         return self._build_session_detail(updated_session, dataset_service=None)
 
     def update_title_if_default(self, session_id: str, title: str) -> SessionDetail:
-        session = self._get_or_create_session(session_id)
+        session = self._get_session(session_id)
+        if session is None:
+            session = self._create_session(session_id)
         normalized_title = self._normalize_title(title)
         if normalized_title is None:
             return self._build_session_detail(session, dataset_service=None)
@@ -147,7 +151,9 @@ class SessionService:
     def attach_dataset(
         self, session_id: str, dataset_id: str, *, title: str | None = None
     ) -> SessionDatasetLinkResponse:
-        self._get_or_create_session(session_id, title=title)
+        session = self._get_session(session_id)
+        if session is None:
+            self._create_session(session_id, title=title)
         session = self._repository.attach_dataset(
             session_id=session_id,
             dataset_id=dataset_id,
@@ -184,7 +190,9 @@ class SessionService:
         workspace: WorkspacePayload | None,
         title: str | None = None,
     ) -> None:
-        self._get_or_create_session(session_id, title=title)
+        session = self._get_session(session_id)
+        if session is None:
+            self._create_session(session_id, title=title)
         self._repository.record_analysis(
             session_id=session_id,
             dataset_ids=[dataset_id] if dataset_id else [],
@@ -201,7 +209,9 @@ class SessionService:
         workspace: WorkspacePayload | None,
     ) -> None:
         """메시지 처리 결과로 확정된 세션 상태만 갱신합니다."""
-        self._get_or_create_session(session_id)
+        session = self._get_session(session_id)
+        if session is None:
+            self._create_session(session_id)
         self._repository.record_analysis(
             session_id=session_id,
             dataset_ids=dataset_ids,
@@ -249,13 +259,14 @@ class SessionService:
         """세션 생성 시 사용할 기본 제목을 결정합니다."""
         return self._normalize_title(title) or f"Session {session_id[:8]}"
 
-    def _get_or_create_session(
+    def _get_session(self, session_id: str) -> SessionOrm | None:
+        """세션을 조회하고 없으면 None을 반환합니다."""
+        return self._repository.get(session_id)
+
+    def _create_session(
         self, session_id: str, *, title: str | None = None
     ) -> SessionOrm:
-        """세션 조회 후 없으면 서비스 계층 판단으로 생성합니다."""
-        session = self._repository.get(session_id)
-        if session is not None:
-            return session
+        """서비스 계층에서 결정한 제목으로 세션을 생성합니다."""
         return self._repository.create(
             session_id=session_id,
             title=self._resolve_session_title(session_id, title),

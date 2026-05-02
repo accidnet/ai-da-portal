@@ -2,11 +2,14 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from agents.state import AgentState
-from tools import inspect_dataset_context, load_uploaded_dataset_file, run_portal_analysis, update_plan
+from tools import run_portal_analysis, update_plan
+from tools.datasets import inspect_dataset_context, load_uploaded_dataset_file
 
 
 class ToolExecutor(Protocol):
-    def __call__(self, state: AgentState, arguments: dict[str, object]) -> dict[str, object]: ...
+    def __call__(
+        self, state: AgentState, arguments: dict[str, object]
+    ) -> dict[str, object]: ...
 
 
 @dataclass(slots=True)

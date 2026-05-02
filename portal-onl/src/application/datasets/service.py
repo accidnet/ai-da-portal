@@ -6,11 +6,12 @@ from uuid import uuid4
 import pandas as pd
 from fastapi import UploadFile
 
-from core.paths import UPLOADED_DATASET_DIR
+from application.datasets.dto import DatasetPreviewPayload, DatasetProfilePayload
 from application.datasets.inspection import (
     build_preview_from_dataframe,
     build_profile_from_dataframe,
 )
+from core.paths import UPLOADED_DATASET_DIR
 from domain.datasets.schemas import (
     DatasetDeleteResponse,
     DatasetInfo,
@@ -21,7 +22,7 @@ from domain.datasets.schemas import (
 from domain.sessions.service import SessionService
 from infrastructure.db.models import DatasetOrm
 from infrastructure.db.repositories import DatasetRepository
-from tools.dataframe_loader import load_dataframe
+from tools.datasets.dataframe_loader import load_dataframe
 
 
 class DatasetApplicationService:
@@ -49,14 +50,18 @@ class DatasetApplicationService:
         # file 저장
         storage_path = self._store_uploaded_file(dataset_id, filename, content)
 
-        # dataframe으로 변환
-        self._load_dataframe(content, suffix=suffix)
+        # dataframe으로 변환 후 미리보기와 프로파일 생성
+        dataframe = self._load_dataframe(content, suffix=suffix)
+        preview = build_preview_from_dataframe(dataframe)
+        profile = build_profile_from_dataframe(dataframe)
 
         # Dataset 기본 정보
         dataset = self._dataset_repository.create(
             dataset_id=dataset_id,
             filename=filename,
             storage_path=str(storage_path),
+            preview=preview.model_dump(mode="json"),
+            profile=profile.model_dump(mode="json"),
             created_at=datetime.now(UTC),
         )
         return self._to_dataset_info(dataset)
@@ -71,13 +76,24 @@ class DatasetApplicationService:
         return self._to_dataset_info(self._dataset_repository.get_or_raise(dataset_id))
 
     def get_profile(self, dataset_id: str) -> DatasetProfileResponse:
+        dataset = self._dataset_repository.get_or_raise(dataset_id)
+        profile = self._get_stored_profile(dataset)
+        if profile is not None:
+            return DatasetProfileResponse(dataset_id=dataset_id, profile=profile)
         return DatasetProfileResponse(
             dataset_id=dataset_id,
-            profile=build_profile_from_dataframe(self.get_dataframe(dataset_id)),
+            profile=build_profile_from_dataframe(
+                self._load_dataframe_from_dataset(dataset)
+            ),
         )
 
     def get_preview(self, dataset_id: str) -> DatasetPreviewResponse:
-        preview = build_preview_from_dataframe(self.get_dataframe(dataset_id))
+        dataset = self._dataset_repository.get_or_raise(dataset_id)
+        preview = self._get_stored_preview(dataset)
+        if preview is None:
+            preview = build_preview_from_dataframe(
+                self._load_dataframe_from_dataset(dataset)
+            )
         return DatasetPreviewResponse(
             dataset_id=dataset_id,
             columns=preview.columns,
@@ -145,11 +161,11 @@ class DatasetApplicationService:
         linked_sessions = self._linked_sessions(dataset.id)
         linked_session_ids = [session_id for session_id, _ in linked_sessions]
         latest_used_at = linked_sessions[0][1] if linked_sessions else None
-        dataframe = self._load_dataframe_from_dataset(dataset)
+        row_count, column_count = self._get_dataset_shape(dataset)
         return DatasetSummary(
             **self._to_dataset_info(dataset).model_dump(),
-            row_count=len(dataframe.index),
-            column_count=len(dataframe.columns),
+            row_count=row_count,
+            column_count=column_count,
             linked_session_count=len(linked_session_ids),
             linked_session_ids=linked_session_ids,
             latest_used_at=latest_used_at,
@@ -201,6 +217,27 @@ class DatasetApplicationService:
 
     def _load_dataframe_from_dataset(self, dataset: DatasetOrm) -> pd.DataFrame:
         return self._infer_datetime_columns(load_dataframe(Path(dataset.storage_path)))
+
+    def _get_stored_preview(self, dataset: DatasetOrm) -> DatasetPreviewPayload | None:
+        """DB에 저장된 미리보기 payload를 DTO로 복원합니다."""
+        if dataset.preview is None:
+            return None
+        return DatasetPreviewPayload.model_validate(dataset.preview)
+
+    def _get_stored_profile(self, dataset: DatasetOrm) -> DatasetProfilePayload | None:
+        """DB에 저장된 프로파일 payload를 DTO로 복원합니다."""
+        if dataset.profile is None:
+            return None
+        return DatasetProfilePayload.model_validate(dataset.profile)
+
+    def _get_dataset_shape(self, dataset: DatasetOrm) -> tuple[int, int]:
+        """저장된 프로파일에서 데이터셋 크기를 조회하고 없으면 파일에서 계산합니다."""
+        profile = self._get_stored_profile(dataset)
+        if profile is not None:
+            return profile.row_count, profile.column_count
+
+        dataframe = self._load_dataframe_from_dataset(dataset)
+        return len(dataframe.index), len(dataframe.columns)
 
     def _to_dataset_info(self, dataset: DatasetOrm) -> DatasetInfo:
         return DatasetInfo(

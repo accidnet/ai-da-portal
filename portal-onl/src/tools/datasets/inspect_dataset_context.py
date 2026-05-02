@@ -10,6 +10,7 @@ type BoolReader = Callable[[object, bool], bool]
 
 
 def tool_definition() -> dict[str, object]:
+    """데이터셋 구조 확인용 에이전트 tool 정의를 반환합니다."""
     return {
         "type": "function",
         "name": "inspect_dataset_context",
@@ -50,6 +51,7 @@ def execute(
     read_string: StringReader,
     read_bool: BoolReader,
 ) -> dict[str, object]:
+    """선택된 데이터셋의 profile과 preview를 조회합니다."""
     state["route"] = "dataset_analysis"
     state["status"] = "profiling"
 

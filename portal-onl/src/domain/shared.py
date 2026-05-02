@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from application.datasets.dto import DatasetProfilePayload
+
 
 ReasoningStatus = Literal[
     "queued", "profiling", "running_analysis", "completed", "failed"
@@ -82,19 +84,6 @@ class InsightPayload(BaseModel):
     title: str
     body: str
     action_label: str | None = None
-
-
-class DatasetColumnProfile(BaseModel):
-    name: str
-    dtype: str
-    null_ratio: float = 0.0
-    sample_values: list[str] = Field(default_factory=list)
-
-
-class DatasetProfilePayload(BaseModel):
-    row_count: int
-    column_count: int
-    columns: list[DatasetColumnProfile] = Field(default_factory=list)
 
 
 class AnalyticsPayload(BaseModel):
