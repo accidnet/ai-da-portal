@@ -1,11 +1,17 @@
-from typing import cast
+from typing import Literal, TypedDict, cast
 
-from agents.state import PlanStep
 from core.utils import read_string
 from tools.dto import ToolExecutionResult
 
 
 _PLAN_STATUSES = ("pending", "in_progress", "completed")
+
+
+class PlanStep(TypedDict):
+    """tool 응답에서 사용하는 계획 단계 payload입니다."""
+
+    step: str
+    status: Literal["pending", "in_progress", "completed"]
 
 
 def tool_definition() -> dict[str, object]:
