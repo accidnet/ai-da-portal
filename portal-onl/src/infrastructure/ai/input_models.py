@@ -2,7 +2,6 @@ from typing import Literal, TypeAlias, Any
 
 from pydantic import BaseModel, ConfigDict
 
-
 EasyInputMessageRole: TypeAlias = Literal["developer", "user", "assistant", "system"]
 EasyInputMessagePhase: TypeAlias = Literal["commentary", "final_answer"]
 
@@ -106,8 +105,8 @@ class ResponseOutputText(_AiPayloadModel):
 class ResponseOutputMessage(_AiPayloadModel):
     """Responses API 출력 message 항목입니다."""
 
-    id: str
     content: tuple[ResponseOutputText, ...]
+    id: str | None = None
     role: Literal["assistant"] = "assistant"
     status: MessageStatus | None = None
     type: Literal["message"] = "message"

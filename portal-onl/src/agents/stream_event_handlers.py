@@ -2,143 +2,148 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
+from core.sse import SseEvent
 from infrastructure.ai.client import coerce_optional_dict
+from infrastructure.ai.input_models import (
+    ResponseOutputMessage,
+    ResponseOutputText,
+    FunctionCall,
+)
 from infrastructure.ai.streaming_events import RESPONSE_STREAMING_EVENTS
 
 type ResponseNormalizer = Callable[[dict[str, object]], dict[str, object]]
+type StreamEventHandler = Callable[[dict[str, object]], "ProcessedStreamEvent"]
 
 
-class StreamEventResult(BaseModel):
-    yielded_event: dict[str, object] | None = None
-    completed_response: dict[str, object] | None = None
+class ProcessedStreamEvent(BaseModel):
+    """원본 스트림 이벤트 처리 후 전달할 후속 데이터를 담습니다."""
+
+    yielded_event: SseEvent | None = None
+    input_item: ResponseOutputMessage | None = None
+    function_call_item: dict[str, object] | None = None
 
 
 def handle_stream_event(
     *,
     payload: dict[str, object],
-    response_id: str | None,
     function_calls: dict[str, dict[str, object]],
-    text_deltas: list[str],
     normalize_response_payload: ResponseNormalizer,
-) -> StreamEventResult:
+) -> ProcessedStreamEvent:
+    """스트림 이벤트 타입에 맞는 처리 결과를 반환합니다."""
     event_type = payload.get("type")
-    handler = _build_handler_map(
-        payload=payload,
-        response_id=response_id,
-        function_calls=function_calls,
-        text_deltas=text_deltas,
-        normalize_response_payload=normalize_response_payload,
-    ).get(event_type)
-    if handler is not None:
-        return handler()
 
-    return StreamEventResult()
+    if event_type not in [
+        # RESPONSE_STREAMING_EVENTS.response.completed,
+        RESPONSE_STREAMING_EVENTS.response.in_progress,
+        RESPONSE_STREAMING_EVENTS.response.created,
+        RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta,
+    ]:
+        from pprint import pprint
 
+        pprint(payload)
 
-def _build_handler_map(
-    *,
-    payload: dict[str, object],
-    response_id: str | None,
-    function_calls: dict[str, dict[str, object]],
-    text_deltas: list[str],
-    normalize_response_payload: ResponseNormalizer,
-) -> dict[object, Callable[[], StreamEventResult]]:
-    handlers: dict[object, Callable[[], StreamEventResult]] = {
-        RESPONSE_STREAMING_EVENTS.response.output_text.delta: lambda: _handle_output_text_delta(
-            payload, response_id, text_deltas
-        ),
-        RESPONSE_STREAMING_EVENTS.message.delta: lambda: _handle_output_text_delta(
-            payload, response_id, text_deltas
-        ),
-        RESPONSE_STREAMING_EVENTS.response.output_item.added: lambda: _handle_output_item_add(
-            payload,
-            function_calls,
-        ),
-        RESPONSE_STREAMING_EVENTS.response.output_item.done: lambda: _handle_output_item_done(
-            payload,
-            function_calls,
-        ),
-        RESPONSE_STREAMING_EVENTS.response.function_call_arguments.delta: lambda: _handle_function_call_arguments_delta(
-            payload, function_calls
-        ),
-        RESPONSE_STREAMING_EVENTS.response.function_call_arguments.done: lambda: _handle_function_call_arguments_done(
-            payload, function_calls
-        ),
-    }
-    response_payload = coerce_optional_dict(payload.get("response"))
-    if response_payload is not None:
-        handlers[RESPONSE_STREAMING_EVENTS.response.completed] = (
-            lambda: _handle_response_completed(
-                response_payload, normalize_response_payload
-            )
+    handler = _STREAM_EVENT_HANDLERS.get(event_type)
+    if handler is None:
+        return ProcessedStreamEvent()
+
+    processed_event = handler(payload)
+    if processed_event.function_call_item is not None:
+        _collect_stream_function_call(
+            function_calls, processed_event.function_call_item
         )
-    return handlers
 
+    if processed_event.function_call_arguments_event is not None:
+        _append_function_call_arguments(
+            function_calls,
+            processed_event.function_call_arguments_event,
+        )
 
-def _handle_response_completed(
-    response_payload: dict[str, object],
-    normalize_response_payload: ResponseNormalizer,
-) -> StreamEventResult:
-    return StreamEventResult(
-        completed_response=normalize_response_payload(response_payload),
-    )
+    return processed_event
 
 
 def _handle_output_text_delta(
     payload: dict[str, object],
-    response_id: str | None,
-    text_deltas: list[str],
-) -> StreamEventResult:
-    delta = payload.get("delta") or payload.get("text")
-    if isinstance(delta, str) and delta:
-        text_deltas.append(delta)
-        return StreamEventResult(
-            yielded_event={
-                "type": RESPONSE_STREAMING_EVENTS.response.output_text.delta,
-                "delta": delta,
-                "response_id": response_id,
-            },
+) -> ProcessedStreamEvent:
+    """텍스트 delta 이벤트에서 프론트 전달 payload만 추출합니다."""
+    delta = payload.get("delta")
+    if isinstance(delta, str):
+        return ProcessedStreamEvent(
+            yielded_event=SseEvent(
+                event_type=RESPONSE_STREAMING_EVENTS.response.output_text.delta,
+                data={
+                    "delta": delta,
+                },
+            ),
         )
 
-    return StreamEventResult()
+    return ProcessedStreamEvent()
 
 
-def _handle_output_item_add(
+def _handle_output_text_done(
     payload: dict[str, object],
-    function_calls: dict[str, dict[str, object]],
-) -> StreamEventResult:
-    item = coerce_optional_dict(payload.get("item"))
-    if item is not None:
-        _collect_stream_function_call(function_calls, item)
+) -> ProcessedStreamEvent:
+    """완료된 텍스트가 있으면 assistant 본문 후보로 보관합니다."""
+    item_id = payload.get("item_id")
+    text = payload.get("text")
+    if isinstance(text, str) and text:
+        return ProcessedStreamEvent(
+            input_item=ResponseOutputMessage(
+                id=item_id if isinstance(item_id, str) else None,
+                content=(ResponseOutputText(text=text),),
+            )
+        )
 
-    return StreamEventResult()
+    return ProcessedStreamEvent()
+
+
+def _handle_output_message_delta(
+    payload: dict[str, object],
+) -> ProcessedStreamEvent:
+    """텍스트 delta 이벤트에서 프론트 전달 payload만 추출합니다."""
+    delta = payload.get("delta") or payload.get("text")
+    if isinstance(delta, str) and delta:
+        return ProcessedStreamEvent(
+            yielded_event=SseEvent(
+                event_type=RESPONSE_STREAMING_EVENTS.message.delta,
+                data={
+                    "delta": delta,
+                },
+            ),
+        )
+
+    return ProcessedStreamEvent()
 
 
 def _handle_output_item_done(
     payload: dict[str, object],
-    function_calls: dict[str, dict[str, object]],
-) -> StreamEventResult:
+) -> ProcessedStreamEvent:
+    """완료된 output item 중 function call 후보를 추출합니다."""
     item = coerce_optional_dict(payload.get("item"))
-    if item is not None:
-        _collect_stream_function_call(function_calls, item)
+    if item.get("type") == "function_call":
+        return ProcessedStreamEvent(input_item=FunctionCall.model_validate(item))
+    return ProcessedStreamEvent()
 
-    return StreamEventResult()
 
-
-def _handle_function_call_arguments_delta(
+def _handle_response_completed(
     payload: dict[str, object],
-    function_calls: dict[str, dict[str, object]],
-) -> StreamEventResult:
-    _append_function_call_arguments(function_calls, payload)
-    return StreamEventResult()
+) -> ProcessedStreamEvent:
+    """완료 응답 payload를 정규화 전 상태로 추출합니다."""
+    response_payload = coerce_optional_dict(payload.get("response"))
+    if response_payload is None:
+        return ProcessedStreamEvent()
+
+    return ProcessedStreamEvent(
+        completed_response=response_payload,
+    )
 
 
-def _handle_function_call_arguments_done(
-    payload: dict[str, object],
-    function_calls: dict[str, dict[str, object]],
-) -> StreamEventResult:
-    _append_function_call_arguments(function_calls, payload)
-    return StreamEventResult()
+_STREAM_EVENT_HANDLERS: dict[object, StreamEventHandler] = {
+    RESPONSE_STREAMING_EVENTS.response.output_text.delta: _handle_output_text_delta,
+    RESPONSE_STREAMING_EVENTS.response.output_text.done: _handle_output_text_done,
+    RESPONSE_STREAMING_EVENTS.message.delta: _handle_output_message_delta,
+    RESPONSE_STREAMING_EVENTS.response.output_item.done: _handle_output_item_done,
+    RESPONSE_STREAMING_EVENTS.response.completed: _handle_response_completed,
+}
 
 
 def _collect_stream_function_call(

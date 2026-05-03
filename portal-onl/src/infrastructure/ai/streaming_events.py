@@ -41,6 +41,9 @@ class ResponseEventTypes:
     output_item: ResponseOutputItemEventTypes = ResponseOutputItemEventTypes()
     content_part: ResponseContentPartEventTypes = ResponseContentPartEventTypes()
     output_text: ResponseOutputTextEventTypes = ResponseOutputTextEventTypes()
+
+    """function call arguments 자체를 delta로 받고 싶거나, delta가 끝나는 지점을 알고 싶을 때 활용합니다.
+    function에 대한 정보는 output.item.add/done type을 활용합니다."""
     function_call_arguments: ResponseFunctionCallArgumentEventTypes = (
         ResponseFunctionCallArgumentEventTypes()
     )

@@ -9,6 +9,7 @@ from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from application.datasets.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
+from infrastructure.ai.input_models import ResponseOutputMessage
 
 logger = logging.getLogger(__name__)
 AgentStreamEvent = dict[str, object] | SseEvent
@@ -37,7 +38,7 @@ class ChatStreamingAgent(BaseAgent):
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 10
+        max_iterations = 3
         iteration_count = 0
         while True:
 
@@ -55,7 +56,7 @@ class ChatStreamingAgent(BaseAgent):
             )
 
             # 외부 LLM API 호출
-            response = yield from self._parse_stream_response_events(
+            response = yield from self._parse_stream_events(
                 self._llm_client.create_response(
                     **self._build_llm_request_kwargs(inputs),
                     stream=True,
@@ -72,6 +73,8 @@ class ChatStreamingAgent(BaseAgent):
                     response=response,
                     next_input=inputs,
                     last_state_fingerprint=last_state_fingerprint,
+                    current_input_list=inputs,
+                    new_input_list=response.get("inputs"),
                 )
             )
             if state_event is not None:
@@ -84,12 +87,17 @@ class ChatStreamingAgent(BaseAgent):
 
         return working_state
 
-    def _parse_stream_response_events(
+    def _parse_stream_events(
         self, stream: object
-    ) -> Generator[dict[str, object], None, dict[str, object]]:
+    ) -> Generator[AgentStreamEvent, None, dict[str, object]]:
+        """API 호출 1번 내에 발생하는 stream event에 대한 개별적 처리"""
+
         response_id: str | None = None
         text_deltas: list[str] = []
         function_calls: dict[str, dict[str, object]] = {}
+
+        # streaming 중에 생성되는 input을 순차적으로 적재하여, 다음 step input에 추가하여 활용하기 위함
+        inputs = []
 
         close = getattr(stream, "close", None)
         try:
@@ -105,25 +113,22 @@ class ChatStreamingAgent(BaseAgent):
                 if response_payload is not None and response_id is None:
                     response_id = self._read_string(response_payload.get("id"))
 
-                result = handle_stream_event(
+                processed_event = handle_stream_event(
                     payload=payload,
-                    response_id=response_id,
                     function_calls=function_calls,
-                    text_deltas=text_deltas,
                     normalize_response_payload=self._normalize_response_payload,
                 )
 
-                completed_response = result.completed_response
-                if isinstance(completed_response, dict):
-                    output = self._build_stream_output(
-                        function_calls,
-                        text_deltas,
-                    )
-                    return self._merge_stream_output(completed_response, output)
-
-                yielded_event = result.yielded_event
-                if isinstance(yielded_event, dict):
+                # 바로 프론트로 전달해야하는 경우
+                yielded_event = processed_event.yielded_event
+                if isinstance(yielded_event, SseEvent):
                     yield yielded_event
+
+                # input에 넣을 item이 있을 경우 추가
+                input_item = processed_event.input_item
+                if input_item:
+                    inputs.append(input_item)
+ 
         finally:
             if callable(close):
                 close()
@@ -132,13 +137,13 @@ class ChatStreamingAgent(BaseAgent):
         if response_id:
             normalized["id"] = response_id
 
-        output = self._build_stream_output(function_calls, text_deltas)
-        if output:
-            normalized["output"] = output
-
         output_text = "".join(text_deltas).strip()
         if output_text:
             normalized["output_text"] = output_text
+
+        # stream event를 parsing하면서 추가된 inputs를 return하도록 하여 기존의 inputs에 추가하도록 함.
+        if inputs:
+            normalized["inputs"] = inputs
 
         return self._normalize_response_payload(normalized)
 
@@ -182,30 +187,6 @@ class ChatStreamingAgent(BaseAgent):
 
         return self._normalize_response_payload(normalized)
 
-    def _build_stream_output(
-        self,
-        function_calls: dict[str, dict[str, object]],
-        text_deltas: list[str],
-    ) -> list[dict[str, object]]:
-        output: list[dict[str, object]] = []
-        seen_call_ids: set[str] = set()
-        for function_call in function_calls.values():
-            call_id = self._read_string(function_call.get("call_id"))
-            name = self._read_string(function_call.get("name"))
-            if not call_id or not name or call_id in seen_call_ids:
-                continue
-            seen_call_ids.add(call_id)
-            output.append(function_call)
-
-        message_text = "".join(text_deltas).strip()
-        if message_text:
-            output.append(
-                {
-                    "type": "message",
-                    "content": [{"type": "output_text", "text": message_text}],
-                }
-            )
-        return output
 
     def _handle_after_call_completion(
         self,
@@ -214,12 +195,19 @@ class ChatStreamingAgent(BaseAgent):
         response: dict[str, object],
         next_input: list[dict[str, object]],
         last_state_fingerprint: str,
+        current_input_list: list[dict[str, object]],
+        new_input_list: list[dict[str, object]] | None = None,
     ) -> tuple[
         AgentState | None,
         list[dict[str, object]] | None,
         dict[str, object] | None,
         str,
     ]:
+
+        if new_input_list:
+            current_input_list.extend(new_input_list)
+            next_input = current_input_list.copy()
+
         # 스트림 완료 후 응답 내용을 기준으로 다음 액션을 결정합니다.
         tool_outputs = self._execute_response_function_calls(working_state, response)
         if tool_outputs:

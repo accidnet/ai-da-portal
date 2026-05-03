@@ -14,6 +14,8 @@ from infrastructure.ai.input_models import (
     FunctionCallOutput,
     InputItemList,
     ResponseInputText,
+    ResponseOutputMessage,
+    ResponseOutputText,
 )
 from tools import registry
 
@@ -88,20 +90,24 @@ class BaseAgent:
         }
 
     def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
-        """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 변환합니다."""
-
+        """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 활용합니다."""
         payload = {"dataset_ids": dataset_ids}
         return Message(
             role="developer",
             content=(ResponseInputText(text=f"다음의 정보를 활용하세요.\n{payload}"),),
         )
 
+    def _build_user_input(self, *, message: str) -> Message:
+        return Message(role="user", content=(ResponseInputText(text=message),))
+
+    def _build_assistant_input(self, *, message: str, msg_id: str) -> Message:
+        """event response 내의 msg_로 시작하는 id를 활용합니다."""
+        return ResponseOutputMessage(
+            id=msg_id, content=(ResponseOutputText(text=message),)
+        )
+
     def _build_inputs(
-        self,
-        *,
-        message: str,
-        dataset_ids: list[str],
-        inputs: list | None = None
+        self, *, message: str, dataset_ids: list[str], inputs: list | None = None
     ) -> list[dict[str, object]]:
 
         if not inputs:
