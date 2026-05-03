@@ -1,12 +1,15 @@
 from typing import cast
 
-from agents.state import AgentState, PlanStep
+from agents.state import PlanStep
+from core.utils import read_string
+from tools.dto import ToolExecutionResult
 
 
 _PLAN_STATUSES = ("pending", "in_progress", "completed")
 
 
 def tool_definition() -> dict[str, object]:
+    """작업 계획 갱신용 에이전트 tool 정의를 반환합니다."""
     return {
         "type": "function",
         "name": "update_plan",
@@ -34,7 +37,9 @@ def tool_definition() -> dict[str, object]:
                             "status": {
                                 "type": "string",
                                 "enum": list(_PLAN_STATUSES),
-                                "description": f"{",".join(_PLAN_STATUSES)} 중 하나입니다.",
+                                "description": (
+                                    f"{', '.join(_PLAN_STATUSES)} 중 하나입니다."
+                                ),
                             },
                         },
                         "required": ["step", "status"],
@@ -48,50 +53,94 @@ def tool_definition() -> dict[str, object]:
     }
 
 
-def execute(state: AgentState, arguments: dict[str, object]) -> dict[str, object]:
-    raw_plan = arguments.get("plan")
-    if not isinstance(raw_plan, list):
-        return {"ok": False, "error": "plan must be an array."}
+def execute(arguments: dict[str, object]) -> dict[str, object]:
+    """LLM function_call arguments를 검증해 정규화된 계획 정보를 반환합니다."""
+    explanation = _read_explanation(arguments.get("explanation"))
+    if explanation is _INVALID_EXPLANATION:
+        return _error_result("explanation must be a string.")
 
-    explanation = arguments.get("explanation")
-    if explanation is not None and not isinstance(explanation, str):
-        return {"ok": False, "error": "explanation must be a string."}
+    plan_result = _read_plan_steps(arguments.get("plan"))
+    if isinstance(plan_result, str):
+        return _error_result(plan_result)
+
+    return _success_result(
+        explanation=cast(str | None, explanation),
+        plan=plan_result,
+    )
+
+
+_INVALID_EXPLANATION = object()
+
+
+def _read_explanation(value: object) -> str | object | None:
+    """선택 입력인 explanation을 공백 제거된 문자열로 정규화합니다."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return _INVALID_EXPLANATION
+    return read_string(value)
+
+
+def _read_plan_steps(value: object) -> list[PlanStep] | str:
+    """plan argument를 검증하고 AgentState에 저장 가능한 단계 목록으로 변환합니다."""
+    if not isinstance(value, list):
+        return "plan must be an array."
 
     plan: list[PlanStep] = []
-    in_progress_count = 0
-    for raw_step in raw_plan:
-        if not isinstance(raw_step, dict):
-            return {"ok": False, "error": "each plan item must be an object."}
+    for raw_step in value:
+        step_result = _read_plan_step(raw_step)
+        if isinstance(step_result, str):
+            return step_result
+        plan.append(step_result)
 
-        step = raw_step.get("step")
-        status = raw_step.get("status")
-        if not isinstance(step, str) or not step.strip():
-            return {"ok": False, "error": "each plan item needs a non-empty step."}
-        if status not in _PLAN_STATUSES:
-            return {
-                "ok": False,
-                "error": "status must be one of pending, in_progress, completed.",
-            }
-
-        normalized_status = cast(str, status)
-        if normalized_status == "in_progress":
-            in_progress_count += 1
-
-        plan.append({"step": step.strip(), "status": normalized_status})
-
+    in_progress_count = sum(1 for item in plan if item["status"] == "in_progress")
     if in_progress_count > 1:
-        return {
-            "ok": False,
-            "error": "at most one plan item can be in_progress.",
-        }
+        return "at most one plan item can be in_progress."
 
-    state["plan"] = plan
-    state["plan_explanation"] = (
-        explanation.strip() if isinstance(explanation, str) else None
-    )
-    return {
-        "ok": True,
+    return plan
+
+
+def _read_plan_step(value: object) -> PlanStep | str:
+    """단일 plan item을 검증하고 공백이 제거된 PlanStep으로 변환합니다."""
+    if not isinstance(value, dict):
+        return "each plan item must be an object."
+
+    step = read_string(value.get("step"))
+    if step is None:
+        return "each plan item needs a non-empty step."
+
+    status = value.get("status")
+    if status not in _PLAN_STATUSES:
+        return "status must be one of pending, in_progress, completed."
+
+    # status는 enum 검증을 통과한 문자열 literal로만 state에 저장합니다.
+    normalized_status = cast(PlanStep, {"step": step, "status": status})
+    return normalized_status
+
+
+def _success_result(
+    *,
+    explanation: str | None,
+    plan: list[PlanStep],
+) -> dict[str, object]:
+    """계획 갱신 성공 결과를 공통 DTO 형식과 기존 최상위 필드로 반환합니다."""
+    data = {
         "message": "Plan updated",
-        "explanation": state["plan_explanation"],
+        "explanation": explanation,
         "plan": plan,
     }
+    result = ToolExecutionResult[dict[str, object]](ok=True, data=data).model_dump(
+        mode="json",
+        exclude_none=True,
+    )
+    # 기존 tool output 소비자가 바로 읽을 수 있도록 최상위 필드도 유지합니다.
+    result.update(data)
+    return result
+
+
+def _error_result(message: str) -> dict[str, object]:
+    """계획 갱신 실패 결과를 공통 DTO 형식으로 반환합니다."""
+    return ToolExecutionResult[object](ok=False, error=message).model_dump(
+        mode="json",
+        exclude_none=True,
+    )

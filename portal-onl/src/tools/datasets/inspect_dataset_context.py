@@ -80,13 +80,7 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
 def _get_usecase() -> InspectDatasetContextUseCase:
     """tool 실행 시 사용할 데이터셋 context usecase를 생성합니다."""
     # tool adapter는 application port와 infrastructure 구현체를 연결하는 composition 역할만 합니다.
-    return InspectDatasetContextUseCase(dataset_reader=_get_dataset_reader())
-
-
-@lru_cache
-def _get_dataset_reader() -> DatasetMetadataReader:
-    """데이터셋 조회 port 구현체를 생성합니다."""
-    return DatasetRepository()
+    return InspectDatasetContextUseCase(dataset_reader=DatasetRepository())
 
 
 def _read_dataset_ids(value: object) -> list[str]:

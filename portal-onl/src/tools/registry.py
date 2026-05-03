@@ -1,69 +1,50 @@
-from dataclasses import dataclass
 from typing import Protocol
 
-from agents.state import AgentState
-from tools import run_portal_analysis, update_plan
-from tools.datasets import inspect_dataset_context, load_uploaded_dataset_file
+from tools import update_plan
+from tools.datasets import inspect_dataset_context
 
 
-class ToolExecutor(Protocol):
-    def __call__(
-        self, state: AgentState, arguments: dict[str, object]
-    ) -> dict[str, object]: ...
+class ToolModule(Protocol):
+    """registry에 등록 가능한 tool module 인터페이스입니다."""
+
+    def tool_definition(self) -> dict[str, object]:
+        """LLM에 노출할 tool definition을 반환합니다."""
+        ...
+
+    def execute(self, arguments: dict[str, object]) -> dict[str, object]:
+        """LLM function_call arguments만 받아 tool을 실행합니다."""
+        ...
 
 
-@dataclass(slots=True)
-class ToolRuntimeContext:
-    dataset_service: object
-    analysis_service: object
-    resolve_dataset_id: object
-    available_dataset_ids: object
-    read_string: object
-    read_bool: object
-    require_string: object
+_TOOL_MODULES: tuple[ToolModule, ...] = (
+    update_plan,
+    inspect_dataset_context,
+)
 
 
 def get_tool_definitions() -> list[dict[str, object]]:
     """에이전트에서 사용하는 툴 정의 목록을 중앙 관리합니다."""
 
-    return [
-        update_plan.tool_definition(),
-        inspect_dataset_context.tool_definition(),
-        run_portal_analysis.tool_definition(),
-        load_uploaded_dataset_file.tool_definition(),
-    ]
+    return [tool.tool_definition() for tool in _TOOL_MODULES]
 
 
-def execute_tool(
-    name: str,
-    state: AgentState,
-    arguments: dict[str, object],
-    context: ToolRuntimeContext,
-) -> dict[str, object]:
-    executors: dict[str, ToolExecutor] = {
-        "update_plan": lambda tool_state, tool_arguments: update_plan.execute(
-            tool_state, tool_arguments
-        ),
-        "inspect_dataset_context": lambda _tool_state, tool_arguments: inspect_dataset_context.execute(
-            tool_arguments
-        ),
-        "run_portal_analysis": lambda tool_state, tool_arguments: run_portal_analysis.execute(
-            tool_state,
-            tool_arguments,
-            dataset_service=context.dataset_service,
-            analysis_service=context.analysis_service,
-            resolve_dataset_id=context.resolve_dataset_id,
-            available_dataset_ids=context.available_dataset_ids,
-            read_string=context.read_string,
-            require_string=context.require_string,
-        ),
-        "load_uploaded_dataset_file": lambda _tool_state, tool_arguments: load_uploaded_dataset_file.execute(
-            tool_arguments,
-            dataset_service=context.dataset_service,
-            read_string=context.read_string,
-        ),
-    }
-    executor = executors.get(name)
-    if executor is None:
+def execute_tool(name: str, arguments: dict[str, object]) -> dict[str, object]:
+    """tool 이름 문자열과 arguments를 받아 정의된 tool의 execute 함수를 실행합니다."""
+    tool = _find_tool(name)
+    if tool is None:
         return {"ok": False, "error": f"Unsupported tool: {name}"}
-    return executor(state, arguments)
+    return tool.execute(arguments)
+
+
+def _find_tool(name: str) -> ToolModule | None:
+    """definition에 등록된 name과 일치하는 tool module을 찾습니다."""
+    for tool in _TOOL_MODULES:
+        if _tool_name(tool) == name:
+            return tool
+    return None
+
+
+def _tool_name(tool: ToolModule) -> str | None:
+    """tool definition에서 function name을 안전하게 읽습니다."""
+    name = tool.tool_definition().get("name")
+    return name if isinstance(name, str) else None

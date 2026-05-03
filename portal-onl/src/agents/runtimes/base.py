@@ -117,25 +117,37 @@ class BaseAgent:
         self, state: AgentState, function_call: FunctionCall
     ) -> dict[str, object]:
         state["used_tools"] = [*state.get("used_tools", []), function_call.name]
-        return registry.execute_tool(
+        tool_result = registry.execute_tool(
             function_call.name,
-            state,
             self._parse_function_call_arguments(function_call),
-            registry.ToolRuntimeContext(
-                dataset_service=self._dataset_service,
-                analysis_service=self._analysis_service,
-                resolve_dataset_id=lambda tool_state, preferred_dataset_id: self._resolve_dataset_id(
-                    state=tool_state,
-                    preferred_dataset_id=preferred_dataset_id,
-                ),
-                available_dataset_ids=self._available_dataset_ids_from_state,
-                read_string=self._read_string,
-                read_bool=lambda value, default: self._read_bool(
-                    value, default=default
-                ),
-                require_string=self._require_string,
-            ),
         )
+        self._apply_tool_result_to_state(
+            state=state,
+            tool_name=function_call.name,
+            tool_result=tool_result,
+        )
+        return tool_result
+
+    def _apply_tool_result_to_state(
+        self,
+        *,
+        state: AgentState,
+        tool_name: str,
+        tool_result: dict[str, object],
+    ) -> None:
+        """state 변경이 필요한 tool 결과를 agent runtime 경계에서 반영합니다."""
+        if tool_name != "update_plan" or tool_result.get("ok") is not True:
+            return
+
+        raw_plan = tool_result.get("plan")
+        if not isinstance(raw_plan, list):
+            return
+
+        # update_plan tool은 정규화된 plan만 반환하므로 runtime에서는 저장 가능한 형태만 확인합니다.
+        state["plan"] = [
+            cast(PlanStep, step) for step in raw_plan if isinstance(step, dict)
+        ]
+        state["plan_explanation"] = self._read_string(tool_result.get("explanation"))
 
     def _parse_function_call_arguments(
         self, function_call: FunctionCall
@@ -453,11 +465,6 @@ class BaseAgent:
             "parallel_tool_calls": False,
             "reasoning": {"effort": "medium"},
         }
-
-    def _read_bool(self, value: object, *, default: bool) -> bool:
-        if isinstance(value, bool):
-            return value
-        return default
 
     def _read_string(self, value: object) -> str | None:
         if isinstance(value, str) and value.strip():
