@@ -30,6 +30,8 @@ export function mapDatasetProfile(payload: DatasetProfileResponse['profile']): D
       name: column.name,
       dtype: column.dtype,
       nullRatio: column.null_ratio,
+      minValue: column.min_value,
+      maxValue: column.max_value,
       sampleValues: column.sample_values,
     })),
   }

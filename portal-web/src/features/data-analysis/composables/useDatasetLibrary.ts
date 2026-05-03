@@ -57,6 +57,8 @@ export function useDatasetLibrary(options: {
           name: column.name,
           dtype: column.dtype,
           nullRatio: column.null_ratio,
+          minValue: column.min_value,
+          maxValue: column.max_value,
           sampleValues: column.sample_values,
         })),
       }
@@ -175,6 +177,8 @@ export function useDatasetLibrary(options: {
                     name: column.name,
                     dtype: column.dtype,
                     null_ratio: column.nullRatio,
+                    min_value: column.minValue,
+                    max_value: column.maxValue,
                     sample_values: column.sampleValues,
                   })),
                 },

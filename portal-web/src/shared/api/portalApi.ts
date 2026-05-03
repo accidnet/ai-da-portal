@@ -94,6 +94,8 @@ export interface DatasetProfileResponse {
       name: string
       dtype: string
       null_ratio: number
+      min_value?: string | number | null
+      max_value?: string | number | null
       sample_values: string[]
     }>
   }
@@ -181,6 +183,8 @@ export interface ChatResponse {
         name: string
         dtype: string
         null_ratio: number
+        min_value?: string | number | null
+        max_value?: string | number | null
         sample_values: string[]
       }>
     } | null

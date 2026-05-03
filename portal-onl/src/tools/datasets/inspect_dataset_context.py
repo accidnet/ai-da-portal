@@ -1,12 +1,15 @@
-from collections.abc import Callable
+from functools import lru_cache
 
-from agents.state import AgentState
-
-
-type DatasetIdResolver = Callable[[AgentState, str | None], str | None]
-type DatasetIdsProvider = Callable[[AgentState], list[str]]
-type StringReader = Callable[[object], str | None]
-type BoolReader = Callable[[object, bool], bool]
+from tools.dto import (
+    DatasetInspectionData,
+    DatasetInspectionPayload,
+    ToolExecutionError,
+    ToolExecutionResult,
+)
+from core.utils import read_string
+from application.datasets.ports import DatasetMetadataReader
+from application.datasets.tool_usecases import InspectDatasetContextUseCase
+from infrastructure.db.repositories import DatasetRepository
 
 
 def tool_definition() -> dict[str, object]:
@@ -21,62 +24,81 @@ def tool_definition() -> dict[str, object]:
             "type": "object",
             "properties": {
                 "dataset_id": {
-                    "type": ["string", "null"],
-                    "description": "확인할 특정 데이터셋 ID입니다. null이면 현재 사용할 수 있는 가장 적절한 데이터셋을 확인합니다.",
-                },
-                "include_preview": {
-                    "type": "boolean",
-                    "description": "표 형태의 미리보기 행을 포함할지 여부입니다.",
-                    "default": True,
-                },
-                "include_profile": {
-                    "type": "boolean",
-                    "description": "데이터셋 프로파일 통계를 포함할지 여부입니다.",
-                    "default": True,
+                    "type": ["string", "array"],
+                    "items": {"type": "string"},
+                    "description": "프로파일과 미리보기를 확인할 특정 데이터셋 ID 또는 데이터셋 ID 배열입니다.",
                 },
             },
-            "required": [],
+            "required": ["dataset_id"],
             "additionalProperties": False,
         },
     }
 
 
-def execute(
-    state: AgentState,
-    arguments: dict[str, object],
-    *,
-    dataset_service,
-    resolve_dataset_id: DatasetIdResolver,
-    available_dataset_ids: DatasetIdsProvider,
-    read_string: StringReader,
-    read_bool: BoolReader,
-) -> dict[str, object]:
-    """선택된 데이터셋의 profile과 preview를 조회합니다."""
-    state["route"] = "dataset_analysis"
-    state["status"] = "profiling"
+def execute(arguments: dict[str, object]) -> dict[str, object]:
+    """LLM function_call arguments만 받아 선택 데이터셋의 context를 조회합니다."""
+    dataset_ids = _read_dataset_ids(arguments.get("dataset_id"))
+    if not dataset_ids:
+        return ToolExecutionResult[DatasetInspectionData](
+            ok=False,
+            error="dataset_id is required.",
+        ).model_dump(mode="json", exclude_none=True)
 
-    dataset_id = resolve_dataset_id(state, read_string(arguments.get("dataset_id")))
-    if dataset_id is None:
-        return {
-            "ok": False,
-            "error": "No dataset is available.",
-            "available_dataset_ids": available_dataset_ids(state),
-        }
+    datasets: list[DatasetInspectionPayload] = []
+    errors: list[ToolExecutionError] = []
+    for dataset_id in dataset_ids:
+        try:
+            datasets.append(_get_usecase().execute(dataset_id))
+        except KeyError:
+            errors.append(
+                ToolExecutionError(
+                    target_id=dataset_id,
+                    message="Dataset not found.",
+                )
+            )
+        except ValueError as exc:
+            errors.append(ToolExecutionError(target_id=dataset_id, message=str(exc)))
 
-    include_preview = read_bool(arguments.get("include_preview"), True)
-    include_profile = read_bool(arguments.get("include_profile"), True)
-    payload: dict[str, object] = {
-        "ok": True,
-        "dataset_id": dataset_id,
-        "available_dataset_ids": available_dataset_ids(state),
-    }
-    if include_profile:
-        payload["profile"] = dataset_service.get_profile(dataset_id).model_dump(
-            mode="json"
-        )
-    if include_preview:
-        payload["preview"] = dataset_service.get_preview(dataset_id).model_dump(
-            mode="json"
-        )
-    state["resolved_dataset_id"] = dataset_id
-    return payload
+    data = DatasetInspectionData(
+        dataset_ids=dataset_ids,
+        datasets=datasets,
+    )
+    if len(dataset_ids) == 1 and datasets and not errors:
+        # 기존 단일 dataset 호출 소비자가 바로 읽을 수 있도록 최상위 필드도 유지합니다.
+        data.dataset_id = datasets[0].dataset_id
+        data.profile = datasets[0].profile
+        data.preview = datasets[0].preview
+    result = ToolExecutionResult[DatasetInspectionData](
+        ok=not errors,
+        data=data,
+        errors=errors,
+    )
+    return result.model_dump(mode="json", exclude_none=True)
+
+
+@lru_cache
+def _get_usecase() -> InspectDatasetContextUseCase:
+    """tool 실행 시 사용할 데이터셋 context usecase를 생성합니다."""
+    # tool adapter는 application port와 infrastructure 구현체를 연결하는 composition 역할만 합니다.
+    return InspectDatasetContextUseCase(dataset_reader=_get_dataset_reader())
+
+
+@lru_cache
+def _get_dataset_reader() -> DatasetMetadataReader:
+    """데이터셋 조회 port 구현체를 생성합니다."""
+    return DatasetRepository()
+
+
+def _read_dataset_ids(value: object) -> list[str]:
+    """문자열 또는 문자열 배열 형태의 dataset_id argument를 정규화합니다."""
+    if isinstance(value, list):
+        values = [read_string(item) for item in value]
+    else:
+        values = [read_string(value)]
+
+    dataset_ids: list[str] = []
+    for dataset_id in values:
+        if dataset_id is None or dataset_id in dataset_ids:
+            continue
+        dataset_ids.append(dataset_id)
+    return dataset_ids

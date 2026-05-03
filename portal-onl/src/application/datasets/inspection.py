@@ -4,7 +4,12 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-from .dto import DatasetColumnProfile, DatasetPreviewPayload, DatasetProfilePayload
+from .dto import (
+    DatasetColumnProfile,
+    DatasetPreviewPayload,
+    DatasetProfilePayload,
+    DatasetProfileValue,
+)
 
 
 def build_preview_from_dataframe(
@@ -23,18 +28,26 @@ def build_preview_from_dataframe(
 
 def build_profile_from_dataframe(dataframe: pd.DataFrame) -> DatasetProfilePayload:
     columns = [
-        DatasetColumnProfile(
-            name=str(column),
-            dtype=_normalize_dtype(dataframe[column]),
-            null_ratio=_null_ratio(dataframe[column]),
-            sample_values=_sample_values(dataframe[column]),
-        )
+        _build_column_profile(str(column), dataframe[column])
         for column in dataframe.columns
     ]
     return DatasetProfilePayload(
         row_count=int(len(dataframe)),
         column_count=int(len(dataframe.columns)),
         columns=columns,
+    )
+
+
+def _build_column_profile(name: str, series: pd.Series) -> DatasetColumnProfile:
+    """컬럼별 타입, 품질, 범위 정보를 하나의 프로파일 항목으로 구성합니다."""
+    min_value, max_value = _range_values(series)
+    return DatasetColumnProfile(
+        name=name,
+        dtype=_normalize_dtype(series),
+        null_ratio=_null_ratio(series),
+        min_value=min_value,
+        max_value=max_value,
+        sample_values=_sample_values(series),
     )
 
 
@@ -52,6 +65,22 @@ def _coerce_preview_value(value: object) -> str | int | float | None:
             return None
     except (TypeError, ValueError):
         pass
+    return str(value)
+
+
+def _coerce_profile_value(value: object) -> DatasetProfileValue:
+    """profile 범위 값을 JSON으로 직렬화 가능한 스칼라로 변환합니다."""
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, (str, int, float)):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
     return str(value)
 
 
@@ -74,6 +103,24 @@ def _null_ratio(series: pd.Series) -> float:
     if len(series) == 0:
         return 0.0
     return round(float(series.isna().mean()), 4)
+
+
+def _range_values(series: pd.Series) -> tuple[DatasetProfileValue, DatasetProfileValue]:
+    """숫자와 날짜 컬럼에서 분석에 유효한 최소/최대 범위를 계산합니다."""
+    if pd.api.types.is_bool_dtype(series):
+        return None, None
+    if not (
+        pd.api.types.is_numeric_dtype(series)
+        or pd.api.types.is_datetime64_any_dtype(series)
+    ):
+        return None, None
+
+    available = series.dropna()
+    if available.empty:
+        return None, None
+    return _coerce_profile_value(available.min()), _coerce_profile_value(
+        available.max()
+    )
 
 
 def _sample_values(series: pd.Series, max_samples: int = 3) -> list[str]:

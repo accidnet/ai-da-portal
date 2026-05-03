@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+type DatasetProfileValue = str | int | float | None
+
 
 class DatasetPreviewPayload(BaseModel):
     """DataFrame에서 생성한 데이터셋 미리보기 payload입니다."""
@@ -16,6 +18,8 @@ class DatasetColumnProfile(BaseModel):
     name: str
     dtype: str
     null_ratio: float = 0.0
+    min_value: DatasetProfileValue = None
+    max_value: DatasetProfileValue = None
     sample_values: list[str] = Field(default_factory=list)
 
 

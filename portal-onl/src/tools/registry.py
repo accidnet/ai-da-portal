@@ -44,14 +44,8 @@ def execute_tool(
         "update_plan": lambda tool_state, tool_arguments: update_plan.execute(
             tool_state, tool_arguments
         ),
-        "inspect_dataset_context": lambda tool_state, tool_arguments: inspect_dataset_context.execute(
-            tool_state,
-            tool_arguments,
-            dataset_service=context.dataset_service,
-            resolve_dataset_id=context.resolve_dataset_id,
-            available_dataset_ids=context.available_dataset_ids,
-            read_string=context.read_string,
-            read_bool=context.read_bool,
+        "inspect_dataset_context": lambda _tool_state, tool_arguments: inspect_dataset_context.execute(
+            tool_arguments
         ),
         "run_portal_analysis": lambda tool_state, tool_arguments: run_portal_analysis.execute(
             tool_state,

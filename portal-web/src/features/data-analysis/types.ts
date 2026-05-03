@@ -165,6 +165,8 @@ export interface DatasetColumnProfile {
   name: string
   dtype: string
   nullRatio: number
+  minValue?: string | number | null
+  maxValue?: string | number | null
   sampleValues: string[]
 }
 
