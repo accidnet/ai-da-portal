@@ -260,17 +260,6 @@ export interface StreamChatMessageOptions {
   onState?: (state: AgentStateStreamPayload) => void
 }
 
-export interface AnalysisResponse {
-  id: string
-  session_id: string
-  dataset_id: string | null
-  analysis_type: string
-  status: ChatStatus
-  created_at: string
-  analytics: ChatResponse['analytics']
-  workspace: ChatResponse['workspace']
-}
-
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000'
 
 export function getPortalApiBaseUrl(): string {
@@ -500,39 +489,6 @@ export async function fetchSessionSnapshot(
   }
 
   return (await response.json()) as SessionSnapshotResponse
-}
-
-export async function sendChatMessage(
-  payload: { sessionId: string; message: string; datasetIds?: string[] },
-  signal?: AbortSignal,
-): Promise<ChatResponse> {
-  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/chat/messages`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      session_id: payload.sessionId,
-      message: payload.message,
-      dataset_ids: payload.datasetIds ?? [],
-    }),
-    signal,
-  })
-
-  if (!response.ok) {
-    let detail = ''
-    try {
-      const errorBody = (await response.json()) as { detail?: string }
-      detail = errorBody.detail?.trim() ?? ''
-    } catch {
-      detail = ''
-    }
-
-    throw new Error(detail || `Chat request failed with status ${response.status}`)
-  }
-
-  return (await response.json()) as ChatResponse
 }
 
 export async function streamChatMessage(
@@ -865,35 +821,4 @@ export async function deleteDataset(
   }
 
   return (await response.json()) as DatasetInfoResponse
-}
-
-export async function createAnalysis(
-  payload: {
-    sessionId: string
-    datasetId?: string | null
-    analysisType: string
-    prompt?: string | null
-  },
-  signal?: AbortSignal,
-): Promise<AnalysisResponse> {
-  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/analyses`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      session_id: payload.sessionId,
-      dataset_id: payload.datasetId ?? null,
-      analysis_type: payload.analysisType,
-      prompt: payload.prompt ?? null,
-    }),
-    signal,
-  })
-
-  if (!response.ok) {
-    throw new Error(`Analysis creation failed with status ${response.status}`)
-  }
-
-  return (await response.json()) as AnalysisResponse
 }

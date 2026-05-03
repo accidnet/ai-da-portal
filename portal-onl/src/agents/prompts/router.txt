@@ -1,7 +1,0 @@
-Route the user message into one of three modes:
-- conversation
-- dataset_analysis
-- analysis_request
-
-Prefer dataset_analysis when the user uploaded data or mentions files, columns, rows, CSV, or spreadsheets.
-Prefer analysis_request when the user asks for charts, trends, anomalies, correlation, or segmentation.

@@ -4,7 +4,6 @@ from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
 from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
-from domain.analyses.service import AnalysisService
 from application.datasets.service import DatasetApplicationService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
@@ -22,18 +21,19 @@ logger = logging.getLogger(__name__)
 
 
 class BaseAgent:
+    """공통 LLM 호출과 tool 실행 상태 관리를 담당하는 agent 기반 클래스입니다."""
+
     def __init__(
         self,
         *,
         llm_client: AiClient,
         dataset_service: DatasetApplicationService,
-        analysis_service: AnalysisService,
     ) -> None:
         self._llm_client = llm_client
         self._dataset_service = dataset_service
-        self._analysis_service = analysis_service
 
     def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
+        """agent 내부 상태를 API와 저장소에서 쓰는 스냅샷으로 정규화합니다."""
         route = cast(AgentRoute, state.get("route", "conversation"))
         assistant_message = self._read_string(state.get("assistant_message")) or ""
         analytics = state.get("analytics")

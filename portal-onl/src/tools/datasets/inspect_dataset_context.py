@@ -7,7 +7,6 @@ from tools.dto import (
     ToolExecutionResult,
 )
 from core.utils import read_string
-from application.datasets.ports import DatasetMetadataReader
 from application.datasets.tool_usecases import InspectDatasetContextUseCase
 from infrastructure.db.repositories import DatasetRepository
 

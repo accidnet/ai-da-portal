@@ -7,7 +7,6 @@ from agents.runtimes.base import BaseAgent
 from agents.state import AgentState
 from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
-from domain.analyses.service import AnalysisService
 from application.datasets.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 
@@ -16,6 +15,7 @@ AgentStreamEvent = dict[str, object] | SseEvent
 
 
 class ChatStreamingAgent(BaseAgent):
+    """채팅 요청을 LLM 스트림과 tool 호출 이벤트로 실행하는 agent입니다."""
 
     def invoke(
         self, state: AgentState
@@ -255,10 +255,9 @@ def build_chat_streaming_agent(
     *,
     llm_client: AiClient,
     dataset_service: DatasetApplicationService,
-    analysis_service: AnalysisService,
 ) -> ChatStreamingAgent:
+    """스트리밍 채팅 agent 인스턴스를 생성합니다."""
     return ChatStreamingAgent(
         llm_client=llm_client,
         dataset_service=dataset_service,
-        analysis_service=analysis_service,
     )

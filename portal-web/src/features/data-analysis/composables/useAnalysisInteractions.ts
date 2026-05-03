@@ -1,7 +1,6 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
 import {
-  createAnalysis,
   fetchDatasetPreview,
   fetchDatasetProfile,
   resolveSessionTitle,
@@ -435,20 +434,34 @@ export function useAnalysisInteractions(options: {
 
     isRunningAnalysis.value = true
     try {
-      const analysis = await createAnalysis({
+      const analysisPrompt = `${primaryDataset.filename} 데이터셋을 대시보드용으로 요약하고 적합한 시각화와 인사이트를 만들어줘.`
+      sessionState.messages = [
+        ...sessionState.messages,
+        {
+          role: 'user',
+          text: analysisPrompt,
+        },
+      ]
+      const response = await streamChatMessage({
         sessionId,
-        datasetId: primaryDataset.id,
-        analysisType: 'dataset_profile',
-        prompt: `Generate a dashboard-ready profile for ${primaryDataset.filename}.`,
+        datasetIds: [primaryDataset.id],
+        // 백엔드의 남은 agent/tool 흐름을 통해 분석 패널 데이터를 생성합니다.
+        message: analysisPrompt,
       })
-      sessionState.analyticsPayload = analysis.analytics
-      sessionState.workspacePayload = analysis.workspace
+      sessionState.analyticsPayload = response.analytics
+      sessionState.workspacePayload = response.workspace
       sessionState.messages = [
         ...sessionState.messages,
         {
           role: 'assistant',
           author: 'AI 데이터 분석가',
-          text: analysis.analytics?.insights[0]?.body ?? '분석이 완료되어 실시간 분석 패널을 업데이트했어요.',
+          text:
+            normalizeAssistantMessage(response.assistant_message)
+            || response.analytics?.insights[0]?.body
+            || '분석이 완료되어 실시간 분석 패널을 업데이트했어요.',
+          usedTools: response.used_tools,
+          plan: response.plan,
+          planExplanation: response.plan_explanation?.trim() || undefined,
         },
       ]
       syncSessionSummaryWithState(sessionId)

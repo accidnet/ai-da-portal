@@ -3,5 +3,4 @@ __all__ = [
     "charts",
     "planning",
     "registry",
-    "run_portal_analysis",
 ]
