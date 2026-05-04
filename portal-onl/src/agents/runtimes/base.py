@@ -1,25 +1,19 @@
 import json
-import logging
 from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
 from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from application.datasets.service import DatasetApplicationService
 from domain.shared import AnalyticsPayload, WorkspacePayload
-from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
+from infrastructure.ai.client import AiClient, AiClientError
 from infrastructure.ai.input_models import (
     Message,
-    EasyInputMessage,
     FunctionCall,
     FunctionCallOutput,
     InputItemList,
     ResponseInputText,
-    ResponseOutputMessage,
-    ResponseOutputText,
 )
 from tools import registry
-
-logger = logging.getLogger(__name__)
 
 
 class BaseAgent:
@@ -97,21 +91,11 @@ class BaseAgent:
             content=(ResponseInputText(text=f"다음의 정보를 활용하세요.\n{payload}"),),
         )
 
-    def _build_user_input(self, *, message: str) -> Message:
-        return Message(role="user", content=(ResponseInputText(text=message),))
-
-    def _build_assistant_input(self, *, message: str, msg_id: str) -> Message:
-        """event response 내의 msg_로 시작하는 id를 활용합니다."""
-        return ResponseOutputMessage(
-            id=msg_id, content=(ResponseOutputText(text=message),)
-        )
-
-    def _build_inputs(
-        self, *, message: str, dataset_ids: list[str], inputs: list | None = None
+    def _build_initial_inputs(
+        self, *, message: str, dataset_ids: list[str]
     ) -> list[dict[str, object]]:
-
-        if not inputs:
-            inputs = []
+        """초기 LLM 요청 input 목록을 구성합니다."""
+        inputs = []
         if dataset_ids:
             inputs.append(self._build_developer_input(dataset_ids=dataset_ids))
 
@@ -119,74 +103,32 @@ class BaseAgent:
 
         return InputItemList(items=inputs).to_payload()
 
-    def _execute_function_call(
-        self, state: AgentState, function_call: FunctionCall
-    ) -> dict[str, object]:
-        state["used_tools"] = [*state.get("used_tools", []), function_call.name]
-        tool_result = registry.execute_tool(
-            function_call.name,
-            self._parse_function_call_arguments(function_call),
-        )
-        self._apply_tool_result_to_state(
-            state=state,
-            tool_name=function_call.name,
-            tool_result=tool_result,
-        )
-        return tool_result
-
-    def _apply_tool_result_to_state(
-        self,
-        *,
-        state: AgentState,
-        tool_name: str,
-        tool_result: dict[str, object],
-    ) -> None:
-        """state 변경이 필요한 tool 결과를 agent runtime 경계에서 반영합니다."""
-        if tool_name != "update_plan" or tool_result.get("ok") is not True:
-            return
-
-        raw_plan = tool_result.get("plan")
-        if not isinstance(raw_plan, list):
-            return
-
-        # update_plan tool은 정규화된 plan만 반환하므로 runtime에서는 저장 가능한 형태만 확인합니다.
-        state["plan"] = [
-            cast(PlanStep, step) for step in raw_plan if isinstance(step, dict)
-        ]
-        state["plan_explanation"] = self._read_string(tool_result.get("explanation"))
-
-    def _parse_function_call_arguments(
-        self, function_call: FunctionCall
-    ) -> dict[str, object]:
-        # Responses function_call arguments는 JSON 문자열이므로 도구 호출 직전에 dict로 변환합니다.
-        if not function_call.arguments.strip():
+    def _execute_function_call_items(
+        self, function_call_items: list[FunctionCall] | None
+    ) -> dict[str, dict[str, object]]:
+        """function_call 목록을 실행하고 다음 input용 output item을 이름별로 반환합니다."""
+        if not function_call_items:
             return {}
-        loaded = json.loads(function_call.arguments)
-        return loaded if isinstance(loaded, dict) else {}
 
-    def _build_function_call_output_item(
-        self,
-        function_call: FunctionCall,
-        tool_result: dict[str, object],
-    ) -> dict[str, object]:
-        # 함수 호출 결과는 다음 Responses input에 그대로 이어붙일 수 있는 형식으로 맞춥니다.
-        return FunctionCallOutput(
-            call_id=function_call.call_id,
-            output=json.dumps(tool_result, ensure_ascii=False),
-        ).to_payload()
-
-    def _execute_response_function_calls(
-        self, state: AgentState, response: dict[str, object]
-    ) -> list[dict[str, object]]:
-        tool_outputs: list[dict[str, object]] = []
-        for function_call in self._extract_function_calls(response):
-            tool_result = self._execute_function_call(state, function_call)
-            tool_outputs.append(
-                self._build_function_call_output_item(function_call, tool_result)
+        function_call_outputs: dict[str, dict[str, object]] = {}
+        for function_call in function_call_items:
+            tool_result = registry.execute_tool(
+                function_call.name,
+                function_call.arguments,
             )
-        return tool_outputs
+            function_call_output_params = function_call.model_dump(
+                mode="json",
+                include={"call_id", "id", "status"},
+                exclude_none=True,
+            )
+            function_call_outputs[function_call.name] = FunctionCallOutput(
+                **function_call_output_params,
+                output=json.dumps(tool_result, ensure_ascii=False),
+            ).model_dump(mode="json", exclude_none=True)
+        return function_call_outputs
 
     def _build_state_event(self, state: AgentState) -> dict[str, object]:
+        """프론트로 전달할 agent.state 이벤트 payload를 구성합니다."""
         return {
             "type": "agent.state",
             "state": self._serialize_snapshot(self.snapshot_state(state)),
@@ -214,258 +156,13 @@ class BaseAgent:
             "status": snapshot["status"],
         }
 
-    def _available_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
-        combined = [*dataset_ids]
-        latest_dataset_id = self._dataset_service.get_latest_dataset_id()
-        if latest_dataset_id:
-            combined.append(latest_dataset_id)
-        unique_ids: list[str] = []
-        for dataset_id in combined:
-            if dataset_id not in unique_ids:
-                unique_ids.append(dataset_id)
-        return unique_ids
-
-    def _available_dataset_ids_from_state(self, state: AgentState) -> list[str]:
-        return self._available_dataset_ids(state.get("dataset_ids", []))
-
-    def _available_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
-        get_uploaded_filenames = getattr(
-            self._dataset_service, "get_uploaded_filenames", None
-        )
-        if not callable(get_uploaded_filenames):
-            return []
-        return cast(list[str], get_uploaded_filenames(dataset_ids))
-
-    def _resolve_dataset_id(
-        self, *, state: AgentState, preferred_dataset_id: str | None
-    ) -> str | None:
-        candidates = [
-            preferred_dataset_id,
-            state.get("resolved_dataset_id"),
-            *(state.get("dataset_ids", [])),
-            self._dataset_service.get_latest_dataset_id(),
-        ]
-        for candidate in candidates:
-            if candidate:
-                return candidate
-        return None
-
-    def _extract_function_calls(
-        self, response: dict[str, object]
-    ) -> list[FunctionCall]:
-        output = response.get("output")
-        if not isinstance(output, list):
-            return []
-
-        function_calls: list[FunctionCall] = []
-        for item in output:
-            if not isinstance(item, dict) or item.get("type") != "function_call":
-                continue
-            call_id = item.get("call_id")
-            name = item.get("name")
-            arguments = item.get("arguments")
-            if not isinstance(call_id, str) or not isinstance(name, str):
-                continue
-            serialized_arguments = arguments if isinstance(arguments, str) else "{}"
-            function_calls.append(
-                FunctionCall(
-                    call_id=call_id,
-                    name=name,
-                    arguments=serialized_arguments,
-                )
-            )
-        return function_calls
-
-    def _extract_assistant_text(self, response: dict[str, object]) -> str | None:
-        output_text = response.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text.strip()
-
-        output = response.get("output")
-        if not isinstance(output, list):
-            return None
-
-        parts: list[str] = []
-        for item in output:
-            if not isinstance(item, dict) or item.get("type") != "message":
-                continue
-            content = item.get("content")
-            if not isinstance(content, list):
-                continue
-            for entry in content:
-                if not isinstance(entry, dict):
-                    continue
-                text = entry.get("text")
-                if isinstance(text, str) and text.strip():
-                    parts.append(text.strip())
-        if parts:
-            return "\n\n".join(parts)
-        return None
-
-    def _response_output_to_input_items(
-        self, response: dict[str, object]
-    ) -> list[dict[str, object]]:
-        output = response.get("output")
-        if not isinstance(output, list):
-            assistant_text = self._extract_assistant_text(response)
-            if not assistant_text:
-                return []
-            return InputItemList(
-                items=(
-                    EasyInputMessage(
-                        role="assistant",
-                        content=(ResponseInputText(text=assistant_text),),
-                    ),
-                )
-            ).to_payload()
-
-        input_items: list[dict[str, object]] = []
-        for item in output:
-            if not isinstance(item, dict):
-                continue
-
-            item_type = item.get("type")
-            if item_type == "function_call":
-                call_id = self._read_string(item.get("call_id"))
-                name = self._read_string(item.get("name"))
-                if not call_id or not name:
-                    continue
-
-                arguments = item.get("arguments")
-                serialized_arguments = (
-                    arguments
-                    if isinstance(arguments, str)
-                    else json.dumps(arguments or {}, ensure_ascii=False)
-                )
-                input_items.append(
-                    FunctionCall(
-                        arguments=serialized_arguments,
-                        call_id=call_id,
-                        name=name,
-                        id=self._read_string(item.get("id")),
-                        namespace=self._read_string(item.get("namespace")),
-                        status=cast(
-                            Literal["in_progress", "completed", "incomplete"] | None,
-                            item.get("status"),
-                        ),
-                    ).to_payload()
-                )
-                continue
-
-            if item_type == "function_call_output":
-                call_id = self._read_string(item.get("call_id"))
-                if not call_id:
-                    continue
-
-                output_payload = item.get("output")
-                if isinstance(output_payload, list):
-                    typed_output = tuple(
-                        ResponseInputText(text=text)
-                        for entry in output_payload
-                        if isinstance(entry, dict)
-                        and isinstance((text := entry.get("text")), str)
-                    )
-                    if not typed_output:
-                        continue
-                    input_items.append(
-                        FunctionCallOutput(
-                            call_id=call_id,
-                            output=typed_output,
-                            id=self._read_string(item.get("id")),
-                            status=cast(
-                                Literal["in_progress", "completed", "incomplete"]
-                                | None,
-                                item.get("status"),
-                            ),
-                        ).to_payload()
-                    )
-                    continue
-
-                if isinstance(output_payload, str):
-                    input_items.append(
-                        FunctionCallOutput(
-                            call_id=call_id,
-                            output=output_payload,
-                            id=self._read_string(item.get("id")),
-                            status=cast(
-                                Literal["in_progress", "completed", "incomplete"]
-                                | None,
-                                item.get("status"),
-                            ),
-                        ).to_payload()
-                    )
-                continue
-
-            if item_type != "message":
-                continue
-
-            role = item.get("role")
-            if role not in ("developer", "user", "assistant", "system"):
-                continue
-
-            content = item.get("content")
-            if not isinstance(content, list):
-                continue
-
-            typed_content = tuple(
-                ResponseInputText(text=text)
-                for entry in content
-                if isinstance(entry, dict)
-                and isinstance((text := entry.get("text")), str)
-                and text.strip()
-            )
-            if not typed_content:
-                continue
-
-            input_items.append(
-                EasyInputMessage(
-                    role=cast(
-                        Literal["developer", "user", "assistant", "system"], role
-                    ),
-                    content=typed_content,
-                ).to_payload()
-            )
-
-        return input_items
-
-    def _extend_input_with_response(
-        self,
-        current_input: list[dict[str, object]],
-        response: dict[str, object],
-        *,
-        tool_outputs: list[dict[str, object]] | None = None,
-    ) -> list[dict[str, object]]:
-        # 다음 호출에는 기존 대화와 이번 응답 결과를 모두 누적합니다.
-        return [
-            *current_input,
-            *self._response_output_to_input_items(response),
-            *(tool_outputs or []),
-        ]
-
-    def _normalize_response_payload(
-        self, response: dict[str, object]
-    ) -> dict[str, object]:
-        nested_response = coerce_optional_dict(response.get("response"))
-        normalized = nested_response if nested_response is not None else dict(response)
-
-        output_text = normalized.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            normalized["output_text"] = output_text.strip()
-            return normalized
-
-        extracted = self._extract_assistant_text(normalized)
-        if extracted:
-            normalized["output_text"] = extracted
-
-        return normalized
-
     def _build_llm_request_kwargs(
-        self, inputs: list[dict[str, object]]
+        self, input_items: list[dict[str, object]]
     ) -> dict[str, object]:
         # 외부 LLM API 호출에 필요한 요청 파라미터를 구성합니다.
         return {
             "instructions": load_prompt("base.md"),
-            "input": inputs,
+            "input": input_items,
             "tools": registry.get_tool_definitions(),
             "tool_choice": "auto",
             "parallel_tool_calls": False,

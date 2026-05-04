@@ -1,3 +1,4 @@
+import json
 from typing import Protocol
 
 from tools.analysis import anomaly_detection, correlation
@@ -55,12 +56,38 @@ def get_tool_definitions() -> list[dict[str, object]]:
     return [tool.tool_definition() for tool in _TOOL_MODULES]
 
 
-def execute_tool(name: str, arguments: dict[str, object]) -> dict[str, object]:
+def execute_tool(
+    name: str, arguments: dict[str, object] | str | None
+) -> dict[str, object]:
     """tool 이름 문자열과 arguments를 받아 정의된 tool의 execute 함수를 실행합니다."""
     tool = _find_tool(name)
     if tool is None:
         return {"ok": False, "error": f"Unsupported tool: {name}"}
-    return tool.execute(arguments)
+
+    parsed_arguments = _parse_tool_arguments(arguments)
+    if parsed_arguments is None:
+        return {"ok": False, "error": f"Invalid tool arguments for: {name}"}
+
+    return tool.execute(parsed_arguments)
+
+
+def _parse_tool_arguments(
+    arguments: dict[str, object] | str | None,
+) -> dict[str, object] | None:
+    """Responses function_call arguments를 tool execute 입력 dict로 정규화합니다."""
+    if arguments is None:
+        return {}
+    if isinstance(arguments, dict):
+        return arguments
+    if not arguments.strip():
+        return {}
+
+    try:
+        loaded = json.loads(arguments)
+    except json.JSONDecodeError:
+        return None
+
+    return loaded if isinstance(loaded, dict) else None
 
 
 def _find_tool(name: str) -> ToolModule | None:

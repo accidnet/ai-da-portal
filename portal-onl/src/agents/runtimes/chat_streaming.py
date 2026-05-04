@@ -1,15 +1,19 @@
-import logging
 import json
+import logging
 from collections.abc import Generator, Iterable
 from typing import cast
 
 from agents.runtimes.base import BaseAgent
-from agents.state import AgentState
+from agents.state import AgentState, PlanStep
 from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from application.datasets.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
-from infrastructure.ai.input_models import ResponseOutputMessage
+from infrastructure.ai.input_models import (
+    FunctionCall,
+    InputItemList,
+    ResponseOutputMessage,
+)
 
 logger = logging.getLogger(__name__)
 AgentStreamEvent = dict[str, object] | SseEvent
@@ -25,14 +29,9 @@ class ChatStreamingAgent(BaseAgent):
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
         working_state.setdefault("status", "queued")
-        last_state_fingerprint = json.dumps(
-            self._build_state_event(working_state)["state"],
-            ensure_ascii=False,
-            sort_keys=True,
-        )
 
         # 사용자 메세지를 포함하여 AI API input으로 사용하기 위한 빌드
-        inputs = self._build_inputs(
+        input_items = self._build_initial_inputs(
             message=self._require_string(working_state, "message"),
             dataset_ids=working_state.get("dataset_ids", []),
         )
@@ -44,7 +43,6 @@ class ChatStreamingAgent(BaseAgent):
 
             if iteration_count >= max_iterations:
                 break
-
             iteration_count += 1
 
             # iteration이 시작할때마다 프론트에 전달
@@ -56,34 +54,34 @@ class ChatStreamingAgent(BaseAgent):
             )
 
             # 외부 LLM API 호출
-            response = yield from self._parse_stream_events(
+            stream_result = yield from self._parse_stream_events(
                 self._llm_client.create_response(
-                    **self._build_llm_request_kwargs(inputs),
+                    **self._build_llm_request_kwargs(input_items),
                     stream=True,
                 ),
             )
 
-            response_id = response.get("id")
-            if isinstance(response_id, str) and response_id:
-                working_state["response_id"] = response_id
-
-            result_state, updated_input, state_event, last_state_fingerprint = (
-                self._handle_after_call_completion(
-                    working_state=working_state,
-                    response=response,
-                    next_input=inputs,
-                    last_state_fingerprint=last_state_fingerprint,
-                    current_input_list=inputs,
-                    new_input_list=response.get("inputs"),
-                )
+            # API 호출이 끝난 후 처리하는 로직
+            new_input_items, state_event = self._handle_after_call_completion(
+                working_state=working_state,
+                stream_result=stream_result,
             )
+
             if state_event is not None:
                 yield state_event
-            if updated_input is not None:
-                inputs = updated_input
+
+            # iteration이 끝날때마다 프론트에 전달
+            yield SseEvent(
+                event_type="agent.iteration.done",
+                data={
+                    "iteration": iteration_count,
+                },
+            )
+
+            # iteration이 끝날때 새로운 input_items을 추가하여 멀티턴
+            if new_input_items:
+                input_items.extend(new_input_items)
                 continue
-            if result_state is not None:
-                return result_state
 
         return working_state
 
@@ -92,12 +90,9 @@ class ChatStreamingAgent(BaseAgent):
     ) -> Generator[AgentStreamEvent, None, dict[str, object]]:
         """API 호출 1번 내에 발생하는 stream event에 대한 개별적 처리"""
 
-        response_id: str | None = None
-        text_deltas: list[str] = []
-        function_calls: dict[str, dict[str, object]] = {}
-
         # streaming 중에 생성되는 input을 순차적으로 적재하여, 다음 step input에 추가하여 활용하기 위함
-        inputs = []
+        input_items: list[ResponseOutputMessage | FunctionCall] = []
+        function_call_items: list[FunctionCall] = []
 
         close = getattr(stream, "close", None)
         try:
@@ -109,15 +104,8 @@ class ChatStreamingAgent(BaseAgent):
                     self._log_unhandled_stream_event(event)
                     continue
 
-                response_payload = coerce_optional_dict(payload.get("response"))
-                if response_payload is not None and response_id is None:
-                    response_id = self._read_string(response_payload.get("id"))
-
-                processed_event = handle_stream_event(
-                    payload=payload,
-                    function_calls=function_calls,
-                    normalize_response_payload=self._normalize_response_payload,
-                )
+                # streaming의 각 type별로 처리
+                processed_event = handle_stream_event(payload=payload)
 
                 # 바로 프론트로 전달해야하는 경우
                 yielded_event = processed_event.yielded_event
@@ -127,25 +115,18 @@ class ChatStreamingAgent(BaseAgent):
                 # input에 넣을 item이 있을 경우 추가
                 input_item = processed_event.input_item
                 if input_item:
-                    inputs.append(input_item)
- 
+                    input_items.append(input_item)
+
+                # 실행해야할 function call이 있을 경우 추가
+                function_call_item = processed_event.function_call_item
+                if function_call_item:
+                    function_call_items.append(function_call_item)
+
         finally:
             if callable(close):
                 close()
 
-        normalized: dict[str, object] = {}
-        if response_id:
-            normalized["id"] = response_id
-
-        output_text = "".join(text_deltas).strip()
-        if output_text:
-            normalized["output_text"] = output_text
-
-        # stream event를 parsing하면서 추가된 inputs를 return하도록 하여 기존의 inputs에 추가하도록 함.
-        if inputs:
-            normalized["inputs"] = inputs
-
-        return self._normalize_response_payload(normalized)
+        return {"input_items": input_items, "function_call_items": function_call_items}
 
     def _log_unhandled_stream_event(self, event: object) -> None:
         if event is None or event == "" or event == [] or event == {}:
@@ -157,86 +138,114 @@ class ChatStreamingAgent(BaseAgent):
             event,
         )
 
-    def _merge_stream_output(
-        self,
-        response: dict[str, object],
-        stream_output: list[dict[str, object]],
-    ) -> dict[str, object]:
-        if not stream_output:
-            return self._normalize_response_payload(response)
-
-        normalized = self._normalize_response_payload(response)
-        output = normalized.get("output")
-        if not isinstance(output, list) or not output:
-            normalized["output"] = stream_output
-            return self._normalize_response_payload(normalized)
-
-        existing_call_ids = {
-            item.get("call_id")
-            for item in output
-            if isinstance(item, dict) and item.get("type") == "function_call"
-        }
-        missing_stream_items = [
-            item
-            for item in stream_output
-            if item.get("type") == "function_call"
-            and item.get("call_id") not in existing_call_ids
-        ]
-        if missing_stream_items:
-            normalized["output"] = [*output, *missing_stream_items]
-
-        return self._normalize_response_payload(normalized)
-
-
     def _handle_after_call_completion(
         self,
         *,
         working_state: AgentState,
-        response: dict[str, object],
-        next_input: list[dict[str, object]],
-        last_state_fingerprint: str,
-        current_input_list: list[dict[str, object]],
-        new_input_list: list[dict[str, object]] | None = None,
-    ) -> tuple[
-        AgentState | None,
-        list[dict[str, object]] | None,
-        dict[str, object] | None,
-        str,
-    ]:
+        stream_result: dict[str, object],
+    ) -> tuple[list[dict[str, object]] | None, SseEvent | None]:
 
-        if new_input_list:
-            current_input_list.extend(new_input_list)
-            next_input = current_input_list.copy()
+        stream_input_items = cast(
+            list[ResponseOutputMessage | FunctionCall],
+            stream_result.get("input_items", []),
+        )
+        self._apply_assistant_message_to_state(working_state, stream_input_items)
 
-        # 스트림 완료 후 응답 내용을 기준으로 다음 액션을 결정합니다.
-        tool_outputs = self._execute_response_function_calls(working_state, response)
-        if tool_outputs:
-            state_event = self._build_state_event(working_state)
-            state_fingerprint = json.dumps(
-                state_event["state"],
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            if state_fingerprint == last_state_fingerprint:
-                state_event = None
-            else:
-                last_state_fingerprint = state_fingerprint
+        # 실행해야 할 function call이 있는 지 확인 후 실행
+        function_call_items = cast(
+            list[FunctionCall],
+            stream_result.get("function_call_items", []),
+        )
+        self._apply_used_tools_to_state(working_state, function_call_items)
+        function_call_outputs = self._execute_function_call_items(
+            function_call_items=function_call_items,
+        )
+        state_event = None
+        if function_call_outputs:
+            # function call 중 update_plan은 프론트 상태 이벤트로도 전달합니다.
+            update_plan_function_output = function_call_outputs.get("update_plan")
+            if update_plan_function_output:
+                self._apply_update_plan_output_to_state(
+                    working_state, update_plan_function_output
+                )
+                state_event = SseEvent(
+                    event_type="agent.state",
+                    data=self._build_state_event(working_state),
+                )
+            new_input_items = [
+                *InputItemList(items=tuple(stream_input_items)).to_payload(),
+                *function_call_outputs.values(),
+            ]
+            return new_input_items, state_event
 
-            next_input = self._extend_input_with_response(
-                next_input,
-                response,
-                tool_outputs=tool_outputs,
-            )
-            return None, next_input, state_event, last_state_fingerprint
+        return None, state_event
 
-        assistant_message = self._extract_assistant_text(response)
-        if assistant_message:
-            working_state["assistant_message"] = assistant_message
-            working_state["status"] = "completed"
-            working_state.setdefault("route", "conversation")
-            return working_state, None, None, last_state_fingerprint
+    def _apply_assistant_message_to_state(
+        self,
+        working_state: AgentState,
+        input_items: list[ResponseOutputMessage | FunctionCall],
+    ) -> None:
+        """스트림에서 완료된 assistant message를 최종 state에 반영합니다."""
+        text_parts: list[str] = []
+        for input_item in input_items:
+            if not isinstance(input_item, ResponseOutputMessage):
+                continue
+            for content in input_item.content:
+                if content.text.strip():
+                    text_parts.append(content.text.strip())
 
-        return None, None, None, last_state_fingerprint
+        if not text_parts:
+            return
+
+        working_state["assistant_message"] = "\n\n".join(text_parts)
+        working_state["status"] = "completed"
+        working_state.setdefault("route", "conversation")
+
+    def _apply_used_tools_to_state(
+        self,
+        working_state: AgentState,
+        function_call_items: list[FunctionCall],
+    ) -> None:
+        """실행된 function_call 이름을 최종 state에 누적합니다."""
+        if not function_call_items:
+            return
+
+        used_tools = [
+            tool for tool in working_state.get("used_tools", []) if isinstance(tool, str)
+        ]
+        for function_call in function_call_items:
+            used_tools.append(function_call.name)
+        working_state["used_tools"] = used_tools
+
+    def _apply_update_plan_output_to_state(
+        self,
+        working_state: AgentState,
+        function_call_output: dict[str, object],
+    ) -> None:
+        """update_plan function output의 JSON 문자열을 state plan으로 반영합니다."""
+        output = function_call_output.get("output")
+        if not isinstance(output, str):
+            return
+
+        try:
+            tool_result = json.loads(output)
+        except json.JSONDecodeError:
+            return
+
+        if not isinstance(tool_result, dict) or tool_result.get("ok") is not True:
+            return
+
+        raw_plan = tool_result.get("plan")
+        if isinstance(raw_plan, list):
+            working_state["plan"] = [
+                cast(PlanStep, step)
+                for step in raw_plan
+                if isinstance(step, dict)
+            ]
+        explanation = tool_result.get("explanation")
+        working_state["plan_explanation"] = (
+            explanation.strip() if isinstance(explanation, str) else None
+        )
 
 
 def build_chat_streaming_agent(

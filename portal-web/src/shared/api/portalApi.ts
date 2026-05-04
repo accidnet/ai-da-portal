@@ -535,7 +535,10 @@ export async function streamChatMessage(
   const processEvent = (event: ChatStreamEvent, fallbackType = '') => {
     const eventType = fallbackType || event.type
 
-    if (eventType === 'response.output_text.delta' && typeof event.delta === 'string') {
+    if (
+      (eventType === 'response.output_text.delta' || eventType === 'message.delta')
+      && typeof event.delta === 'string'
+    ) {
       options.onDelta?.(event.delta)
       return
     }
@@ -549,6 +552,8 @@ export async function streamChatMessage(
       const isReservedEvent =
         eventType === 'agent.state'
         || eventType === 'agent.iteration.start'
+        || eventType === 'agent.iteration.done'
+        || eventType === 'agent.function_call.output'
         || eventType === 'chat.completed'
         || eventType === 'response.completed'
         || eventType === 'message.completed'
