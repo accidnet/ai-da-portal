@@ -11,6 +11,10 @@ import {
 } from '../utils/analysisPageHelpers'
 import { mapSnapshotToSessionState, type SessionRuntimeState } from '../utils/sessionState'
 
+interface LoadSessionsOptions {
+  startWithDraft?: boolean
+}
+
 export function useAnalysisSessions(options: {
   currentScreen: Ref<AnalysisScreen>
   onSessionDeleted?: (sessionId: string) => void | Promise<void>
@@ -139,7 +143,7 @@ export function useAnalysisSessions(options: {
     hiddenSessionSummaries.value = remainingHiddenSummaries
   }
 
-  async function loadSessions() {
+  async function loadSessions(options: LoadSessionsOptions = {}) {
     try {
       const sessions = await fetchSessions()
       sessionSummaries.value = sessions.map(mapSessionSummary)
@@ -152,6 +156,12 @@ export function useAnalysisSessions(options: {
         if (session.id) {
           ensureSessionState(session.id, session.title)
         }
+      }
+
+      if (options.startWithDraft) {
+        // 새로고침 시 기존 세션을 자동 복원하지 않고 새 분석 작성 상태로 시작합니다.
+        openDraftSession()
+        return
       }
 
       if (!activeSessionId.value || !sessionSummaries.value.some((session) => session.id === activeSessionId.value)) {
