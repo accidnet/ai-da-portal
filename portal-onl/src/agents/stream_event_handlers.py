@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from core.sse import SseEvent
 from infrastructure.ai.client import coerce_optional_dict
-from infrastructure.ai.input_models import (
+from shared.integrations.ai.contracts import (
     FunctionCall,
     ResponseOutputMessage,
     ResponseOutputText,
@@ -18,14 +18,12 @@ class ProcessedStreamEvent(BaseModel):
     """원본 스트림 이벤트 처리 후 전달할 후속 데이터를 담습니다."""
 
     yielded_event: SseEvent | None = None
-    input_item: ResponseOutputMessage | FunctionCall | None = None
-    function_call_item: FunctionCall | None = None
+    input_item: FunctionCall | None = None
 
 
 def handle_stream_event(payload: dict[str, object]) -> ProcessedStreamEvent:
     """스트림 이벤트 타입에 맞는 처리 결과를 반환합니다."""
     event_type = payload.get("type")
-
     handler = _STREAM_EVENT_HANDLERS.get(event_type)
     if handler is None:
         return ProcessedStreamEvent()
@@ -55,15 +53,6 @@ def _handle_output_text_done(
     payload: dict[str, object],
 ) -> ProcessedStreamEvent:
     """완료된 텍스트가 있으면 assistant 본문 후보로 보관합니다."""
-    item_id = payload.get("item_id")
-    text = payload.get("text")
-    if isinstance(text, str) and text:
-        return ProcessedStreamEvent(
-            input_item=ResponseOutputMessage(
-                id=item_id if isinstance(item_id, str) else None,
-                content=(ResponseOutputText(text=text),),
-            )
-        )
 
     return ProcessedStreamEvent()
 
@@ -100,17 +89,9 @@ def _handle_output_item_done(
     return ProcessedStreamEvent()
 
 
-def _handle_response_completed(
-    payload: dict[str, object],
-) -> ProcessedStreamEvent:
-    """완료 이벤트는 개별 done 이벤트에서 수집한 입력만 사용하므로 무시합니다."""
-    return ProcessedStreamEvent()
-
-
 _STREAM_EVENT_HANDLERS: dict[object, StreamEventHandler] = {
     RESPONSE_STREAMING_EVENTS.response.output_text.delta: _handle_output_text_delta,
     RESPONSE_STREAMING_EVENTS.response.output_text.done: _handle_output_text_done,
     RESPONSE_STREAMING_EVENTS.message.delta: _handle_output_message_delta,
     RESPONSE_STREAMING_EVENTS.response.output_item.done: _handle_output_item_done,
-    RESPONSE_STREAMING_EVENTS.response.completed: _handle_response_completed,
 }

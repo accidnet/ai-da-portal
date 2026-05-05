@@ -112,7 +112,6 @@ function visualizationComponent(section: ChartWorkspaceSection) {
           :is="visualizationComponent(section)"
           :chart="chartForSection(section)"
           :fallback-points="props.analytics.chartPoints"
-          :fallback-badge="props.analytics.chartChange"
         />
       </section>
     </template>

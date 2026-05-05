@@ -399,6 +399,7 @@ onBeforeUnmount(() => {
         @disconnect-open-ai="logoutOpenAi"
         @open-help="() => { closeSidebarPanel(); openHelpDialog() }"
         @select-session="(sessionId) => { closeSidebarPanel(); void selectSession(sessionId, 'dashboard') }"
+        @delete-session="(sessionId) => { void handleDeleteSession(sessionId) }"
       />
     </aside>
 

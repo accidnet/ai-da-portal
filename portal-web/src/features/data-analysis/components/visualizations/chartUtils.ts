@@ -27,10 +27,6 @@ export function resolveSeriesPoints(chart: AnalyticsChartPayload | null, fallbac
   }))
 }
 
-export function resolveChartBadge(chart: AnalyticsChartPayload | null, fallbackBadge: string): string {
-  return chart?.series[0]?.data.length || chart?.points?.length ? '실시간 백엔드 결과' : fallbackBadge
-}
-
 export function resolveLinePath(points: VisualizationPoint[]): string {
   if (points.length === 0) return ''
 

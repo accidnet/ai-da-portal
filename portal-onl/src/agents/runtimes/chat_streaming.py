@@ -9,7 +9,7 @@ from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from application.datasets.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
-from infrastructure.ai.input_models import (
+from shared.integrations.ai.contracts import (
     FunctionCall,
     InputItemList,
     ResponseOutputMessage,
@@ -38,14 +38,9 @@ class ChatStreamingAgent(BaseAgent):
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 10
+        max_iterations = 1
         iteration_count = 0
         while True:
-
-            from pprint import pprint
-            pprint("="*60 + f"{iteration_count}")
-            pprint(input_items)
-
             if iteration_count >= max_iterations:
                 break
             iteration_count += 1

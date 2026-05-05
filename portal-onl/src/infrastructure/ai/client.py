@@ -2,7 +2,7 @@ import json
 import re
 from typing import Protocol, cast
 
-from infrastructure.ai.input_models import (
+from shared.integrations.ai.contracts import (
     EasyInputMessage,
     InputItemList,
     ResponseInputText,

@@ -6,7 +6,6 @@ import type { AnalyticsChartPayload, ChartPoint } from '@/features/data-analysis
 defineProps<{
   chart: AnalyticsChartPayload | null
   fallbackPoints: ChartPoint[]
-  fallbackBadge: string
 }>()
 </script>
 
@@ -15,6 +14,5 @@ defineProps<{
     chart-type="area"
     :chart="chart"
     :fallback-points="fallbackPoints"
-    :fallback-badge="fallbackBadge"
   />
 </template>

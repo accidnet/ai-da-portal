@@ -16,15 +16,12 @@ const props = defineProps<{
   chart: AnalyticsChartPayload | null
   chartType?: RendererType
   fallbackPoints: ChartPoint[]
-  fallbackBadge: string
 }>()
 
 const chartElement = ref<HTMLDivElement | null>(null)
 const chartInstance = shallowRef<ECharts | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
-const hasData = computed(() => hasRenderableData(props.chart))
-const badge = computed(() => (hasData.value ? '실시간 백엔드 결과' : props.fallbackBadge))
 const option = computed(() => buildChartOption(props.chart, props.chartType, props.fallbackPoints))
 
 onMounted(() => {
@@ -256,9 +253,6 @@ function normalizeNumericValue(value: number | string | null): number {
 
 <template>
   <div class="echart-shell">
-    <div class="echart-header">
-      <span>{{ badge }}</span>
-    </div>
     <div ref="chartElement" class="echart-canvas" role="img" :aria-label="chart?.title ?? '차트'"></div>
   </div>
 </template>
@@ -266,21 +260,6 @@ function normalizeNumericValue(value: number | string | null): number {
 <style scoped>
 .echart-shell {
   display: grid;
-  gap: 12px;
-}
-
-.echart-header {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.echart-header span {
-  padding: 7px 10px;
-  border-radius: 999px;
-  color: var(--color-primary-strong);
-  background: var(--color-surface-muted);
-  font-weight: 700;
-  font-size: 0.78rem;
 }
 
 .echart-canvas {

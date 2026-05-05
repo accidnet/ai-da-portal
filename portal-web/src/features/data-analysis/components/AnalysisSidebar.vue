@@ -17,6 +17,7 @@ const emit = defineEmits<{
   selectSession: [sessionId: string]
   primaryAction: [screen: AnalysisScreen]
   createSession: []
+  deleteSession: [sessionId: string]
   connectOpenAi: []
   disconnectOpenAi: []
   openHelp: []
@@ -70,16 +71,31 @@ function handleConnectButtonClick() {
     <div class="sessions-block">
       <p class="section-label">최근 세션</p>
       <div class="sessions-list">
-        <button
+        <div
           v-for="session in sidebar.recentSessions"
           :key="session.id ?? session.title"
-          type="button"
           class="session-item"
           :class="{ 'session-item--active': session.id && session.id === activeSessionId }"
-          @click="session.id && emit('selectSession', session.id)"
         >
-          {{ session.title }}
-        </button>
+          <button
+            type="button"
+            class="session-item__select"
+            :title="session.title"
+            @click="session.id && emit('selectSession', session.id)"
+          >
+            <span>{{ session.title }}</span>
+          </button>
+          <button
+            v-if="session.id"
+            type="button"
+            class="session-item__delete"
+            :aria-label="`${session.title} 세션 삭제`"
+            :title="`${session.title} 세션 삭제`"
+            @click.stop="emit('deleteSession', session.id)"
+          >
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
         <p v-if="sidebar.recentSessions.length === 0" class="empty-state">표시할 세션이 아직 없어요.</p>
       </div>
     </div>
@@ -178,7 +194,8 @@ function handleConnectButtonClick() {
 }
 
 .nav-item,
-.session-item,
+.session-item__select,
+.session-item__delete,
 .connect-button,
 .ghost-button {
   border: 1px solid transparent;
@@ -202,7 +219,7 @@ function handleConnectButtonClick() {
 .ghost-button:hover,
 .connect-button:hover:not(:disabled),
 .nav-item:focus-visible,
-.session-item:focus-visible,
+.session-item:focus-within,
 .ghost-button:focus-visible,
 .connect-button:focus-visible {
   border-color: rgba(24, 74, 140, 0.12);
@@ -248,17 +265,64 @@ function handleConnectButtonClick() {
 .session-item {
   width: 100%;
   min-height: 44px;
-  appearance: none;
-  display: block;
-  text-align: left;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 12px 14px;
+  padding: 6px 8px 6px 14px;
   border-radius: 14px;
   color: var(--color-text-muted);
   background: rgba(255, 255, 255, 0.48);
+  border: 1px solid transparent;
+}
+
+.session-item__select,
+.session-item__delete {
+  appearance: none;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
   cursor: pointer;
+}
+
+.session-item__select {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  text-align: left;
+}
+
+.session-item__select span {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item__delete {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--color-text-soft);
+  opacity: 0.72;
+}
+
+.session-item__delete:hover,
+.session-item__delete:focus-visible {
+  color: #a23a3a;
+  background: rgba(162, 58, 58, 0.1);
+  outline: none;
+  opacity: 1;
+}
+
+.session-item__delete .material-symbols-outlined {
+  font-size: 1rem;
 }
 
 .empty-state,

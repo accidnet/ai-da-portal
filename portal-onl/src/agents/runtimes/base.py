@@ -6,7 +6,7 @@ from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
 from application.datasets.service import DatasetApplicationService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClient, AiClientError
-from infrastructure.ai.input_models import (
+from shared.integrations.ai.contracts import (
     Message,
     FunctionCall,
     FunctionCallOutput,
