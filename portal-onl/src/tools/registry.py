@@ -3,12 +3,6 @@ from typing import Protocol
 
 from tools.analysis import anomaly_detection, correlation
 from tools.charts import (
-    build_category_bar,
-    build_chart_analytics,
-    build_correlation_scatter,
-    build_insight,
-    build_share_donut,
-    build_table,
     build_trend_chart,
 )
 from tools.datasets import inspect_dataset_context
@@ -32,14 +26,11 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     inspect_dataset_context,
     correlation,
     anomaly_detection,
-    build_correlation_scatter,
     build_trend_chart,
-    build_share_donut,
-    build_category_bar,
-    build_table,
-    build_insight,
-    build_chart_analytics,
 )
+_TOOL_ALIASES: dict[str, ToolModule] = {
+    "build_trend_chart": build_trend_chart,
+}
 
 
 def get_tool_definitions() -> list[dict[str, object]]:
@@ -84,6 +75,10 @@ def _parse_tool_arguments(
 
 def _find_tool(name: str) -> ToolModule | None:
     """definition에 등록된 name과 일치하는 tool module을 찾습니다."""
+    alias_tool = _TOOL_ALIASES.get(name)
+    if alias_tool is not None:
+        return alias_tool
+
     for tool in _TOOL_MODULES:
         if _tool_name(tool) == name:
             return tool

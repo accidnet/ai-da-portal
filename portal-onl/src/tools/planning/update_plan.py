@@ -129,19 +129,16 @@ def _success_result(
     explanation: str | None,
     plan: list[PlanStep],
 ) -> dict[str, object]:
-    """계획 갱신 성공 결과를 공통 DTO 형식과 기존 최상위 필드로 반환합니다."""
+    """계획 갱신 성공 결과를 공통 DTO 형식으로 반환합니다."""
     data = {
         "message": "Plan updated",
         "explanation": explanation,
         "plan": plan,
     }
-    result = ToolExecutionResult[dict[str, object]](ok=True, data=data).model_dump(
+    return ToolExecutionResult[dict[str, object]](ok=True, data=data).model_dump(
         mode="json",
         exclude_none=True,
     )
-    # 기존 tool output 소비자가 바로 읽을 수 있도록 최상위 필드도 유지합니다.
-    result.update(data)
-    return result
 
 
 def _error_result(message: str) -> dict[str, object]:

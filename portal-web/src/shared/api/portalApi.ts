@@ -238,6 +238,22 @@ export interface ChatSubMessageStreamEvent {
   response_id?: string | null
 }
 
+export interface AgentChartStreamPayload {
+  dataset_id?: string | null
+  chart: NonNullable<ChatResponse['analytics']>['charts'][number]
+}
+
+export interface AgentPlanStreamPayload {
+  ok: boolean
+  data?: {
+    message?: string
+    explanation?: string | null
+    plan?: ChatResponse['plan']
+  } | null
+  errors?: Array<{ message: string; target_id?: string | null }>
+  error?: string | null
+}
+
 interface ChatStreamEvent {
   type?: string
   delta?: string
@@ -249,6 +265,12 @@ interface ChatStreamEvent {
   response_id?: string | null
   detail?: string
   state?: AgentStateStreamPayload
+  dataset_id?: string | null
+  chart?: NonNullable<ChatResponse['analytics']>['charts'][number]
+  ok?: boolean
+  data?: AgentPlanStreamPayload['data']
+  errors?: AgentPlanStreamPayload['errors']
+  error?: string | null
   response?: ChatResponse
 }
 
@@ -258,6 +280,8 @@ export interface StreamChatMessageOptions {
   onDelta?: (delta: string) => void
   onSubMessage?: (event: ChatSubMessageStreamEvent) => void
   onState?: (state: AgentStateStreamPayload) => void
+  onChart?: (payload: AgentChartStreamPayload) => void
+  onPlan?: (payload: AgentPlanStreamPayload) => void
 }
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000'
@@ -557,10 +581,30 @@ export async function streamChatMessage(
       return
     }
 
+    if (eventType === 'agent.iteration.chart' && event.chart) {
+      options.onChart?.({
+        dataset_id: event.dataset_id,
+        chart: event.chart,
+      })
+      return
+    }
+
+    if (eventType === 'agent.iteration.plan' && typeof event.ok === 'boolean') {
+      options.onPlan?.({
+        ok: event.ok,
+        data: event.data,
+        errors: event.errors,
+        error: event.error,
+      })
+      return
+    }
+
     if (eventType && eventType !== 'response.output_text.done' && eventType !== 'message.completed') {
       const isReservedEvent =
         eventType === 'agent.state'
         || eventType === 'agent.iteration.start'
+        || eventType === 'agent.iteration.chart'
+        || eventType === 'agent.iteration.plan'
         || eventType === 'agent.iteration.done'
         || eventType === 'agent.function_call.output'
         || eventType === 'chat.completed'

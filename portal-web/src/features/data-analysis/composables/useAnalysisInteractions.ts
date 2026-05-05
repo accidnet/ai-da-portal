@@ -6,10 +6,12 @@ import {
   resolveSessionTitle,
   streamChatMessage,
   uploadDataset,
+  type AgentChartStreamPayload,
+  type AgentPlanStreamPayload,
   type AgentStateStreamPayload,
   type ChatSubMessageStreamEvent,
 } from '../../../shared/api/portalApi'
-import type { ChatMessage, ChatSubMessage, MessageAttachmentPreview } from '../types'
+import type { AnalyticsPayload, ChatMessage, ChatSubMessage, MessageAttachmentPreview } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import {
   buildReportContent,
@@ -132,8 +134,6 @@ export function useAnalysisInteractions(options: {
             ...entry,
             route: state.route ?? entry.route,
             usedTools: state.used_tools ?? entry.usedTools ?? [],
-            plan: state.plan ?? entry.plan ?? [],
-            planExplanation: state.plan_explanation?.trim() || entry.planExplanation,
           }
         : entry,
     )
@@ -144,6 +144,61 @@ export function useAnalysisInteractions(options: {
     if (state.workspace) {
       sessionState.workspacePayload = state.workspace
     }
+  }
+
+  function createEmptyAnalyticsPayload(): AnalyticsPayload {
+    return {
+      summary_cards: [],
+      charts: [],
+      tables: [],
+      insights: [],
+      dataset_profile: null,
+    }
+  }
+
+  function applyStreamingChart(
+    sessionState: SessionRuntimeState,
+    payload: AgentChartStreamPayload,
+  ) {
+    const currentPayload = sessionState.analyticsPayload ?? createEmptyAnalyticsPayload()
+    const charts = [...currentPayload.charts]
+    const existingIndex = charts.findIndex((chart) =>
+      (chart.id && payload.chart.id && chart.id === payload.chart.id)
+      || chart.title === payload.chart.title,
+    )
+
+    if (existingIndex >= 0) {
+      charts[existingIndex] = payload.chart
+    } else {
+      charts.push(payload.chart)
+    }
+
+    sessionState.analyticsPayload = {
+      ...currentPayload,
+      charts,
+    }
+  }
+
+  function applyStreamingPlan(
+    assistantMessageIndex: number,
+    sessionState: SessionRuntimeState,
+    payload: AgentPlanStreamPayload,
+  ) {
+    if (!payload.ok || !payload.data) return
+    const current = sessionState.messages[assistantMessageIndex]
+    if (!current || current.role !== 'assistant') return
+
+    const nextPlan = payload.data.plan ?? []
+    const nextExplanation = payload.data.explanation?.trim() || undefined
+    sessionState.messages = sessionState.messages.map((entry, index) =>
+      index === assistantMessageIndex
+        ? {
+            ...entry,
+            plan: nextPlan,
+            planExplanation: nextExplanation,
+          }
+        : entry,
+    )
   }
 
   function formatSubMessageLabel(): string {
@@ -353,6 +408,12 @@ export function useAnalysisInteractions(options: {
           onState(state) {
             applyStreamingAssistantState(assistantMessageIndex, sessionState, state)
           },
+          onChart(payload) {
+            applyStreamingChart(sessionState, payload)
+          },
+          onPlan(payload) {
+            applyStreamingPlan(assistantMessageIndex, sessionState, payload)
+          },
         },
       )
       revealSessionSummary(sessionId, sessionState.title)
@@ -361,6 +422,14 @@ export function useAnalysisInteractions(options: {
         sessionState.messages[assistantMessageIndex]?.role === 'assistant'
           ? sessionState.messages[assistantMessageIndex].text
           : ''
+      const streamedAssistantPlan =
+        sessionState.messages[assistantMessageIndex]?.role === 'assistant'
+          ? sessionState.messages[assistantMessageIndex].plan ?? []
+          : []
+      const streamedAssistantPlanExplanation =
+        sessionState.messages[assistantMessageIndex]?.role === 'assistant'
+          ? sessionState.messages[assistantMessageIndex].planExplanation
+          : undefined
 
       const assistantMessage = {
         role: 'assistant' as const,
@@ -372,16 +441,20 @@ export function useAnalysisInteractions(options: {
             ? sessionState.messages[assistantMessageIndex].subMessages ?? []
             : [],
         usedTools: response.used_tools,
-        plan: response.plan,
-        planExplanation: response.plan_explanation?.trim() || undefined,
+        plan: response.plan.length ? response.plan : streamedAssistantPlan,
+        planExplanation: response.plan_explanation?.trim() || streamedAssistantPlanExplanation,
         attachmentPreview,
       }
 
       sessionState.messages = sessionState.messages.map((entry, index) =>
         index === assistantMessageIndex ? assistantMessage : entry,
       )
-      sessionState.analyticsPayload = response.analytics
-      sessionState.workspacePayload = response.workspace
+      if (response.analytics) {
+        sessionState.analyticsPayload = response.analytics
+      }
+      if (response.workspace) {
+        sessionState.workspacePayload = response.workspace
+      }
       syncSessionSummaryWithState(sessionId)
     } catch (error) {
       if (chatStreamController.signal.aborted || isAbortError(error)) {
@@ -441,6 +514,10 @@ export function useAnalysisInteractions(options: {
     isRunningAnalysis.value = true
     try {
       const analysisPrompt = `${primaryDataset.filename} 데이터셋을 대시보드용으로 요약하고 적합한 시각화와 인사이트를 만들어줘.`
+      const streamedPlan: {
+        plan: ChatMessage['plan']
+        explanation?: string
+      } = { plan: [] }
       sessionState.messages = [
         ...sessionState.messages,
         {
@@ -448,14 +525,30 @@ export function useAnalysisInteractions(options: {
           text: analysisPrompt,
         },
       ]
-      const response = await streamChatMessage({
-        sessionId,
-        datasetIds: [primaryDataset.id],
-        // 백엔드의 남은 agent/tool 흐름을 통해 분석 패널 데이터를 생성합니다.
-        message: analysisPrompt,
-      })
-      sessionState.analyticsPayload = response.analytics
-      sessionState.workspacePayload = response.workspace
+      const response = await streamChatMessage(
+        {
+          sessionId,
+          datasetIds: [primaryDataset.id],
+          // 백엔드의 남은 agent/tool 흐름을 통해 분석 패널 데이터를 생성합니다.
+          message: analysisPrompt,
+        },
+        {
+          onChart(payload) {
+            applyStreamingChart(sessionState, payload)
+          },
+          onPlan(payload) {
+            if (!payload.ok || !payload.data) return
+            streamedPlan.plan = payload.data.plan ?? []
+            streamedPlan.explanation = payload.data.explanation?.trim() || undefined
+          },
+        },
+      )
+      if (response.analytics) {
+        sessionState.analyticsPayload = response.analytics
+      }
+      if (response.workspace) {
+        sessionState.workspacePayload = response.workspace
+      }
       sessionState.messages = [
         ...sessionState.messages,
         {
@@ -466,8 +559,8 @@ export function useAnalysisInteractions(options: {
             || response.analytics?.insights[0]?.body
             || '분석이 완료되어 실시간 분석 패널을 업데이트했어요.',
           usedTools: response.used_tools,
-          plan: response.plan,
-          planExplanation: response.plan_explanation?.trim() || undefined,
+          plan: response.plan.length ? response.plan : streamedPlan.plan,
+          planExplanation: response.plan_explanation?.trim() || streamedPlan.explanation,
         },
       ]
       syncSessionSummaryWithState(sessionId)

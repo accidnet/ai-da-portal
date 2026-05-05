@@ -19,6 +19,7 @@
 ### `portal-web/src`
 
 - Vue 3, TypeScript, Vite 기반 프론트엔드
+- import 경로는 같은 depth의 모듈을 사용할 때만 상대경로(`.`)를 활용하고, 그 외 경로는 `@` 별칭을 활용할 것
 
 ### `portal-onl/src`
 

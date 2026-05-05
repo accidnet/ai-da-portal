@@ -104,7 +104,6 @@ function visualizationComponent(section: ChartWorkspaceSection) {
       <section v-if="chartForSection(section)" class="panel-card chart-card">
         <div class="chart-headline">
           <div>
-            <p>{{ section.title ?? '차트' }}</p>
             <h3>{{ chartForSection(section)?.title }}</h3>
           </div>
         </div>
