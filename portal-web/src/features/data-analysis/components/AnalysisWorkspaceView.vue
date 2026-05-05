@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AnalysisResultPane from './AnalysisResultPane.vue'
+import AnalysisVisualizationPane from './AnalysisVisualizationPane.vue'
 import AnalysisConversationPane from './AnalysisConversationPane.vue'
 import type {
   AnalyticsData,
@@ -85,7 +85,7 @@ const emit = defineEmits<{
         </button>
       </div>
 
-      <AnalysisResultPane
+      <AnalysisVisualizationPane
         :analytics="shellAnalytics"
         :analytics-payload="analyticsPayload"
         :workspace-payload="workspacePayload"
