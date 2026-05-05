@@ -110,7 +110,9 @@ class MessageStreamService:
                 try:
                     event = next(agent_events)
                 except StopIteration as exc:
-                    state = cast(dict[str, object], exc.value)
+                    state, _agent_results = self._unpack_agent_invoke_result(
+                        exc.value
+                    )
                     break
 
                 yield self._encode_sse_event(self._coerce_sse_event(event))
@@ -197,6 +199,17 @@ class MessageStreamService:
             analytics=cast(AnalyticsPayload | None, snapshot["analytics"]),
             workspace=cast(WorkspacePayload | None, snapshot["workspace"]),
         )
+
+    def _unpack_agent_invoke_result(
+        self, invoke_result: object
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """에이전트 실행 종료값에서 상태와 부가 결과를 분리합니다."""
+        # 이전 반환 형태인 state 단독 값도 허용해 스트리밍 처리 흐름을 유지합니다.
+        if isinstance(invoke_result, tuple) and len(invoke_result) == 2:
+            state, results = invoke_result
+            return cast(dict[str, object], state), cast(dict[str, object], results)
+
+        return cast(dict[str, object], invoke_result), {}
 
     def _snapshot_state(
         self, agent_runtime: _SnapshotAgent, state: dict[str, object]

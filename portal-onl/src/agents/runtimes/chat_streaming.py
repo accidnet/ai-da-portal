@@ -26,7 +26,6 @@ class ChatStreamingAgent(BaseAgent):
     def invoke(
         self, state: AgentState
     ) -> Generator[AgentStreamEvent, None, AgentState]:
-
         working_state = cast(AgentState, dict(state))
         working_state.setdefault("used_tools", [])
         working_state.setdefault("status", "queued")
@@ -38,7 +37,7 @@ class ChatStreamingAgent(BaseAgent):
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 1
+        max_iterations = 10
         iteration_count = 0
         while True:
             if iteration_count >= max_iterations:
@@ -60,6 +59,11 @@ class ChatStreamingAgent(BaseAgent):
                     stream=True,
                 ),
             )
+            function_call_items = cast(
+                list[FunctionCall],
+                stream_result.get("function_call_items", []),
+            )
+            should_stop_iteration = stream_result.get("should_stop_iteration") is True
 
             # API 호출이 끝난 후 처리하는 로직
             new_input_items, function_events = self._handle_after_call_completion(
@@ -77,9 +81,13 @@ class ChatStreamingAgent(BaseAgent):
                 },
             )
 
-            # iteration이 끝날때 새로운 input_items을 추가하여 멀티턴
+            # iteration이 끝날때 새로운 input_items을 추가하여 iteration내에 멀티턴을 위함
             if new_input_items:
                 input_items.extend(new_input_items)
+
+            # 실행할 function call이 없고 답변 message가 완료되면 iteration을 종료합니다.
+            if not function_call_items and should_stop_iteration:
+                break
 
         return working_state
 
@@ -91,6 +99,7 @@ class ChatStreamingAgent(BaseAgent):
         # streaming 중에 생성되는 input을 순차적으로 적재하여, 다음 step input에 추가하여 활용하기 위함
         input_items: list[ResponseOutputMessage | FunctionCall] = []
         function_call_items: list[FunctionCall] = []
+        should_stop_iteration = False
 
         close = getattr(stream, "close", None)
         try:
@@ -120,11 +129,19 @@ class ChatStreamingAgent(BaseAgent):
                 if function_call_item:
                     function_call_items.append(function_call_item)
 
+                # message output item 완료 여부를 iteration 종료 조건에 활용합니다.
+                if processed_event.should_stop_iteration:
+                    should_stop_iteration = True
+
         finally:
             if callable(close):
                 close()
 
-        return {"input_items": input_items, "function_call_items": function_call_items}
+        return {
+            "input_items": input_items,
+            "function_call_items": function_call_items,
+            "should_stop_iteration": should_stop_iteration,
+        }
 
     def _log_unhandled_stream_event(self, event: object) -> None:
         if event is None or event == "" or event == [] or event == {}:
