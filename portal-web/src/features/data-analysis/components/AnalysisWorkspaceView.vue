@@ -6,7 +6,6 @@ import type {
   AnalyticsPayload,
   ComposerData,
   ConversationData,
-  DatasetAsset,
   WorkspacePayload,
 } from '../types'
 
@@ -16,7 +15,6 @@ defineProps<{
   shellAnalytics: AnalyticsData
   analyticsPayload: AnalyticsPayload | null
   workspacePayload: WorkspacePayload | null
-  activeDataset: DatasetAsset | null
   isResizingAnalyticsPane: boolean
   isAnalyticsFullscreen: boolean
   analyticsPaneWidth: number
@@ -91,7 +89,6 @@ const emit = defineEmits<{
         :analytics="shellAnalytics"
         :analytics-payload="analyticsPayload"
         :workspace-payload="workspacePayload"
-        :dataset-asset="activeDataset"
         :is-loading="isSending || isUploading || isRunningAnalysis"
         :error-message="analyticsError"
         :is-fullscreen="isAnalyticsFullscreen"

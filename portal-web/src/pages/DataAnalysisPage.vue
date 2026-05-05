@@ -442,7 +442,6 @@ onBeforeUnmount(() => {
           :shell-analytics="shellAnalytics"
           :analytics-payload="analyticsPayload"
           :workspace-payload="workspacePayload"
-          :active-dataset="activeDataset"
           :is-resizing-analytics-pane="isResizingAnalyticsPane"
           :is-analytics-fullscreen="isAnalyticsFullscreen"
           :analytics-pane-width="analyticsPaneWidth"
