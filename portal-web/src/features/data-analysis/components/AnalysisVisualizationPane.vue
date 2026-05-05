@@ -9,7 +9,7 @@ import type {
   AnalyticsPayload,
   WorkspacePayload,
   WorkspaceSectionPayload,
-} from '../types'
+} from '@/features/data-analysis/types'
 
 type ChartWorkspaceSection = WorkspaceSectionPayload & { kind: 'chart' }
 

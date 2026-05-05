@@ -1,4 +1,4 @@
-import type { AnalyticsChartPayload, ChartPoint } from '../../types'
+import type { AnalyticsChartPayload, ChartPoint } from '@/features/data-analysis/types'
 
 export interface VisualizationPoint {
   label: string

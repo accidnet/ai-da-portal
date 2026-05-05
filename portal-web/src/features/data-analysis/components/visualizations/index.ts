@@ -1,6 +1,6 @@
 import type { Component } from 'vue'
 
-import type { AnalyticsChartPayload } from '../../types'
+import type { AnalyticsChartPayload } from '@/features/data-analysis/types'
 
 import AreaTrend from './AreaTrend.vue'
 import BarChart from './BarChart.vue'
