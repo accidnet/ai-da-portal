@@ -4,16 +4,12 @@ from typing import Protocol
 from tools.analysis import anomaly_detection, correlation
 from tools.charts import (
     build_category_bar,
-    build_chart,
     build_chart_analytics,
     build_correlation_scatter,
     build_insight,
     build_share_donut,
-    build_summary_cards,
     build_table,
     build_trend_chart,
-    inspect_chart_columns,
-    select_chart_spec,
 )
 from tools.datasets import inspect_dataset_context
 from tools.planning import update_plan
@@ -36,10 +32,6 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     inspect_dataset_context,
     correlation,
     anomaly_detection,
-    inspect_chart_columns,
-    select_chart_spec,
-    build_summary_cards,
-    build_chart,
     build_correlation_scatter,
     build_trend_chart,
     build_share_donut,

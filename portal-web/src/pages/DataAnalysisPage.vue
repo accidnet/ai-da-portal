@@ -346,8 +346,8 @@ onMounted(async () => {
     connectionStatus.value = 'offline'
   }
   await loadAuthStatus()
-  // 브라우저 새로고침은 좌측의 새로운 분석 버튼과 같은 초안 상태로 시작합니다.
-  await loadSessions({ startWithDraft: true })
+  // 브라우저 새로고침 후에도 마지막으로 작업하던 분석 세션을 복원합니다.
+  await loadSessions()
   await loadDatasets()
 
   const sharedId = getSharedAnalysisIdFromUrl()

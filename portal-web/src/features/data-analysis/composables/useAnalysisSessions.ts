@@ -1,8 +1,13 @@
-import { ref, type Ref } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 
 import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions, updateSessionTitle } from '../../../shared/api/portalApi'
 import type { AnalysisScreen, SessionItem } from '../types'
-import { DEFAULT_SESSION_TITLE, DRAFT_SESSION_ID, LOCAL_SESSION_ID } from '../constants/analysisPage'
+import {
+  ACTIVE_SESSION_STORAGE_KEY,
+  DEFAULT_SESSION_TITLE,
+  DRAFT_SESSION_ID,
+  LOCAL_SESSION_ID,
+} from '../constants/analysisPage'
 import {
   createSessionState,
   createWelcomeMessages,
@@ -10,10 +15,6 @@ import {
   resolvePreferredDatasetId,
 } from '../utils/analysisPageHelpers'
 import { mapSnapshotToSessionState, type SessionRuntimeState } from '../utils/sessionState'
-
-interface LoadSessionsOptions {
-  startWithDraft?: boolean
-}
 
 export function useAnalysisSessions(options: {
   currentScreen: Ref<AnalysisScreen>
@@ -30,6 +31,33 @@ export function useAnalysisSessions(options: {
   const isSessionMutating = ref(false)
 
   let latestSnapshotRequestId = 0
+
+  function readStoredActiveSessionId(): string | null {
+    if (typeof window === 'undefined') {
+      return null
+    }
+
+    // 새로고침 후에도 마지막 작업 세션을 복원하기 위해 브라우저 저장값을 사용합니다.
+    return window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
+  }
+
+  function writeStoredActiveSessionId(sessionId: string | null) {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (!sessionId) {
+      window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+      return
+    }
+
+    // draft 세션도 저장해 사용자가 새 분석 화면에서 새로고침해도 같은 시작 상태를 유지합니다.
+    window.localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, sessionId)
+  }
+
+  watch(activeSessionId, (sessionId) => {
+    writeStoredActiveSessionId(sessionId)
+  })
 
   function ensureSessionState(sessionId: string, title: string): SessionRuntimeState {
     const existing = sessionStates.value[sessionId]
@@ -143,7 +171,7 @@ export function useAnalysisSessions(options: {
     hiddenSessionSummaries.value = remainingHiddenSummaries
   }
 
-  async function loadSessions(options: LoadSessionsOptions = {}) {
+  async function loadSessions() {
     try {
       const sessions = await fetchSessions()
       sessionSummaries.value = sessions.map(mapSessionSummary)
@@ -158,14 +186,16 @@ export function useAnalysisSessions(options: {
         }
       }
 
-      if (options.startWithDraft) {
-        // 새로고침 시 기존 세션을 자동 복원하지 않고 새 분석 작성 상태로 시작합니다.
+      const preferredSessionId = activeSessionId.value ?? readStoredActiveSessionId()
+      if (preferredSessionId === DRAFT_SESSION_ID) {
         openDraftSession()
         return
       }
 
-      if (!activeSessionId.value || !sessionSummaries.value.some((session) => session.id === activeSessionId.value)) {
+      if (!preferredSessionId || !sessionSummaries.value.some((session) => session.id === preferredSessionId)) {
         activeSessionId.value = sessionSummaries.value[0]?.id ?? null
+      } else {
+        activeSessionId.value = preferredSessionId
       }
       if (activeSessionId.value) {
         await hydrateSessionSnapshot(activeSessionId.value)

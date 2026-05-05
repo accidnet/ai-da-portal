@@ -215,22 +215,10 @@ export function useAnalysisInteractions(options: {
   }
 
   /**
-   * 스트리밍 본문과 완료 이벤트 본문을 중복 없이 하나의 답변으로 합칩니다.
+   * 완료 이벤트 본문은 최종 중복 출력이므로 표시하지 않고 스트리밍 본문만 유지합니다.
    */
-  function mergeAssistantMessageText(streamedText: string, completedText: string): string {
-    const streamed = streamedText.trim()
-    const completed = completedText.trim()
-
-    if (!streamed) return completed
-    if (!completed || streamed === completed || streamed.includes(completed)) {
-      return streamed
-    }
-    // 완료 이벤트가 전체 본문을 다시 보내는 경우 기존 스트림을 포함한 최종문을 사용합니다.
-    if (completed.includes(streamed)) {
-      return completed
-    }
-
-    return `${streamed}\n\n${completed}`
+  function resolveStreamedAssistantText(streamedText: string): string {
+    return streamedText.trim()
   }
 
   async function handleSendMessage(message: string, options: { setUploadError: (message: string | null) => void }) {
@@ -373,13 +361,12 @@ export function useAnalysisInteractions(options: {
         sessionState.messages[assistantMessageIndex]?.role === 'assistant'
           ? sessionState.messages[assistantMessageIndex].text
           : ''
-      const finalAssistantText = normalizeAssistantMessage(response.assistant_message)
 
       const assistantMessage = {
         role: 'assistant' as const,
         author: 'AI 데이터 분석가',
-        // 완료 이벤트의 추가 본문이 기존 스트리밍 내용을 덮어쓰지 않도록 병합합니다.
-        text: mergeAssistantMessageText(streamedAssistantText, finalAssistantText),
+        // 완료 이벤트의 assistant_message는 마지막 중복 출력이므로 화면 본문에 반영하지 않습니다.
+        text: resolveStreamedAssistantText(streamedAssistantText),
         subMessages:
           sessionState.messages[assistantMessageIndex]?.role === 'assistant'
             ? sessionState.messages[assistantMessageIndex].subMessages ?? []

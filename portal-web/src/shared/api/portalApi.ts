@@ -266,6 +266,15 @@ export function getPortalApiBaseUrl(): string {
   return (import.meta.env.VITE_PORTAL_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, '')
 }
 
+/**
+ * SSE 프레임 경계를 줄바꿈 형식과 무관하게 찾습니다.
+ */
+function findSseEventBoundary(buffer: string): { index: number; length: number } | null {
+  const match = /\r?\n\r?\n/.exec(buffer)
+  if (!match || match.index < 0) return null
+  return { index: match.index, length: match[0].length }
+}
+
 export async function fetchHealthcheck(signal?: AbortSignal): Promise<HealthcheckResponse> {
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/health`, {
     method: 'GET',
@@ -628,12 +637,12 @@ export async function streamChatMessage(
     const { done, value } = await reader.read()
     buffer += decoder.decode(value, { stream: !done })
 
-    let boundary = buffer.indexOf('\n\n')
-    while (boundary >= 0) {
-      const chunk = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 2)
+    let boundary = findSseEventBoundary(buffer)
+    while (boundary) {
+      const chunk = buffer.slice(0, boundary.index)
+      buffer = buffer.slice(boundary.index + boundary.length)
       processChunk(chunk)
-      boundary = buffer.indexOf('\n\n')
+      boundary = findSseEventBoundary(buffer)
     }
 
     if (done) break

@@ -37,9 +37,12 @@ class ChatStreamingAgent(BaseAgent):
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 3
+        max_iterations = 10
         iteration_count = 0
         while True:
+            
+            from pprint import pprint
+            pprint(input_items)
 
             if iteration_count >= max_iterations:
                 break
@@ -66,7 +69,7 @@ class ChatStreamingAgent(BaseAgent):
                 working_state=working_state,
                 stream_result=stream_result,
             )
-
+            # 만약, 처리로직 중 프론트로 전달해야하는 것이 있을 경우
             if state_event is not None:
                 yield state_event
 
@@ -81,7 +84,6 @@ class ChatStreamingAgent(BaseAgent):
             # iteration이 끝날때 새로운 input_items을 추가하여 멀티턴
             if new_input_items:
                 input_items.extend(new_input_items)
-                continue
 
         return working_state
 
@@ -149,7 +151,6 @@ class ChatStreamingAgent(BaseAgent):
             list[ResponseOutputMessage | FunctionCall],
             stream_result.get("input_items", []),
         )
-        self._apply_assistant_message_to_state(working_state, stream_input_items)
 
         # 실행해야 할 function call이 있는 지 확인 후 실행
         function_call_items = cast(
@@ -179,27 +180,6 @@ class ChatStreamingAgent(BaseAgent):
             return new_input_items, state_event
 
         return None, state_event
-
-    def _apply_assistant_message_to_state(
-        self,
-        working_state: AgentState,
-        input_items: list[ResponseOutputMessage | FunctionCall],
-    ) -> None:
-        """스트림에서 완료된 assistant message를 최종 state에 반영합니다."""
-        text_parts: list[str] = []
-        for input_item in input_items:
-            if not isinstance(input_item, ResponseOutputMessage):
-                continue
-            for content in input_item.content:
-                if content.text.strip():
-                    text_parts.append(content.text.strip())
-
-        if not text_parts:
-            return
-
-        working_state["assistant_message"] = "\n\n".join(text_parts)
-        working_state["status"] = "completed"
-        working_state.setdefault("route", "conversation")
 
     def _apply_used_tools_to_state(
         self,
