@@ -146,6 +146,7 @@ class BotResponseOrm(Base):
     used_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
     plan: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
     plan_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sub_messages: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow

@@ -61,6 +61,7 @@ class MessageRepository:
         used_tools: list[str],
         plan: list[dict[str, str]],
         plan_explanation: str | None,
+        sub_messages: list[dict[str, object]],
         status: str,
     ) -> None:
         """저장된 사용자 메시지에 봇 응답을 연결합니다."""
@@ -79,6 +80,7 @@ class MessageRepository:
                     used_tools=used_tools,
                     plan=plan,
                     plan_explanation=plan_explanation,
+                    sub_messages=sub_messages,
                     status=status,
                     created_at=datetime.now(UTC),
                 )

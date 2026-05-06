@@ -201,7 +201,10 @@ export function useAnalysisInteractions(options: {
     )
   }
 
-  function formatSubMessageLabel(): string {
+  function formatSubMessageLabel(event: ChatSubMessageStreamEvent): string {
+    if (event.type === 'agent.function_call.output' && event.name) {
+      return `Tool result: ${event.name}`
+    }
     return 'Thinking...'
   }
 
@@ -213,7 +216,7 @@ export function useAnalysisInteractions(options: {
     const current = sessionState.messages[assistantMessageIndex]
     if (!current || current.role !== 'assistant') return
 
-    const sourceId = event.call_id?.trim() || event.item_id?.trim() || event.type.trim()
+    const sourceId = event.call_id?.trim() || event.item_id?.trim() || event.name?.trim() || event.type.trim()
     const subMessageId = `${event.type}:${sourceId}`
     const isDone = event.type.endsWith('.done')
     const nextChunk =
@@ -239,7 +242,7 @@ export function useAnalysisInteractions(options: {
       const nextSubMessage: ChatSubMessage = {
         id: subMessageId,
         type: event.type,
-        label: formatSubMessageLabel(),
+        label: formatSubMessageLabel(event),
         text: nextText,
         isStreaming: !isDone,
       }

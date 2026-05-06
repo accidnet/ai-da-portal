@@ -98,6 +98,9 @@ class MessageStreamService:
         """에이전트 이벤트를 SSE로 변환하고 완료 응답을 저장합니다."""
 
         try:
+            streamed_text_parts: list[str] = []
+            sub_messages: dict[str, dict[str, object]] = {}
+            should_separate_next_text = False
             agent_events = agent_runtime.invoke(
                 {
                     "session_id": session_id,
@@ -115,14 +118,25 @@ class MessageStreamService:
                     )
                     break
 
-                yield self._encode_sse_event(self._coerce_sse_event(event))
+                sse_event = self._coerce_sse_event(event)
+                should_separate_next_text = self._record_stream_event(
+                    event=sse_event,
+                    streamed_text_parts=streamed_text_parts,
+                    sub_messages=sub_messages,
+                    should_separate_next_text=should_separate_next_text,
+                )
+                yield self._encode_sse_event(sse_event)
 
             snapshot = self._snapshot_state(agent_runtime, state)
+            streamed_text = "".join(streamed_text_parts).strip()
+            if streamed_text and not str(snapshot["assistant_message"]).strip():
+                snapshot["assistant_message"] = streamed_text
             self._record_chat_snapshot(
                 session_id=session_id,
                 user_message_id=user_message_id,
                 dataset_ids=dataset_ids,
                 snapshot=snapshot,
+                sub_messages=list(sub_messages.values()),
             )
 
             yield self._encode_sse_event(
@@ -174,6 +188,7 @@ class MessageStreamService:
         user_message_id: str | None,
         dataset_ids: list[str],
         snapshot: dict[str, object],
+        sub_messages: list[dict[str, object]],
     ) -> None:
         """저장된 사용자 메시지에 스트리밍 완료 응답을 연결합니다."""
         # 업로드/분석으로 확정된 데이터셋을 스트리밍 대화 기록에 함께 남깁니다.
@@ -191,6 +206,7 @@ class MessageStreamService:
                 used_tools=cast(list[str], snapshot["used_tools"]),
                 plan=cast(list[dict[str, str]], snapshot["plan"]),
                 plan_explanation=cast(str | None, snapshot["plan_explanation"]),
+                sub_messages=sub_messages,
                 status=str(snapshot["status"]),
             )
         self._session_service.record_message_context(
@@ -210,6 +226,139 @@ class MessageStreamService:
             return cast(dict[str, object], state), cast(dict[str, object], results)
 
         return cast(dict[str, object], invoke_result), {}
+
+    def _record_stream_event(
+        self,
+        *,
+        event: SseEvent,
+        streamed_text_parts: list[str],
+        sub_messages: dict[str, dict[str, object]],
+        should_separate_next_text: bool,
+    ) -> bool:
+        """프론트로 내보낸 SSE 이벤트를 히스토리 저장용 메시지 조각으로 누적합니다."""
+        event_type = event.event_type or "message"
+        data = event.data
+
+        if event_type == "agent.iteration.start":
+            iteration = data.get("iteration")
+            sub_message_id = f"agent.iteration:{iteration}"
+            self._upsert_sub_message(
+                sub_messages,
+                sub_message_id=sub_message_id,
+                event_type=event_type,
+                label=f"Agent step {iteration}",
+                text="",
+                is_streaming=True,
+            )
+            return bool(streamed_text_parts)
+
+        if event_type in {"response.output_text.delta", "message.delta"}:
+            delta = data.get("delta")
+            if isinstance(delta, str):
+                if should_separate_next_text and streamed_text_parts:
+                    streamed_text_parts.append("\n\n")
+                streamed_text_parts.append(delta)
+            return False
+
+        if event_type == "agent.iteration.done":
+            iteration = data.get("iteration")
+            sub_message_id = f"agent.iteration:{iteration}"
+            existing_text = str(sub_messages.get(sub_message_id, {}).get("text") or "")
+            self._upsert_sub_message(
+                sub_messages,
+                sub_message_id=sub_message_id,
+                event_type=event_type,
+                label=f"Agent step {iteration}",
+                text=existing_text or "Step completed.",
+                is_streaming=False,
+            )
+            return should_separate_next_text
+
+        if event_type == "agent.iteration.plan":
+            self._upsert_sub_message(
+                sub_messages,
+                sub_message_id="agent.plan",
+                event_type=event_type,
+                label="Plan update",
+                text=self._format_plan_text(data),
+                is_streaming=False,
+            )
+            return should_separate_next_text
+
+        if event_type == "agent.iteration.chart":
+            chart = data.get("chart")
+            title = chart.get("title") if isinstance(chart, dict) else None
+            self._upsert_sub_message(
+                sub_messages,
+                sub_message_id=f"agent.chart:{title or len(sub_messages)}",
+                event_type=event_type,
+                label="Chart generated",
+                text=self._format_chart_text(data),
+                is_streaming=False,
+            )
+            return should_separate_next_text
+
+        if event_type == "agent.function_call.output":
+            name = data.get("name")
+            self._upsert_sub_message(
+                sub_messages,
+                sub_message_id=f"agent.tool:{name or len(sub_messages)}",
+                event_type=event_type,
+                label=f"Tool result: {name}" if isinstance(name, str) else "Tool result",
+                text=str(data.get("text") or ""),
+                is_streaming=False,
+            )
+            return should_separate_next_text
+
+        return should_separate_next_text
+
+    def _upsert_sub_message(
+        self,
+        sub_messages: dict[str, dict[str, object]],
+        *,
+        sub_message_id: str,
+        event_type: str,
+        label: str,
+        text: str,
+        is_streaming: bool,
+    ) -> None:
+        """같은 step/tool 이벤트는 덮어써 최신 상태만 저장합니다."""
+        sub_messages[sub_message_id] = {
+            "id": sub_message_id,
+            "type": event_type,
+            "label": label,
+            "text": text,
+            "is_streaming": is_streaming,
+        }
+
+    def _format_plan_text(self, data: dict[str, object]) -> str:
+        """계획 SSE payload를 히스토리에 표시할 짧은 Markdown으로 변환합니다."""
+        plan_data = data.get("data")
+        if not isinstance(plan_data, dict):
+            return ""
+        explanation = plan_data.get("explanation")
+        plan = plan_data.get("plan")
+        lines: list[str] = []
+        if isinstance(explanation, str) and explanation.strip():
+            lines.append(explanation.strip())
+        if isinstance(plan, list):
+            for item in plan:
+                if not isinstance(item, dict):
+                    continue
+                step = item.get("step")
+                status = item.get("status")
+                if isinstance(step, str):
+                    lines.append(f"- [{status or 'pending'}] {step}")
+        return "\n".join(lines)
+
+    def _format_chart_text(self, data: dict[str, object]) -> str:
+        """차트 SSE payload를 히스토리에 표시할 짧은 Markdown으로 변환합니다."""
+        chart = data.get("chart")
+        if not isinstance(chart, dict):
+            return "Chart payload generated."
+        title = chart.get("title")
+        chart_type = chart.get("type")
+        return f"{title or 'Chart'} ({chart_type or 'unknown'}) generated."
 
     def _snapshot_state(
         self, agent_runtime: _SnapshotAgent, state: dict[str, object]

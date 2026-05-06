@@ -102,6 +102,13 @@ export function mapSnapshotMessage(
     usedTools: payload.used_tools ?? [],
     plan: payload.plan ?? [],
     planExplanation: payload.plan_explanation?.trim() || undefined,
+    subMessages: (payload.sub_messages ?? []).map((subMessage) => ({
+      id: subMessage.id,
+      type: subMessage.type,
+      label: subMessage.label,
+      text: subMessage.text,
+      isStreaming: subMessage.is_streaming ?? false,
+    })),
     bullets,
     codeBlock: codeContent
       ? {

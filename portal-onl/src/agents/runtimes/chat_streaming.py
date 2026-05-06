@@ -209,7 +209,7 @@ class ChatStreamingAgent(BaseAgent):
         function_call_outputs: dict[str, dict[str, object]],
     ) -> list[SseEvent]:
         """function_call output을 SSE 이벤트 목록으로 변환합니다."""
-        events: list[SseEvent] = []
+        events = self._build_tool_output_events(function_call_outputs)
         update_plan_event = self._build_update_plan_event(
             function_call_outputs=function_call_outputs,
         )
@@ -221,6 +221,48 @@ class ChatStreamingAgent(BaseAgent):
             events.append(chart_event)
 
         return events
+
+    def _build_tool_output_events(
+        self,
+        function_call_outputs: dict[str, dict[str, object]],
+    ) -> list[SseEvent]:
+        """실행된 tool 결과를 히스토리/디버깅용 SSE 이벤트로 변환합니다."""
+        events: list[SseEvent] = []
+        for function_name, function_call_output in function_call_outputs.items():
+            tool_result = self._decode_tool_output(function_call_output)
+            if not isinstance(tool_result, dict):
+                continue
+            events.append(
+                SseEvent(
+                    event_type="agent.function_call.output",
+                    data={
+                        "name": function_name,
+                        "ok": tool_result.get("ok") is True,
+                        "text": self._summarize_tool_result(function_name, tool_result),
+                    },
+                )
+            )
+        return events
+
+    def _summarize_tool_result(
+        self, function_name: str, tool_result: dict[str, object]
+    ) -> str:
+        """tool result를 화면 히스토리에 저장할 짧은 문자열로 요약합니다."""
+        if tool_result.get("ok") is not True:
+            error = tool_result.get("error")
+            return f"{function_name} failed: {error or 'Unknown error'}"
+
+        data = tool_result.get("data")
+        if isinstance(data, dict):
+            chart = data.get("chart")
+            if isinstance(chart, dict):
+                title = chart.get("title")
+                chart_type = chart.get("type")
+                return f"{function_name} generated {title or 'a chart'} ({chart_type or 'chart'})."
+            plan = data.get("plan")
+            if isinstance(plan, list):
+                return f"{function_name} updated {len(plan)} plan steps."
+        return f"{function_name} completed."
 
     def _build_update_plan_event(
         self,

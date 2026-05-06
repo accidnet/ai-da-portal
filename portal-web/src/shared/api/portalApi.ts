@@ -117,6 +117,13 @@ export interface SessionSnapshotMessageResponse {
     status: 'pending' | 'in_progress' | 'completed'
   }> | null
   plan_explanation?: string | null
+  sub_messages?: Array<{
+    id: string
+    type: string
+    label: string
+    text: string
+    is_streaming?: boolean | null
+  }> | null
   content?: string | null
   bullets?: Array<{ text?: string | null } | string> | null
   code_block?: {
@@ -613,7 +620,6 @@ export async function streamChatMessage(
         || eventType === 'agent.iteration.chart'
         || eventType === 'agent.iteration.plan'
         || eventType === 'agent.iteration.done'
-        || eventType === 'agent.function_call.output'
         || eventType === 'chat.completed'
         || eventType === 'response.completed'
         || eventType === 'message.completed'

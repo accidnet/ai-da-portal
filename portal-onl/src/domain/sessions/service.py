@@ -57,7 +57,6 @@ class SessionService:
     ) -> None:
         self._repository = repository
         self._message_repository = message_repository
-        self._repository.ensure_seed_session()
 
     def create(self, payload: SessionCreateRequest) -> SessionDetail:
         session_id = str(uuid4())
@@ -346,6 +345,7 @@ class SessionService:
             used_tools=response.used_tools or [],
             plan=response.plan or [],
             plan_explanation=response.plan_explanation,
+            sub_messages=response.sub_messages or [],
         )
 
     def _build_timeline_messages(

@@ -3,13 +3,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from agents.state import AgentRoute, PlanStep
 from domain.datasets.schemas import (
     DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
 from domain.shared import AnalyticsPayload, WorkspacePayload
+
+SessionMessageRoute = Literal["conversation", "dataset_analysis", "analysis_request"]
 
 
 class SessionCreateRequest(BaseModel):
@@ -50,16 +51,30 @@ class SessionDetail(SessionSummary):
     pass
 
 
+class SessionSubMessage(BaseModel):
+    id: str
+    type: str
+    label: str
+    text: str
+    is_streaming: bool = False
+
+
+class SessionPlanStep(BaseModel):
+    step: str
+    status: Literal["pending", "in_progress", "completed"]
+
+
 class SessionMessage(BaseModel):
     id: str
     role: Literal["user", "assistant"]
     text: str
     created_at: datetime
     dataset_ids: list[str] = Field(default_factory=list)
-    route: AgentRoute | None = None
+    route: SessionMessageRoute | None = None
     used_tools: list[str] = Field(default_factory=list)
-    plan: list[PlanStep] = Field(default_factory=list)
+    plan: list[SessionPlanStep] = Field(default_factory=list)
     plan_explanation: str | None = None
+    sub_messages: list[SessionSubMessage] = Field(default_factory=list)
 
 
 class SessionSnapshotDataset(BaseModel):

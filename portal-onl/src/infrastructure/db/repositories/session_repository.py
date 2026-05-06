@@ -177,23 +177,6 @@ class SessionRepository:
             )
             db.commit()
 
-    def ensure_seed_session(self) -> None:
-        """데모 세션이 없을 때 기본 세션을 생성합니다."""
-        with SessionLocal() as db:
-            if self._get_session(db, "demo-session") is not None:
-                return
-            now = datetime.now(UTC)
-            db.add(
-                SessionOrm(
-                    id="demo-session",
-                    title="Marketing performance review",
-                    preferred_dataset_id=None,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-            db.commit()
-
     def _get_session(self, db, session_id: str) -> SessionOrm | None:
         return db.scalar(
             select(SessionOrm)
