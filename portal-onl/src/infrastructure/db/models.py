@@ -1,25 +1,23 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.db.base import Base
 
 
 def utcnow() -> datetime:
+    """DB row 생성 시 사용할 timezone-aware 현재 시각을 반환합니다."""
     return datetime.now(UTC)
 
 
 class SessionOrm(Base):
-    """채팅 세션의 기본 상태와 연결 데이터를 저장하는 ORM 모델입니다."""
+    """채팅 세션의 최소 메타데이터를 저장하는 ORM 모델입니다."""
 
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     title: Mapped[str] = mapped_column(String(60), nullable=False)
-    preferred_dataset_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    analytics: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    workspace: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -27,48 +25,36 @@ class SessionOrm(Base):
         DateTime(timezone=True), default=utcnow
     )
 
-    messages: Mapped[list["SessionMessageOrm"]] = relationship(
-        back_populates="session",
-        cascade="all, delete-orphan",
-        order_by="SessionMessageOrm.created_at",
-    )
     user_messages: Mapped[list["UserMessageOrm"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="UserMessageOrm.created_at",
     )
-    bot_responses: Mapped[list["BotResponseOrm"]] = relationship(
+    agent_runs: Mapped[list["AgentRunOrm"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
-        order_by="BotResponseOrm.created_at",
+        order_by="AgentRunOrm.created_at",
     )
-    dataset_links: Mapped[list["SessionDatasetLinkOrm"]] = relationship(
+    timeline_items: Mapped[list["AgentTimelineItemOrm"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
-        order_by="SessionDatasetLinkOrm.linked_at.desc()",
+        order_by="AgentTimelineItemOrm.sequence",
     )
 
 
-class SessionMessageOrm(Base):
-    """이전 단일 메시지 테이블과의 호환을 유지하는 ORM 모델입니다."""
+class DatasetOrm(Base):
+    """업로드 데이터셋의 파일 메타데이터를 저장하는 ORM 모델입니다."""
 
-    __tablename__ = "session_messages"
+    __tablename__ = "datasets"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), index=True
-    )
-    role: Mapped[str] = mapped_column(String(16), nullable=False)
-    text: Mapped[str] = mapped_column(Text, nullable=False)
-    route: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    used_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
-    plan: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
-    plan_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    preview: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    profile: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
-
-    session: Mapped[SessionOrm] = relationship(back_populates="messages")
 
 
 class UserMessageOrm(Base):
@@ -91,15 +77,20 @@ class UserMessageOrm(Base):
         cascade="all, delete-orphan",
         order_by="UserMessageDatasetLinkOrm.linked_at",
     )
-    bot_responses: Mapped[list["BotResponseOrm"]] = relationship(
+    agent_runs: Mapped[list["AgentRunOrm"]] = relationship(
         back_populates="user_message",
         cascade="all, delete-orphan",
-        order_by="BotResponseOrm.created_at",
+        order_by="AgentRunOrm.created_at",
+    )
+    timeline_items: Mapped[list["AgentTimelineItemOrm"]] = relationship(
+        back_populates="user_message",
+        cascade="all, delete-orphan",
+        order_by="AgentTimelineItemOrm.sequence",
     )
 
 
 class UserMessageDatasetLinkOrm(Base):
-    """사용자 메시지와 참조 데이터셋의 선택적 연결을 저장합니다."""
+    """사용자 메시지와 참조 데이터셋의 연결을 저장합니다."""
 
     __tablename__ = "user_message_dataset_links"
 
@@ -114,25 +105,10 @@ class UserMessageDatasetLinkOrm(Base):
     user_message: Mapped[UserMessageOrm] = relationship(back_populates="dataset_links")
 
 
-class DatasetOrm(Base):
-    """업로드 데이터셋의 파일 메타데이터를 저장하는 ORM 모델입니다."""
+class AgentRunOrm(Base):
+    """사용자 메시지 1개에 대응하는 agent 실행 그룹입니다."""
 
-    __tablename__ = "datasets"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
-    preview: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    profile: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-
-
-class BotResponseOrm(Base):
-    """사용자 메시지에 대응하는 봇 응답과 응답 메타데이터를 저장합니다."""
-
-    __tablename__ = "bot_responses"
+    __tablename__ = "agent_runs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(
@@ -141,30 +117,83 @@ class BotResponseOrm(Base):
     user_message_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("user_messages.id", ondelete="CASCADE"), index=True
     )
-    text: Mapped[str] = mapped_column(Text, nullable=False)
-    route: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    used_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
-    plan: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
-    plan_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sub_messages: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
-    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
 
-    session: Mapped[SessionOrm] = relationship(back_populates="bot_responses")
-    user_message: Mapped[UserMessageOrm] = relationship(back_populates="bot_responses")
-
-
-class SessionDatasetLinkOrm(Base):
-    """세션과 데이터셋의 연결 이력을 저장하는 ORM 모델입니다."""
-
-    __tablename__ = "session_dataset_links"
-
-    session_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    session: Mapped[SessionOrm] = relationship(back_populates="agent_runs")
+    user_message: Mapped[UserMessageOrm] = relationship(back_populates="agent_runs")
+    iterations: Mapped[list["AgentIterationOrm"]] = relationship(
+        back_populates="agent_run",
+        cascade="all, delete-orphan",
+        order_by="AgentIterationOrm.iteration_index",
     )
-    dataset_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    timeline_items: Mapped[list["AgentTimelineItemOrm"]] = relationship(
+        back_populates="agent_run",
+        cascade="all, delete-orphan",
+        order_by="AgentTimelineItemOrm.sequence",
+    )
 
-    session: Mapped[SessionOrm] = relationship(back_populates="dataset_links")
+
+class AgentIterationOrm(Base):
+    """agent 실행 내부의 LLM API 1회 호출 단위입니다."""
+
+    __tablename__ = "agent_iterations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    agent_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True
+    )
+    iteration_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    agent_run: Mapped[AgentRunOrm] = relationship(back_populates="iterations")
+    timeline_items: Mapped[list["AgentTimelineItemOrm"]] = relationship(
+        back_populates="agent_iteration",
+        cascade="all, delete-orphan",
+        order_by="AgentTimelineItemOrm.sequence",
+    )
+
+
+class AgentTimelineItemOrm(Base):
+    """프론트 복원과 다음 LLM input 재사용을 위한 agent 타임라인 항목입니다."""
+
+    __tablename__ = "agent_timeline_items"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    user_message_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("user_messages.id", ondelete="CASCADE"), nullable=True
+    )
+    agent_run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=True
+    )
+    agent_iteration_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("agent_iterations.id", ondelete="CASCADE"), nullable=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    input_item: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    stream_event_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    stream_payload: Mapped[dict[str, object] | None] = mapped_column(
+        JSON, nullable=True
+    )
+    is_frontend_visible: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_input_reusable: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    session: Mapped[SessionOrm] = relationship(back_populates="timeline_items")
+    user_message: Mapped[UserMessageOrm | None] = relationship(
+        back_populates="timeline_items"
+    )
+    agent_run: Mapped[AgentRunOrm | None] = relationship(
+        back_populates="timeline_items"
+    )
+    agent_iteration: Mapped[AgentIterationOrm | None] = relationship(
+        back_populates="timeline_items"
+    )

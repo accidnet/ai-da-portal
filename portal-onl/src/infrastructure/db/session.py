@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Connection
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.config import get_settings
@@ -41,37 +40,3 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_database() -> None:
     with engine.begin() as connection:
         Base.metadata.create_all(bind=connection)
-        _ensure_dataset_json_columns(connection)
-        _ensure_bot_response_json_columns(connection)
-
-
-def _ensure_dataset_json_columns(connection: Connection) -> None:
-    """기존 SQLite datasets 테이블에 신규 JSON 컬럼을 보정합니다."""
-    if connection.dialect.name != "sqlite":
-        return
-
-    inspector = inspect(connection)
-    if "datasets" not in inspector.get_table_names():
-        return
-
-    columns = {column["name"] for column in inspector.get_columns("datasets")}
-    for column_name in ("preview", "profile"):
-        if column_name in columns:
-            continue
-        connection.execute(
-            text(f"ALTER TABLE datasets ADD COLUMN {column_name} JSON")
-        )
-
-
-def _ensure_bot_response_json_columns(connection: Connection) -> None:
-    """기존 SQLite bot_responses 테이블에 신규 JSON 컬럼을 보정합니다."""
-    if connection.dialect.name != "sqlite":
-        return
-
-    inspector = inspect(connection)
-    if "bot_responses" not in inspector.get_table_names():
-        return
-
-    columns = {column["name"] for column in inspector.get_columns("bot_responses")}
-    if "sub_messages" not in columns:
-        connection.execute(text("ALTER TABLE bot_responses ADD COLUMN sub_messages JSON"))

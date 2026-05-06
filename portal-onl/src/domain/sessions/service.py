@@ -8,7 +8,6 @@ from domain.datasets.schemas import (
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
-from domain.shared import AnalyticsPayload, WorkspacePayload
 from domain.sessions.schemas import (
     SessionCreateRequest,
     SessionDatasetLinkResponse,
@@ -21,12 +20,7 @@ from domain.sessions.schemas import (
     SessionSummary,
     SessionUpdateRequest,
 )
-from infrastructure.db.models import (
-    BotResponseOrm,
-    SessionMessageOrm,
-    SessionOrm,
-    UserMessageOrm,
-)
+from infrastructure.db.models import AgentTimelineItemOrm, SessionOrm, UserMessageOrm
 from infrastructure.db.repositories import MessageRepository, SessionRepository
 
 
@@ -87,42 +81,20 @@ class SessionService:
         return self._build_session_detail(session, dataset_service=None)
 
     def get_dataset_ids(self, session_id: str) -> list[str]:
-        session = self._repository.get(session_id)
-        if session is None:
-            return []
-        return [link.dataset_id for link in session.dataset_links]
+        return self._message_repository.list_session_dataset_ids(session_id)
 
     def update(self, session_id: str, payload: SessionUpdateRequest) -> SessionDetail:
         updates = payload.model_dump(exclude_unset=True)
         if not updates:
-            raise ValueError(
-                "At least one of 'title' or 'preferred_dataset_id' must be provided."
-            )
+            raise ValueError("At least one of 'title' must be provided.")
 
-        session = self._repository.get_or_raise(session_id)
-        normalized_title: str | None = None
-        if "title" in updates:
-            normalized_title = self._normalize_title(payload.title)
-            if normalized_title is None:
-                raise ValueError("Session title must not be empty.")
-
-        update_preferred_dataset = "preferred_dataset_id" in updates
-        if update_preferred_dataset:
-            preferred_dataset_id = payload.preferred_dataset_id
-            linked_dataset_ids = {link.dataset_id for link in session.dataset_links}
-            if (
-                preferred_dataset_id is not None
-                and preferred_dataset_id not in linked_dataset_ids
-            ):
-                raise ValueError(
-                    "Preferred dataset must already be linked to the session."
-                )
+        normalized_title = self._normalize_title(payload.title)
+        if normalized_title is None:
+            raise ValueError("Session title must not be empty.")
 
         updated_session = self._repository.update_session(
             session_id=session_id,
             title=normalized_title,
-            preferred_dataset_id=payload.preferred_dataset_id,
-            update_preferred_dataset=update_preferred_dataset,
         )
         return self._build_session_detail(updated_session, dataset_service=None)
 
@@ -150,34 +122,32 @@ class SessionService:
     def attach_dataset(
         self, session_id: str, dataset_id: str, *, title: str | None = None
     ) -> SessionDatasetLinkResponse:
+        """세션 dataset 직접 연결은 제거하고 세션 생성만 보장합니다."""
         session = self._get_session(session_id)
         if session is None:
             self._create_session(session_id, title=title)
-        session = self._repository.attach_dataset(
-            session_id=session_id,
-            dataset_id=dataset_id,
-        )
-        return SessionDatasetLinkResponse(
-            session_id=session_id,
-            dataset_ids=[link.dataset_id for link in session.dataset_links],
-        )
+        dataset_ids = self.get_dataset_ids(session_id)
+        if dataset_id not in dataset_ids:
+            dataset_ids = [dataset_id, *dataset_ids]
+        return SessionDatasetLinkResponse(session_id=session_id, dataset_ids=dataset_ids)
 
     def detach_dataset(
         self, session_id: str, dataset_id: str
     ) -> SessionDatasetLinkResponse:
-        session = self._repository.detach_dataset(
-            session_id=session_id,
-            dataset_id=dataset_id,
-        )
-        return SessionDatasetLinkResponse(
-            session_id=session_id,
-            dataset_ids=[link.dataset_id for link in session.dataset_links],
-        )
+        """메시지 dataset link는 보존하므로 응답에서만 해당 dataset을 제외합니다."""
+        dataset_ids = [
+            linked_dataset_id
+            for linked_dataset_id in self.get_dataset_ids(session_id)
+            if linked_dataset_id != dataset_id
+        ]
+        return SessionDatasetLinkResponse(session_id=session_id, dataset_ids=dataset_ids)
 
     def list_linked_sessions(self, dataset_id: str) -> list[tuple[str, datetime]]:
-        links = self._repository.list_linked_sessions(dataset_id)
         return [
-            (link.session_id, self._coerce_datetime(link.linked_at)) for link in links
+            (session_id, self._coerce_datetime(linked_at))
+            for session_id, linked_at in self._repository.list_linked_sessions(
+                dataset_id
+            )
         ]
 
     def record_analysis(
@@ -185,51 +155,42 @@ class SessionService:
         *,
         session_id: str,
         dataset_id: str | None,
-        analytics: AnalyticsPayload | None,
-        workspace: WorkspacePayload | None,
         title: str | None = None,
+        **_: object,
     ) -> None:
+        """레거시 분석 캐시 저장 대신 세션 존재와 갱신 시각만 보장합니다."""
         session = self._get_session(session_id)
         if session is None:
             self._create_session(session_id, title=title)
-        self._repository.record_analysis(
-            session_id=session_id,
-            dataset_ids=[dataset_id] if dataset_id else [],
-            analytics=self._dump_analytics(analytics),
-            workspace=self._dump_workspace(workspace),
-        )
+            return
+        self._repository.touch(session_id)
 
     def record_message_context(
         self,
         *,
         session_id: str,
-        dataset_ids: list[str],
-        analytics: AnalyticsPayload | None,
-        workspace: WorkspacePayload | None,
+        **_: object,
     ) -> None:
-        """메시지 처리 결과로 확정된 세션 상태만 갱신합니다."""
+        """메시지 처리 후 세션 갱신 시각만 업데이트합니다."""
         session = self._get_session(session_id)
         if session is None:
             self._create_session(session_id)
-        self._repository.record_analysis(
-            session_id=session_id,
-            dataset_ids=dataset_ids,
-            analytics=self._dump_analytics(analytics),
-            workspace=self._dump_workspace(workspace),
-        )
+            return
+        self._repository.touch(session_id)
 
     def get_snapshot(
         self, session_id: str, dataset_service: "_SessionDatasetReader"
     ) -> SessionSnapshotResponse:
         session = self._repository.get_or_raise(session_id)
+        dataset_ids = self.get_dataset_ids(session_id)
         datasets: list[SessionSnapshotDataset] = []
-        for link in session.dataset_links:
+        for dataset_id in dataset_ids:
             try:
                 datasets.append(
                     SessionSnapshotDataset(
-                        detail=dataset_service.get(link.dataset_id),
-                        preview=dataset_service.get_preview(link.dataset_id),
-                        profile=dataset_service.get_profile(link.dataset_id),
+                        detail=dataset_service.get(dataset_id),
+                        preview=dataset_service.get_preview(dataset_id),
+                        profile=dataset_service.get_profile(dataset_id),
                     )
                 )
             except KeyError:
@@ -240,10 +201,8 @@ class SessionService:
             messages=self._build_timeline_messages(
                 self._message_repository.list_session_timeline(session_id)
             ),
-            dataset_ids=[link.dataset_id for link in session.dataset_links],
+            dataset_ids=dataset_ids,
             datasets=datasets,
-            analytics=self._build_analytics(session.analytics),
-            workspace=self._build_workspace(session.workspace),
         )
 
     def _normalize_title(self, title: str | None) -> str | None:
@@ -282,15 +241,15 @@ class SessionService:
     def _build_session_detail(
         self, session: SessionOrm, dataset_service: "_SessionDatasetReader | None"
     ) -> SessionDetail:
-        last_dataset = self._build_last_dataset(session, dataset_service)
+        dataset_ids = self.get_dataset_ids(session.id)
+        last_dataset = self._build_last_dataset(dataset_ids, dataset_service)
         return SessionDetail(
             id=session.id,
             title=session.title,
             created_at=self._coerce_datetime(session.created_at),
             updated_at=self._coerce_datetime(session.updated_at),
-            preferred_dataset_id=session.preferred_dataset_id,
             message_count=self._message_repository.count_session_messages(session.id),
-            dataset_count=len(session.dataset_links),
+            dataset_count=len(dataset_ids),
             last_dataset=last_dataset,
         )
 
@@ -301,28 +260,17 @@ class SessionService:
         return self._build_session_detail(session, dataset_service)
 
     def _build_last_dataset(
-        self, session: SessionOrm, dataset_service: "_SessionDatasetReader | None"
+        self,
+        dataset_ids: list[str],
+        dataset_service: "_SessionDatasetReader | None",
     ) -> SessionLastDataset | None:
-        if dataset_service is None or not session.dataset_links:
+        if dataset_service is None or not dataset_ids:
             return None
-        last_dataset_id = session.dataset_links[0].dataset_id
         try:
-            dataset = dataset_service.get(last_dataset_id)
+            dataset = dataset_service.get(dataset_ids[0])
         except KeyError:
             return None
         return SessionLastDataset(id=dataset.id, filename=dataset.filename)
-
-    def _build_message(self, message: SessionMessageOrm) -> SessionMessage:
-        return SessionMessage(
-            id=message.id,
-            role=message.role,
-            text=message.text,
-            created_at=self._coerce_datetime(message.created_at),
-            route=message.route,
-            used_tools=message.used_tools or [],
-            plan=message.plan or [],
-            plan_explanation=message.plan_explanation,
-        )
 
     def _build_user_message(self, message: UserMessageOrm) -> SessionMessage:
         """사용자 메시지 ORM을 세션 스냅샷 메시지로 변환합니다."""
@@ -334,64 +282,38 @@ class SessionService:
             dataset_ids=[link.dataset_id for link in message.dataset_links],
         )
 
-    def _build_bot_response(self, response: BotResponseOrm) -> SessionMessage:
-        """봇 응답 ORM을 세션 스냅샷 메시지로 변환합니다."""
+    def _build_timeline_item(self, item: AgentTimelineItemOrm) -> SessionMessage | None:
+        """프론트 노출 timeline item을 세션 메시지로 변환합니다."""
+        payload = item.stream_payload or {}
+        role = payload.get("role")
+        text = payload.get("text")
+        if role not in {"user", "assistant"} or not isinstance(text, str):
+            return None
         return SessionMessage(
-            id=response.id,
-            role="assistant",
-            text=response.text,
-            created_at=self._coerce_datetime(response.created_at),
-            route=response.route,
-            used_tools=response.used_tools or [],
-            plan=response.plan or [],
-            plan_explanation=response.plan_explanation,
-            sub_messages=response.sub_messages or [],
+            id=item.id,
+            role=role,
+            text=text,
+            created_at=self._coerce_datetime(item.created_at),
+            dataset_ids=[
+                dataset_id
+                for dataset_id in payload.get("dataset_ids", [])
+                if isinstance(dataset_id, str)
+            ],
         )
 
     def _build_timeline_messages(
-        self, messages: list[SessionMessageOrm | UserMessageOrm | BotResponseOrm]
+        self, messages: list[UserMessageOrm | AgentTimelineItemOrm]
     ) -> list[SessionMessage]:
-        """분리 저장된 메시지를 기존 스냅샷 응답 형식의 타임라인으로 합칩니다."""
+        """사용자 메시지와 agent timeline을 기존 스냅샷 메시지 형식으로 변환합니다."""
         timeline: list[SessionMessage] = []
         for message in messages:
             if isinstance(message, UserMessageOrm):
                 timeline.append(self._build_user_message(message))
                 continue
-            if isinstance(message, BotResponseOrm):
-                timeline.append(self._build_bot_response(message))
-                continue
-            timeline.append(self._build_message(message))
+            timeline_item = self._build_timeline_item(message)
+            if timeline_item is not None:
+                timeline.append(timeline_item)
         return timeline
-
-    def _build_analytics(
-        self, payload: dict[str, object] | None
-    ) -> AnalyticsPayload | None:
-        if payload is None:
-            return None
-        return AnalyticsPayload.model_validate(payload)
-
-    def _build_workspace(
-        self, payload: dict[str, object] | None
-    ) -> WorkspacePayload | None:
-        if payload is None:
-            return None
-        return WorkspacePayload.model_validate(payload)
-
-    def _dump_analytics(
-        self, payload: AnalyticsPayload | None
-    ) -> dict[str, object] | None:
-        """분석 페이로드를 DB 저장 가능한 dict로 변환합니다."""
-        if payload is None:
-            return None
-        return payload.model_dump(mode="json")
-
-    def _dump_workspace(
-        self, payload: WorkspacePayload | None
-    ) -> dict[str, object] | None:
-        """워크스페이스 페이로드를 DB 저장 가능한 dict로 변환합니다."""
-        if payload is None:
-            return None
-        return payload.model_dump(mode="json")
 
     def _coerce_datetime(self, value: datetime) -> datetime:
         if value.tzinfo is not None:

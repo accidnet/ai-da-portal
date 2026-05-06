@@ -6,6 +6,5 @@ from datetime import UTC, datetime
 class Session:
     id: str
     title: str
-    preferred_dataset_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))

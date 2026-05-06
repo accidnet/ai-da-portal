@@ -16,6 +16,7 @@ from domain.sessions.service import SessionService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClientError
 from infrastructure.db.repositories import MessageRepository
+from shared.integrations.ai.contracts import EasyInputMessage, InputItemList
 
 logger = logging.getLogger(__name__)
 CHAT_COMPLETED_EVENT_TYPE = "chat.completed"
@@ -102,6 +103,14 @@ class MessageStreamService:
             streamed_text_parts: list[str] = []
             sub_messages: dict[str, dict[str, object]] = {}
             should_separate_next_text = False
+            agent_run_id = (
+                self._message_repository.create_agent_run(
+                    session_id=session_id,
+                    user_message_id=user_message_id,
+                )
+                if user_message_id is not None
+                else None
+            )
             agent_events = agent_runtime.invoke(
                 {
                     "session_id": session_id,
@@ -135,9 +144,8 @@ class MessageStreamService:
             self._record_chat_snapshot(
                 session_id=session_id,
                 user_message_id=user_message_id,
-                dataset_ids=dataset_ids,
+                agent_run_id=agent_run_id,
                 snapshot=snapshot,
-                sub_messages=list(sub_messages.values()),
             )
 
             yield self._encode_sse_event(
@@ -187,35 +195,37 @@ class MessageStreamService:
         *,
         session_id: str,
         user_message_id: str | None,
-        dataset_ids: list[str],
+        agent_run_id: str | None,
         snapshot: dict[str, object],
-        sub_messages: list[dict[str, object]],
     ) -> None:
-        """저장된 사용자 메시지에 스트리밍 완료 응답을 연결합니다."""
-        # 업로드/분석으로 확정된 데이터셋을 스트리밍 대화 기록에 함께 남깁니다.
-        snapshot_dataset_ids = dataset_ids
-        resolved_dataset_id = snapshot["resolved_dataset_id"]
-        if resolved_dataset_id is not None:
-            snapshot_dataset_ids = [str(resolved_dataset_id), *snapshot_dataset_ids]
-
+        """완료된 assistant 응답을 agent timeline에 저장합니다."""
+        assistant_message = str(snapshot["assistant_message"]).strip()
         if user_message_id is not None:
-            self._message_repository.record_bot_response(
+            self._message_repository.record_agent_response(
                 session_id=session_id,
                 user_message_id=user_message_id,
-                assistant_message=str(snapshot["assistant_message"]),
-                route=cast(AgentRoute, snapshot["route"]),
-                used_tools=cast(list[str], snapshot["used_tools"]),
-                plan=cast(list[dict[str, str]], snapshot["plan"]),
-                plan_explanation=cast(str | None, snapshot["plan_explanation"]),
-                sub_messages=sub_messages,
-                status=str(snapshot["status"]),
+                agent_run_id=agent_run_id,
+                assistant_message=assistant_message,
+                input_item=self._build_assistant_input_item(assistant_message),
+                stream_payload={"role": "assistant", "text": assistant_message},
             )
-        self._session_service.record_message_context(
-            session_id=session_id,
-            dataset_ids=snapshot_dataset_ids,
-            analytics=cast(AnalyticsPayload | None, snapshot["analytics"]),
-            workspace=cast(WorkspacePayload | None, snapshot["workspace"]),
-        )
+        self._session_service.record_message_context(session_id=session_id)
+
+    def _build_assistant_input_item(
+        self, assistant_message: str
+    ) -> dict[str, object] | None:
+        """완료된 assistant 메시지를 다음 LLM input 재사용 payload로 변환합니다."""
+        if not assistant_message:
+            return None
+        return InputItemList(
+            items=(
+                EasyInputMessage(
+                    role="assistant",
+                    content=assistant_message,
+                    phase="final_answer",
+                ),
+            )
+        ).to_payload()[0]
 
     def _unpack_agent_invoke_result(
         self, invoke_result: object
