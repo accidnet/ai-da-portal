@@ -55,6 +55,7 @@ class SessionMessage(BaseModel):
     role: Literal["user", "assistant"]
     text: str
     created_at: datetime
+    dataset_ids: list[str] = Field(default_factory=list)
     route: AgentRoute | None = None
     used_tools: list[str] = Field(default_factory=list)
     plan: list[PlanStep] = Field(default_factory=list)

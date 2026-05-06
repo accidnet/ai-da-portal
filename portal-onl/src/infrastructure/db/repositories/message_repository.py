@@ -11,6 +11,7 @@ from infrastructure.db.models import (
 from infrastructure.db.session import SessionLocal
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 SessionTimelineMessageOrm = SessionMessageOrm | UserMessageOrm | BotResponseOrm
 
@@ -96,7 +97,9 @@ class MessageRepository:
             )
             user_messages = list(
                 db.scalars(
-                    select(UserMessageOrm).where(UserMessageOrm.session_id == session_id)
+                    select(UserMessageOrm)
+                    .options(selectinload(UserMessageOrm.dataset_links))
+                    .where(UserMessageOrm.session_id == session_id)
                 ).all()
             )
             bot_responses = list(

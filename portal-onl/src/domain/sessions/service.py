@@ -332,6 +332,7 @@ class SessionService:
             role="user",
             text=message.text,
             created_at=self._coerce_datetime(message.created_at),
+            dataset_ids=[link.dataset_id for link in message.dataset_links],
         )
 
     def _build_bot_response(self, response: BotResponseOrm) -> SessionMessage:

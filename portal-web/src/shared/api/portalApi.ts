@@ -109,6 +109,7 @@ export interface SessionSnapshotMessageResponse {
   role: 'user' | 'assistant'
   author?: string | null
   text?: string | null
+  dataset_ids?: string[] | null
   route?: ChatRoute | null
   used_tools?: string[] | null
   plan?: Array<{
@@ -525,7 +526,12 @@ export async function fetchSessionSnapshot(
 }
 
 export async function streamChatMessage(
-  payload: { sessionId: string; message: string; datasetIds?: string[] },
+  payload: {
+    sessionId: string
+    message: string
+    datasetIds?: string[]
+    attachedDatasetIds?: string[]
+  },
   options: StreamChatMessageOptions = {},
 ): Promise<ChatResponse> {
   const headers: Record<string, string> = {
@@ -540,6 +546,7 @@ export async function streamChatMessage(
       session_id: payload.sessionId,
       message: payload.message,
       uploaded_dataset_ids: payload.datasetIds ?? [],
+      attached_dataset_ids: payload.attachedDatasetIds ?? [],
     }),
     signal: options.signal,
   })

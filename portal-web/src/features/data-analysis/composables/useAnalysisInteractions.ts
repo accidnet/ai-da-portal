@@ -323,6 +323,7 @@ export function useAnalysisInteractions(options: {
     try {
       const shouldSeparateNextAgentIteration: { current: boolean } = { current: false }
       let attachmentPreview: MessageAttachmentPreview | undefined
+      let attachedDatasetIds: string[] = []
       if (shouldResolveSessionTitle) {
         void resolveSessionTitle(sessionId, userMessage)
           .then((response) => {
@@ -349,6 +350,7 @@ export function useAnalysisInteractions(options: {
         const datasets = uploadedDatasets.map(({ detail, preview, profile }) =>
           mapDatasetInfoToAsset({ detail, preview, profile }),
         )
+        attachedDatasetIds = datasets.map((dataset) => dataset.id)
         const uploadedDatasetIds = new Set(datasets.map((dataset) => dataset.id))
         sessionState.datasets = [
           ...datasets,
@@ -379,6 +381,7 @@ export function useAnalysisInteractions(options: {
           sessionId,
           message: userMessage,
           datasetIds: sessionState.datasets.map((dataset) => dataset.id),
+          attachedDatasetIds,
         },
         {
           signal: chatStreamController.signal,

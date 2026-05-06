@@ -69,7 +69,13 @@ export function mapDatasetInfoToAsset(payload: {
   }
 }
 
-export function mapSnapshotMessage(payload: SessionSnapshotMessageResponse): ChatMessage | null {
+/**
+ * 서버 snapshot 메시지를 채팅 렌더링 상태로 변환합니다.
+ */
+export function mapSnapshotMessage(
+  payload: SessionSnapshotMessageResponse,
+  datasetFilenames: Map<string, string>,
+): ChatMessage | null {
   const text = payload.text?.trim() || payload.content?.trim() || ''
   const bullets = (payload.bullets ?? [])
     .map((bullet) => {
@@ -91,6 +97,7 @@ export function mapSnapshotMessage(payload: SessionSnapshotMessageResponse): Cha
     role: payload.role,
     author: payload.author ?? (payload.role === 'assistant' ? 'AI 데이터 분석가' : undefined),
     text,
+    attachmentStatus: resolveSnapshotAttachmentStatus(payload, datasetFilenames),
     route: payload.route ?? undefined,
     usedTools: payload.used_tools ?? [],
     plan: payload.plan ?? [],
@@ -102,6 +109,26 @@ export function mapSnapshotMessage(payload: SessionSnapshotMessageResponse): Cha
           content: codeContent,
         }
       : undefined,
+  }
+}
+
+/**
+ * 사용자 메시지에 연결된 데이터셋 파일명을 첨부 상태 표시용으로 변환합니다.
+ */
+function resolveSnapshotAttachmentStatus(
+  payload: SessionSnapshotMessageResponse,
+  datasetFilenames: Map<string, string>,
+): ChatMessage['attachmentStatus'] {
+  if (payload.role !== 'user') return undefined
+
+  const filenames = (payload.dataset_ids ?? [])
+    .map((datasetId) => datasetFilenames.get(datasetId))
+    .filter((filename): filename is string => Boolean(filename))
+  if (filenames.length === 0) return undefined
+
+  return {
+    filename: filenames.length === 1 ? filenames[0] : `${filenames[0]} 외 ${filenames.length - 1}개`,
+    meta: `${filenames.length}개 파일 · 메시지와 함께 전송`,
   }
 }
 
@@ -118,8 +145,9 @@ export function mapSnapshotToSessionState(
       const rightIndex = datasetOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER
       return leftIndex - rightIndex
     })
+  const datasetFilenames = new Map(datasets.map((dataset) => [dataset.id, dataset.filename]))
   const messages = snapshot.messages
-    .map(mapSnapshotMessage)
+    .map((message) => mapSnapshotMessage(message, datasetFilenames))
     .filter((message): message is ChatMessage => message !== null)
 
   return {
