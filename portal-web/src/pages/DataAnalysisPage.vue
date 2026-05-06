@@ -169,7 +169,7 @@ const conversation = computed<ConversationData>(() => ({
   thinkingLabel: isSending.value
     ? isSendingInteraction.value
       ? '파일을 업로드하고 데이터를 분석하고 있어요...'
-      : 'ChatGPT가 응답을 준비하고 있어요...'
+      : '데이터를 분석하고 있어요...'
     : isUploading.value
       ? '데이터셋을 업로드하고 있어요...'
       : isRunningAnalysis.value
