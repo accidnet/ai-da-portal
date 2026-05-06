@@ -25,7 +25,6 @@ export function useAnalysisSessions(options: {
   const activeSessionId = ref<string | null>(null)
   const sessionSummaries = ref<SessionItem[]>([])
   const sessionStates = ref<Record<string, SessionRuntimeState>>({})
-  const hydratedSessionIds = ref<Record<string, boolean>>({})
   const hiddenSessionSummaries = ref<Record<string, SessionItem>>({})
   const sessionHubError = ref<string | null>(null)
   const isSessionMutating = ref(false)
@@ -132,7 +131,6 @@ export function useAnalysisSessions(options: {
     // 새 분석은 첫 메시지가 전송되기 전까지 서버 목록에 노출하지 않습니다.
     activeSessionId.value = DRAFT_SESSION_ID
     sessionStates.value[DRAFT_SESSION_ID] = createSessionState(DEFAULT_SESSION_TITLE)
-    hydratedSessionIds.value[DRAFT_SESSION_ID] = true
     currentScreen.value = 'dashboard'
     sessionHubError.value = null
   }
@@ -198,7 +196,10 @@ export function useAnalysisSessions(options: {
         activeSessionId.value = preferredSessionId
       }
       if (activeSessionId.value) {
-        await hydrateSessionSnapshot(activeSessionId.value)
+        const isSnapshotLoaded = await hydrateSessionSnapshot(activeSessionId.value)
+        if (!isSnapshotLoaded) {
+          return
+        }
       }
       sessionHubError.value = null
     } catch {
@@ -213,7 +214,6 @@ export function useAnalysisSessions(options: {
           },
         ]
         ensureSessionState(LOCAL_SESSION_ID, DEFAULT_SESSION_TITLE)
-        hydratedSessionIds.value[LOCAL_SESSION_ID] = true
       }
       sessionHubError.value = '세션 목록을 서버에서 불러오지 못해 로컬 세션으로 전환했어요.'
     }
@@ -244,27 +244,24 @@ export function useAnalysisSessions(options: {
     sessionStates.value[created.id] = previousState ?? createSessionState(created.title)
     sessionStates.value[created.id].title = created.title
     delete sessionStates.value[currentSessionId]
-    delete hydratedSessionIds.value[currentSessionId]
-    hydratedSessionIds.value[created.id] = true
     return created.id
   }
 
-  async function hydrateSessionSnapshot(sessionId: string, force = false) {
+  async function hydrateSessionSnapshot(sessionId: string): Promise<boolean> {
     if (!sessionId || sessionId === LOCAL_SESSION_ID) {
-      return
+      return true
     }
 
     const summary = sessionSummaries.value.find((session) => session.id === sessionId)
-    ensureSessionState(sessionId, summary?.title ?? DEFAULT_SESSION_TITLE)
-    if (hydratedSessionIds.value[sessionId] && !force) {
-      return
-    }
+    const fallbackTitle = summary?.title ?? DEFAULT_SESSION_TITLE
+    // 기존 메시지 복원은 서버 snapshot만 신뢰하고, 이전 메모리 메시지는 먼저 비웁니다.
+    sessionStates.value[sessionId] = createSessionState(fallbackTitle)
 
     const requestId = ++latestSnapshotRequestId
     try {
       const snapshot = await fetchSessionSnapshot(sessionId)
       if (requestId !== latestSnapshotRequestId) {
-        return
+        return false
       }
 
       const state = mapSnapshotToSessionState(snapshot, createWelcomeMessages)
@@ -277,9 +274,11 @@ export function useAnalysisSessions(options: {
         updatedAt: snapshot.session.updated_at,
         createdAt: snapshot.session.created_at,
       })
-      hydratedSessionIds.value[sessionId] = true
+      sessionHubError.value = null
+      return true
     } catch {
-      hydratedSessionIds.value[sessionId] = true
+      sessionHubError.value = '세션 메시지를 서버에서 불러오지 못했어요.'
+      return false
     }
   }
 
@@ -292,7 +291,7 @@ export function useAnalysisSessions(options: {
     currentScreen.value = targetScreen
     const summary = sessionSummaries.value.find((session) => session.id === sessionId)
     ensureSessionState(sessionId, summary?.title ?? DEFAULT_SESSION_TITLE)
-    await hydrateSessionSnapshot(sessionId, true)
+    await hydrateSessionSnapshot(sessionId)
   }
 
   async function handleRenameSession(payload: { sessionId: string; title: string }) {
@@ -321,7 +320,6 @@ export function useAnalysisSessions(options: {
       await deleteSession(sessionId)
       sessionSummaries.value = sessionSummaries.value.filter((session) => session.id !== sessionId)
       delete sessionStates.value[sessionId]
-      delete hydratedSessionIds.value[sessionId]
       delete hiddenSessionSummaries.value[sessionId]
       await onSessionDeleted?.(sessionId)
       if (activeSessionId.value === sessionId) {
@@ -345,7 +343,6 @@ export function useAnalysisSessions(options: {
     activeSessionId,
     sessionSummaries,
     sessionStates,
-    hydratedSessionIds,
     sessionHubError,
     isSessionMutating,
     ensureSessionState,
