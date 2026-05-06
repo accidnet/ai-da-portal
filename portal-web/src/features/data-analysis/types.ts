@@ -87,7 +87,6 @@ export interface MessageAttachmentStatus {
 export interface ChatSubMessage {
   id: string
   type: string
-  label: string
   text: string
   isStreaming: boolean
 }

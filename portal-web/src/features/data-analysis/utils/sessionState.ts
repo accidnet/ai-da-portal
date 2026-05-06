@@ -105,7 +105,6 @@ export function mapSnapshotMessage(
     subMessages: (payload.sub_messages ?? []).map((subMessage) => ({
       id: subMessage.id,
       type: subMessage.type,
-      label: subMessage.label,
       text: subMessage.text,
       isStreaming: subMessage.is_streaming ?? false,
     })),

@@ -120,7 +120,6 @@ export interface SessionSnapshotMessageResponse {
   sub_messages?: Array<{
     id: string
     type: string
-    label: string
     text: string
     is_streaming?: boolean | null
   }> | null

@@ -54,7 +54,6 @@ class SessionDetail(SessionSummary):
 class SessionSubMessage(BaseModel):
     id: str
     type: str
-    label: str
     text: str
     is_streaming: bool = False
 

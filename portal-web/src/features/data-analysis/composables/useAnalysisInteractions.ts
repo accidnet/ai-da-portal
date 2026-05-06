@@ -201,13 +201,6 @@ export function useAnalysisInteractions(options: {
     )
   }
 
-  function formatSubMessageLabel(event: ChatSubMessageStreamEvent): string {
-    if (event.type === 'agent.function_call.output' && event.name) {
-      return `Tool result: ${event.name}`
-    }
-    return 'Thinking...'
-  }
-
   function applyStreamingSubMessage(
     assistantMessageIndex: number,
     sessionState: SessionRuntimeState,
@@ -242,7 +235,6 @@ export function useAnalysisInteractions(options: {
       const nextSubMessage: ChatSubMessage = {
         id: subMessageId,
         type: event.type,
-        label: formatSubMessageLabel(event),
         text: nextText,
         isStreaming: !isDone,
       }

@@ -246,7 +246,6 @@ class MessageStreamService:
                 sub_messages,
                 sub_message_id=sub_message_id,
                 event_type=event_type,
-                label=f"Agent step {iteration}",
                 text="",
                 is_streaming=True,
             )
@@ -268,7 +267,6 @@ class MessageStreamService:
                 sub_messages,
                 sub_message_id=sub_message_id,
                 event_type=event_type,
-                label=f"Agent step {iteration}",
                 text=existing_text or "Step completed.",
                 is_streaming=False,
             )
@@ -279,7 +277,6 @@ class MessageStreamService:
                 sub_messages,
                 sub_message_id="agent.plan",
                 event_type=event_type,
-                label="Plan update",
                 text=self._format_plan_text(data),
                 is_streaming=False,
             )
@@ -292,7 +289,6 @@ class MessageStreamService:
                 sub_messages,
                 sub_message_id=f"agent.chart:{title or len(sub_messages)}",
                 event_type=event_type,
-                label="Chart generated",
                 text=self._format_chart_text(data),
                 is_streaming=False,
             )
@@ -304,7 +300,6 @@ class MessageStreamService:
                 sub_messages,
                 sub_message_id=f"agent.tool:{name or len(sub_messages)}",
                 event_type=event_type,
-                label=f"Tool result: {name}" if isinstance(name, str) else "Tool result",
                 text=str(data.get("text") or ""),
                 is_streaming=False,
             )
@@ -318,7 +313,6 @@ class MessageStreamService:
         *,
         sub_message_id: str,
         event_type: str,
-        label: str,
         text: str,
         is_streaming: bool,
     ) -> None:
@@ -326,7 +320,6 @@ class MessageStreamService:
         sub_messages[sub_message_id] = {
             "id": sub_message_id,
             "type": event_type,
-            "label": label,
             "text": text,
             "is_streaming": is_streaming,
         }
