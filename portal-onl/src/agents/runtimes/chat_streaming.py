@@ -17,7 +17,11 @@ from shared.integrations.ai.contracts import (
 
 logger = logging.getLogger(__name__)
 AgentStreamEvent = dict[str, object] | SseEvent
-CHART_FUNCTION_NAMES = {"build_trend_chart", "render_trend_chart"}
+CHART_FUNCTION_NAMES = {
+    "build_trend_chart",
+    "build_correlation_scatter",
+    "render_trend_chart",
+}
 
 
 class ChatStreamingAgent(BaseAgent):

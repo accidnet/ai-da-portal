@@ -3,6 +3,7 @@ from typing import Protocol
 
 from tools.analysis import anomaly_detection, correlation
 from tools.charts import (
+    build_correlation_scatter,
     build_trend_chart,
 )
 from tools.datasets import inspect_dataset_context
@@ -27,9 +28,11 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     correlation,
     anomaly_detection,
     build_trend_chart,
+    build_correlation_scatter,
 )
 _TOOL_ALIASES: dict[str, ToolModule] = {
     "build_trend_chart": build_trend_chart,
+    "build_correlation_scatter": build_correlation_scatter,
 }
 
 
