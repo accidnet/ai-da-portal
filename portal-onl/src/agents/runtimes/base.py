@@ -1,8 +1,15 @@
 import json
+from collections.abc import Mapping
 from typing import Literal, cast
 
 from agents.prompt_loader import load_prompt
-from agents.state import AgentState, AgentStateSnapshot, AgentRoute, PlanStep
+from agents.state import (
+    AgentInvokeOutput,
+    AgentRoute,
+    AgentState,
+    AgentStateSnapshot,
+    PlanStep,
+)
 from application.datasets.service import DatasetApplicationService
 from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClient, AiClientError
@@ -28,20 +35,20 @@ class BaseAgent:
         self._llm_client = llm_client
         self._dataset_service = dataset_service
 
-    def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
-        """agent 내부 상태를 API와 저장소에서 쓰는 스냅샷으로 정규화합니다."""
-        route = cast(AgentRoute, state.get("route", "conversation"))
-        assistant_message = self._read_string(state.get("assistant_message")) or ""
-        analytics = state.get("analytics")
-        workspace = state.get("workspace")
+    def snapshot_output(self, output: AgentInvokeOutput) -> AgentStateSnapshot:
+        """agent 출력 값을 API와 저장소에서 쓰는 스냅샷으로 정규화합니다."""
+        route = cast(AgentRoute, output.get("route", "conversation"))
+        assistant_message = self._read_string(output.get("assistant_message")) or ""
+        analytics = output.get("analytics")
+        workspace = output.get("workspace")
         plan = [
             cast(PlanStep, step)
-            for step in state.get("plan", [])
+            for step in output.get("plan", [])
             if isinstance(step, dict)
         ]
         status = cast(
             str,
-            state.get("status", "completed" if assistant_message else "queued"),
+            output.get("status", "completed" if assistant_message else "queued"),
         )
         if not assistant_message and (
             isinstance(analytics, AnalyticsPayload)
@@ -55,12 +62,12 @@ class BaseAgent:
             "route": route,
             "assistant_message": assistant_message,
             "used_tools": [
-                tool for tool in state.get("used_tools", []) if isinstance(tool, str)
+                tool for tool in output.get("used_tools", []) if isinstance(tool, str)
             ],
             "plan": plan,
             "plan_explanation": (
-                state.get("plan_explanation")
-                if isinstance(state.get("plan_explanation"), str)
+                output.get("plan_explanation")
+                if isinstance(output.get("plan_explanation"), str)
                 else None
             ),
             "analytics": (
@@ -69,8 +76,8 @@ class BaseAgent:
             "workspace": (
                 workspace if isinstance(workspace, WorkspacePayload) else None
             ),
-            "resolved_dataset_id": self._read_string(state.get("resolved_dataset_id")),
-            "analysis_type": self._read_string(state.get("analysis_type")),
+            "resolved_dataset_id": self._read_string(output.get("resolved_dataset_id")),
+            "analysis_type": self._read_string(output.get("analysis_type")),
             "status": cast(
                 Literal[
                     "queued",
@@ -82,6 +89,10 @@ class BaseAgent:
                 status,
             ),
         }
+
+    def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
+        """이전 state 기반 호출부를 출력 스냅샷 정규화로 위임합니다."""
+        return self.snapshot_output(cast(AgentInvokeOutput, state))
 
     def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
         """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 활용합니다."""
@@ -174,8 +185,8 @@ class BaseAgent:
             return value.strip()
         return None
 
-    def _require_string(self, state: AgentState, key: str) -> str:
-        value = state.get(key)
+    def _require_string(self, values: Mapping[str, object], key: str) -> str:
+        value = values.get(key)
         if isinstance(value, str) and value:
             return value
         raise AiClientError(f"Agent state is missing required field: {key}")

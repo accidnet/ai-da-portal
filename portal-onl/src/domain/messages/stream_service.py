@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from agents.runtimes import ChatStreamingAgent
-from agents.state import AgentRoute
+from agents.state import AgentInvokeOutput, AgentRoute
 from core.sse import SseEvent
 from domain.messages.schemas import (
     MessageStreamRequest,
@@ -23,6 +23,7 @@ CHAT_COMPLETED_EVENT_TYPE = "chat.completed"
 
 class _SnapshotAgent(Protocol):
     def snapshot_state(self, state: dict[str, object]) -> dict[str, object]: ...
+    def snapshot_output(self, output: AgentInvokeOutput) -> dict[str, object]: ...
 
 
 class MessageStreamService:
@@ -113,7 +114,7 @@ class MessageStreamService:
                 try:
                     event = next(agent_events)
                 except StopIteration as exc:
-                    state, _agent_results = self._unpack_agent_invoke_result(
+                    output, _agent_results = self._unpack_agent_invoke_result(
                         exc.value
                     )
                     break
@@ -127,7 +128,7 @@ class MessageStreamService:
                 )
                 yield self._encode_sse_event(sse_event)
 
-            snapshot = self._snapshot_state(agent_runtime, state)
+            snapshot = self._snapshot_output(agent_runtime, output)
             streamed_text = "".join(streamed_text_parts).strip()
             if streamed_text and not str(snapshot["assistant_message"]).strip():
                 snapshot["assistant_message"] = streamed_text
@@ -218,14 +219,14 @@ class MessageStreamService:
 
     def _unpack_agent_invoke_result(
         self, invoke_result: object
-    ) -> tuple[dict[str, object], dict[str, object]]:
-        """에이전트 실행 종료값에서 상태와 부가 결과를 분리합니다."""
+    ) -> tuple[AgentInvokeOutput, dict[str, object]]:
+        """에이전트 실행 종료값에서 출력과 부가 결과를 분리합니다."""
         # 이전 반환 형태인 state 단독 값도 허용해 스트리밍 처리 흐름을 유지합니다.
         if isinstance(invoke_result, tuple) and len(invoke_result) == 2:
-            state, results = invoke_result
-            return cast(dict[str, object], state), cast(dict[str, object], results)
+            output, results = invoke_result
+            return cast(AgentInvokeOutput, output), cast(dict[str, object], results)
 
-        return cast(dict[str, object], invoke_result), {}
+        return cast(AgentInvokeOutput, invoke_result), {}
 
     def _record_stream_event(
         self,
@@ -353,18 +354,25 @@ class MessageStreamService:
         chart_type = chart.get("type")
         return f"{title or 'Chart'} ({chart_type or 'unknown'}) generated."
 
-    def _snapshot_state(
-        self, agent_runtime: _SnapshotAgent, state: dict[str, object]
+    def _snapshot_output(
+        self, agent_runtime: _SnapshotAgent, output: AgentInvokeOutput
     ) -> dict[str, object]:
-        """에이전트 런타임 상태를 저장과 응답에 사용할 스냅샷으로 정규화합니다."""
+        """에이전트 런타임 출력을 저장과 응답에 사용할 스냅샷으로 정규화합니다."""
+        snapshot_output = getattr(agent_runtime, "snapshot_output", None)
+        if callable(snapshot_output):
+            return cast(dict[str, object], snapshot_output(output))
+
         snapshot_state = getattr(agent_runtime, "snapshot_state", None)
         if callable(snapshot_state):
-            return cast(dict[str, object], snapshot_state(state))
+            return cast(
+                dict[str, object],
+                snapshot_state(cast(dict[str, object], output)),
+            )
 
-        route = cast(AgentRoute, state.get("route", "conversation"))
-        assistant_message = str(state.get("assistant_message", "")).strip()
-        analytics = state.get("analytics")
-        workspace = state.get("workspace")
+        route = cast(AgentRoute, output.get("route", "conversation"))
+        assistant_message = str(output.get("assistant_message", "")).strip()
+        analytics = output.get("analytics")
+        workspace = output.get("workspace")
         if not assistant_message and (
             isinstance(analytics, AnalyticsPayload) or workspace is not None
         ):
@@ -375,19 +383,21 @@ class MessageStreamService:
             "route": route,
             "assistant_message": assistant_message,
             "used_tools": [
-                tool for tool in state.get("used_tools", []) if isinstance(tool, str)
+                tool for tool in output.get("used_tools", []) if isinstance(tool, str)
             ],
-            "plan": [step for step in state.get("plan", []) if isinstance(step, dict)],
+            "plan": [
+                step for step in output.get("plan", []) if isinstance(step, dict)
+            ],
             "plan_explanation": (
-                state.get("plan_explanation")
-                if isinstance(state.get("plan_explanation"), str)
+                output.get("plan_explanation")
+                if isinstance(output.get("plan_explanation"), str)
                 else None
             ),
             "analytics": analytics if isinstance(analytics, AnalyticsPayload) else None,
             "workspace": workspace,
-            "resolved_dataset_id": state.get("resolved_dataset_id"),
-            "analysis_type": state.get("analysis_type"),
-            "status": state.get(
+            "resolved_dataset_id": output.get("resolved_dataset_id"),
+            "analysis_type": output.get("analysis_type"),
+            "status": output.get(
                 "status", "completed" if assistant_message else "queued"
             ),
         }

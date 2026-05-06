@@ -10,10 +10,17 @@ class PlanStep(TypedDict):
     status: Literal["pending", "in_progress", "completed"]
 
 
-class AgentState(TypedDict, total=False):
+class AgentInvokeInput(TypedDict, total=False):
+    """agent 실행에 필요한 외부 입력 값입니다."""
+
     session_id: str
     message: str
     dataset_ids: list[str]
+
+
+class AgentInvokeOutput(TypedDict, total=False):
+    """agent 실행이 완료된 뒤 저장/응답에 쓰는 출력 값입니다."""
+
     route: AgentRoute
     plan: list[PlanStep]
     plan_explanation: str | None
@@ -25,6 +32,10 @@ class AgentState(TypedDict, total=False):
     response_id: str | None
     used_tools: list[str]
     status: ReasoningStatus
+
+
+class AgentState(AgentInvokeInput, AgentInvokeOutput, total=False):
+    """이전 호출부 호환을 위한 입력/출력 통합 타입입니다."""
 
 
 class AgentStateSnapshot(TypedDict):

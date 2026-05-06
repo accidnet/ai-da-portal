@@ -4,10 +4,11 @@ from collections.abc import Generator, Iterable
 from typing import cast
 
 from agents.runtimes.base import BaseAgent
-from agents.state import AgentState
+from agents.state import AgentInvokeInput, AgentInvokeOutput, PlanStep
 from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from application.datasets.service import DatasetApplicationService
+from domain.shared import AnalyticsPayload, ChartPayload
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 from shared.integrations.ai.contracts import (
     FunctionCall,
@@ -28,16 +29,14 @@ class ChatStreamingAgent(BaseAgent):
     """채팅 요청을 LLM 스트림과 tool 호출 이벤트로 실행하는 agent입니다."""
 
     def invoke(
-        self, state: AgentState
-    ) -> Generator[AgentStreamEvent, None, AgentState]:
-        working_state = cast(AgentState, dict(state))
-        working_state.setdefault("used_tools", [])
-        working_state.setdefault("status", "queued")
+        self, invoke_input: AgentInvokeInput
+    ) -> Generator[AgentStreamEvent, None, AgentInvokeOutput]:
+        output = self._build_initial_output()
 
         # 사용자 메세지를 포함하여 AI API input으로 사용하기 위한 빌드
         input_items = self._build_initial_inputs(
-            message=self._require_string(working_state, "message"),
-            dataset_ids=working_state.get("dataset_ids", []),
+            message=self._require_string(invoke_input, "message"),
+            dataset_ids=invoke_input.get("dataset_ids", []),
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
@@ -72,6 +71,7 @@ class ChatStreamingAgent(BaseAgent):
             # API 호출이 끝난 후 처리하는 로직
             new_input_items, function_events = self._handle_after_call_completion(
                 stream_result=stream_result,
+                output=output,
             )
             # 만약, 처리로직 중 프론트로 전달해야하는 것이 있을 경우
             for event in function_events:
@@ -93,7 +93,23 @@ class ChatStreamingAgent(BaseAgent):
             if not function_call_items and should_stop_iteration:
                 break
 
-        return working_state
+        output["status"] = "completed"
+        return output
+
+    def _build_initial_output(self) -> AgentInvokeOutput:
+        """invoke 입력과 분리된 agent 출력 기본값을 생성합니다."""
+        return {
+            "route": "conversation",
+            "assistant_message": "",
+            "used_tools": [],
+            "plan": [],
+            "plan_explanation": None,
+            "analytics": None,
+            "workspace": None,
+            "resolved_dataset_id": None,
+            "analysis_type": None,
+            "status": "queued",
+        }
 
     def _parse_stream_events(
         self, stream: object
@@ -161,6 +177,7 @@ class ChatStreamingAgent(BaseAgent):
         self,
         *,
         stream_result: dict[str, object],
+        output: AgentInvokeOutput,
     ) -> tuple[list[dict[str, object]] | None, list[SseEvent]]:
 
         stream_input_items = cast(
@@ -176,6 +193,11 @@ class ChatStreamingAgent(BaseAgent):
         function_call_outputs, function_events = self._handle_function_call_items(
             function_call_items=function_call_items,
         )
+        self._apply_function_call_results_to_output(
+            output=output,
+            function_call_items=function_call_items,
+            function_call_outputs=function_call_outputs,
+        )
         if function_call_outputs:
             new_input_items = [
                 *InputItemList(items=tuple(stream_input_items)).to_payload(),
@@ -185,6 +207,62 @@ class ChatStreamingAgent(BaseAgent):
             return new_input_items, function_events
 
         return None, function_events
+
+    def _apply_function_call_results_to_output(
+        self,
+        *,
+        output: AgentInvokeOutput,
+        function_call_items: list[FunctionCall],
+        function_call_outputs: dict[str, dict[str, object]],
+    ) -> None:
+        """실행된 tool 결과 중 저장/응답에 필요한 값을 agent 출력에 반영합니다."""
+        self._append_used_tools(output, function_call_items)
+        for function_name, function_call_output in function_call_outputs.items():
+            tool_result = self._decode_tool_output(function_call_output)
+            if not isinstance(tool_result, dict) or tool_result.get("ok") is not True:
+                continue
+            data = tool_result.get("data")
+            if isinstance(data, dict):
+                self._apply_tool_data_to_output(
+                    output=output,
+                    function_name=function_name,
+                    data=data,
+                )
+
+    def _apply_tool_data_to_output(
+        self,
+        *,
+        output: AgentInvokeOutput,
+        function_name: str,
+        data: dict[str, object],
+    ) -> None:
+        """tool 성공 data를 agent 출력 필드로 정규화합니다."""
+        if function_name == "update_plan":
+            plan = data.get("plan")
+            if isinstance(plan, list):
+                output["plan"] = [
+                    cast(PlanStep, item) for item in plan if isinstance(item, dict)
+                ]
+            explanation = data.get("explanation")
+            output["plan_explanation"] = (
+                explanation if isinstance(explanation, str) else None
+            )
+            return
+
+        dataset_id = data.get("dataset_id")
+        if isinstance(dataset_id, str):
+            output["resolved_dataset_id"] = dataset_id
+
+        analytics = data.get("analytics")
+        if isinstance(analytics, dict):
+            output["analytics"] = AnalyticsPayload.model_validate(analytics)
+            return
+
+        chart = data.get("chart")
+        if isinstance(chart, dict):
+            output["analytics"] = AnalyticsPayload(
+                charts=[ChartPayload.model_validate(chart)]
+            )
 
     def _handle_function_call_items(
         self,
@@ -327,23 +405,23 @@ class ChatStreamingAgent(BaseAgent):
             return None
         return decoded if isinstance(decoded, dict) else None
 
-    def _apply_used_tools_to_state(
+    def _append_used_tools(
         self,
-        working_state: AgentState,
+        output: AgentInvokeOutput,
         function_call_items: list[FunctionCall],
     ) -> None:
-        """실행된 function_call 이름을 최종 state에 누적합니다."""
+        """실행된 function_call 이름을 최종 출력에 누적합니다."""
         if not function_call_items:
             return
 
         used_tools = [
             tool
-            for tool in working_state.get("used_tools", [])
+            for tool in output.get("used_tools", [])
             if isinstance(tool, str)
         ]
         for function_call in function_call_items:
             used_tools.append(function_call.name)
-        working_state["used_tools"] = used_tools
+        output["used_tools"] = used_tools
 
 
 def build_chat_streaming_agent(
