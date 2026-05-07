@@ -254,7 +254,8 @@ export function useAnalysisSessions(options: {
 
     const summary = sessionSummaries.value.find((session) => session.id === sessionId)
     const fallbackTitle = summary?.title ?? DEFAULT_SESSION_TITLE
-    // 기존 메시지 복원은 서버 snapshot만 신뢰하고, 이전 메모리 메시지는 먼저 비웁니다.
+    const previousState = sessionStates.value[sessionId] ?? null
+    // 서버 응답 대기 중에는 선택한 세션의 로딩 상태를 명확히 보여줍니다.
     sessionStates.value[sessionId] = createSessionState(fallbackTitle)
 
     const requestId = ++latestSnapshotRequestId
@@ -265,6 +266,8 @@ export function useAnalysisSessions(options: {
       }
 
       const state = mapSnapshotToSessionState(snapshot, createWelcomeMessages)
+      state.analyticsPayload = state.analyticsPayload ?? previousState?.analyticsPayload ?? null
+      state.workspacePayload = state.workspacePayload ?? previousState?.workspacePayload ?? null
       sessionStates.value[sessionId] = state
       updateSessionSummary(sessionId, {
         title: state.title,

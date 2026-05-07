@@ -146,6 +146,7 @@ class MessageStreamService:
                 user_message_id=user_message_id,
                 agent_run_id=agent_run_id,
                 snapshot=snapshot,
+                sub_messages=sub_messages,
             )
 
             yield self._encode_sse_event(
@@ -197,6 +198,7 @@ class MessageStreamService:
         user_message_id: str | None,
         agent_run_id: str | None,
         snapshot: dict[str, object],
+        sub_messages: dict[str, dict[str, object]],
     ) -> None:
         """완료된 assistant 응답을 agent timeline에 저장합니다."""
         assistant_message = str(snapshot["assistant_message"]).strip()
@@ -207,9 +209,43 @@ class MessageStreamService:
                 agent_run_id=agent_run_id,
                 assistant_message=assistant_message,
                 input_item=self._build_assistant_input_item(assistant_message),
-                stream_payload={"role": "assistant", "text": assistant_message},
+                stream_payload=self._build_assistant_stream_payload(
+                    assistant_message=assistant_message,
+                    snapshot=snapshot,
+                    sub_messages=sub_messages,
+                ),
             )
         self._session_service.record_message_context(session_id=session_id)
+
+    def _build_assistant_stream_payload(
+        self,
+        *,
+        assistant_message: str,
+        snapshot: dict[str, object],
+        sub_messages: dict[str, dict[str, object]],
+    ) -> dict[str, object]:
+        """세션 복원에 필요한 assistant 결과 payload를 저장 형태로 변환합니다."""
+        analytics = snapshot.get("analytics")
+        workspace = snapshot.get("workspace")
+        return {
+            "role": "assistant",
+            "text": assistant_message,
+            "route": snapshot.get("route"),
+            "used_tools": snapshot.get("used_tools") or [],
+            "plan": snapshot.get("plan") or [],
+            "plan_explanation": snapshot.get("plan_explanation"),
+            "sub_messages": list(sub_messages.values()),
+            "analytics": (
+                analytics.model_dump(mode="json")
+                if isinstance(analytics, AnalyticsPayload)
+                else None
+            ),
+            "workspace": (
+                workspace.model_dump(mode="json")
+                if isinstance(workspace, WorkspacePayload)
+                else None
+            ),
+        }
 
     def _build_assistant_input_item(
         self, assistant_message: str
