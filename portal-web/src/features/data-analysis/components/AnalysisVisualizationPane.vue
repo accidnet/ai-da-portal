@@ -35,7 +35,20 @@ const chartSections = computed<ChartWorkspaceSection[]>(() => {
   const workspaceChartSections = props.workspacePayload?.sections.filter(
     (section): section is ChartWorkspaceSection => section.kind === 'chart',
   ) ?? []
-  if (workspaceChartSections.length) return workspaceChartSections
+  if (workspaceChartSections.length) {
+    const sectionIndexes = new Set(workspaceChartSections.map((section) => section.chart_index ?? 0))
+    const appendedChartSections = backendCharts.value
+      .map((_, index) => index)
+      .filter((index) => !sectionIndexes.has(index))
+      .map((index) => ({
+        kind: 'chart' as const,
+        title: `차트 ${index + 1}`,
+        chart_index: index,
+      }))
+
+    // workspace에 없는 누적 차트도 시각화 패널에 이어서 표시합니다.
+    return [...workspaceChartSections, ...appendedChartSections]
+  }
 
   return backendCharts.value.map((_, index) => ({
     kind: 'chart',

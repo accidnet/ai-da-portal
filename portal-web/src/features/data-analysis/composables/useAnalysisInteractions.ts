@@ -11,7 +11,14 @@ import {
   type AgentStateStreamPayload,
   type ChatSubMessageStreamEvent,
 } from '../../../shared/api/portalApi'
-import type { AnalyticsPayload, ChatMessage, ChatSubMessage, MessageAttachmentPreview } from '../types'
+import type {
+  AnalyticsChartPayload,
+  AnalyticsPayload,
+  ChatMessage,
+  ChatSubMessage,
+  MessageAttachmentPreview,
+  WorkspacePayload,
+} from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import {
   buildReportContent,
@@ -138,11 +145,14 @@ export function useAnalysisInteractions(options: {
         : entry,
     )
 
+    let chartIndexMap: Map<number, number> | null = null
     if (state.analytics) {
-      sessionState.analyticsPayload = state.analytics
+      const result = mergeAnalyticsPayload(sessionState.analyticsPayload, state.analytics)
+      sessionState.analyticsPayload = result.analytics
+      chartIndexMap = result.chartIndexMap
     }
     if (state.workspace) {
-      sessionState.workspacePayload = state.workspace
+      sessionState.workspacePayload = remapWorkspaceChartIndexes(state.workspace, chartIndexMap)
     }
   }
 
@@ -156,20 +166,79 @@ export function useAnalysisInteractions(options: {
     }
   }
 
+  /**
+   * 기존 차트는 유지하고 agent가 새로 제공한 차트만 뒤에 누적합니다.
+   */
+  function mergeAnalyticsPayload(
+    currentPayload: AnalyticsPayload | null,
+    incomingPayload: AnalyticsPayload,
+  ): { analytics: AnalyticsPayload; chartIndexMap: Map<number, number> } {
+    const currentPayloadWithDefaults = currentPayload ?? createEmptyAnalyticsPayload()
+    const charts = [...currentPayloadWithDefaults.charts]
+    const chartIndexMap = new Map<number, number>()
+
+    incomingPayload.charts.forEach((chart, incomingIndex) => {
+      const existingIndex = findExactChartIndex(charts, chart)
+      if (existingIndex >= 0) {
+        chartIndexMap.set(incomingIndex, existingIndex)
+        return
+      }
+
+      chartIndexMap.set(incomingIndex, charts.length)
+      charts.push(chart)
+    })
+
+    return {
+      analytics: {
+        ...currentPayloadWithDefaults,
+        ...incomingPayload,
+        charts,
+      },
+      chartIndexMap,
+    }
+  }
+
+  /**
+   * 응답 workspace의 chart_index는 응답 내 charts 기준이라 누적된 차트 인덱스로 보정합니다.
+   */
+  function remapWorkspaceChartIndexes(
+    workspace: WorkspacePayload,
+    chartIndexMap: Map<number, number> | null,
+  ): WorkspacePayload {
+    if (!chartIndexMap) return workspace
+
+    return {
+      ...workspace,
+      sections: workspace.sections.map((section) => {
+        if (section.kind !== 'chart') return section
+
+        const sourceIndex = section.chart_index ?? 0
+        return {
+          ...section,
+          chart_index: chartIndexMap.get(sourceIndex) ?? sourceIndex,
+        }
+      }),
+    }
+  }
+
+  /**
+   * 스트리밍 완료 응답과 실시간 차트 이벤트가 같은 payload를 보낼 때 중복 추가를 막습니다.
+   */
+  function findExactChartIndex(
+    charts: AnalyticsChartPayload[],
+    chart: AnalyticsChartPayload,
+  ): number {
+    const signature = JSON.stringify(chart)
+    return charts.findIndex((entry) => JSON.stringify(entry) === signature)
+  }
+
   function applyStreamingChart(
     sessionState: SessionRuntimeState,
     payload: AgentChartStreamPayload,
   ) {
     const currentPayload = sessionState.analyticsPayload ?? createEmptyAnalyticsPayload()
     const charts = [...currentPayload.charts]
-    const existingIndex = charts.findIndex((chart) =>
-      (chart.id && payload.chart.id && chart.id === payload.chart.id)
-      || chart.title === payload.chart.title,
-    )
-
-    if (existingIndex >= 0) {
-      charts[existingIndex] = payload.chart
-    } else {
+    if (findExactChartIndex(charts, payload.chart) < 0) {
       charts.push(payload.chart)
     }
 
@@ -447,11 +516,14 @@ export function useAnalysisInteractions(options: {
       sessionState.messages = sessionState.messages.map((entry, index) =>
         index === assistantMessageIndex ? assistantMessage : entry,
       )
+      let chartIndexMap: Map<number, number> | null = null
       if (response.analytics) {
-        sessionState.analyticsPayload = response.analytics
+        const result = mergeAnalyticsPayload(sessionState.analyticsPayload, response.analytics)
+        sessionState.analyticsPayload = result.analytics
+        chartIndexMap = result.chartIndexMap
       }
       if (response.workspace) {
-        sessionState.workspacePayload = response.workspace
+        sessionState.workspacePayload = remapWorkspaceChartIndexes(response.workspace, chartIndexMap)
       }
       syncSessionSummaryWithState(sessionId)
     } catch (error) {
@@ -541,11 +613,14 @@ export function useAnalysisInteractions(options: {
           },
         },
       )
+      let chartIndexMap: Map<number, number> | null = null
       if (response.analytics) {
-        sessionState.analyticsPayload = response.analytics
+        const result = mergeAnalyticsPayload(sessionState.analyticsPayload, response.analytics)
+        sessionState.analyticsPayload = result.analytics
+        chartIndexMap = result.chartIndexMap
       }
       if (response.workspace) {
-        sessionState.workspacePayload = response.workspace
+        sessionState.workspacePayload = remapWorkspaceChartIndexes(response.workspace, chartIndexMap)
       }
       sessionState.messages = [
         ...sessionState.messages,
