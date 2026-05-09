@@ -92,7 +92,7 @@ def _handle_output_message_delta(
     payload: dict[str, object],
 ) -> ProcessedStreamEvent:
     """텍스트 delta 이벤트에서 프론트 전달 payload만 추출합니다."""
-    delta = payload.get("delta") or payload.get("text")
+    delta = payload.get("delta")
     if isinstance(delta, str) and delta:
         return ProcessedStreamEvent(
             yielded_event=SseEvent(

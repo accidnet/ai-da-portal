@@ -101,16 +101,54 @@ export interface DatasetProfileResponse {
   }
 }
 
-export type ChatRoute = 'conversation' | 'dataset_analysis' | 'analysis_request'
-
-export type ChatStatus = 'queued' | 'profiling' | 'running_analysis' | 'completed' | 'failed'
+export interface AnalyticsPayloadResponse {
+  summary_cards: Array<{
+    label: string
+    value: string
+    detail?: string | null
+    tone?: 'primary' | 'warning' | 'neutral'
+  }>
+  charts: Array<{
+    id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'share_donut' | null
+    type: 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
+    title: string
+    x: string[]
+    series: Array<{ name: string; data: Array<number | string | null> }>
+    points?: Array<{ x: number; y: number; label?: string | null }>
+    meta?: {
+      x_label?: string | null
+      y_label?: string | null
+    } | null
+  }>
+  tables: Array<{
+    title: string
+    columns: Array<{ key: string; label: string }>
+    rows: Array<Record<string, string | number | null>>
+  }>
+  insights: Array<{
+    title: string
+    body: string
+    action_label?: string | null
+  }>
+  dataset_profile?: {
+    row_count: number
+    column_count: number
+    columns: Array<{
+      name: string
+      dtype: string
+      null_ratio: number
+      min_value?: string | number | null
+      max_value?: string | number | null
+      sample_values: string[]
+    }>
+  } | null
+}
 
 export interface SessionSnapshotMessageResponse {
   role: 'user' | 'assistant'
   author?: string | null
   text?: string | null
   dataset_ids?: string[] | null
-  route?: ChatRoute | null
   used_tools?: string[] | null
   plan?: Array<{
     step: string
@@ -142,8 +180,6 @@ export interface SessionSnapshotResponse {
   messages: SessionSnapshotMessageResponse[]
   dataset_ids: string[]
   datasets: SessionSnapshotDatasetResponse[]
-  analytics: ChatResponse['analytics'] | null
-  workspace: ChatResponse['workspace'] | null
 }
 
 export interface ChatResponse {
@@ -154,82 +190,13 @@ export interface ChatResponse {
     status: 'pending' | 'in_progress' | 'completed'
   }>
   plan_explanation?: string | null
-  analytics: {
-    summary_cards: Array<{
-      label: string
-      value: string
-      detail?: string | null
-      tone?: 'primary' | 'warning' | 'neutral'
-    }>
-    charts: Array<{
-      id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'share_donut' | null
-      type: 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
-      title: string
-      x: string[]
-      series: Array<{ name: string; data: Array<number | string | null> }>
-      points?: Array<{ x: number; y: number; label?: string | null }>
-      meta?: {
-        x_label?: string | null
-        y_label?: string | null
-      } | null
-    }>
-    tables: Array<{
-      title: string
-      columns: Array<{ key: string; label: string }>
-      rows: Array<Record<string, string | number | null>>
-    }>
-    insights: Array<{
-      title: string
-      body: string
-      action_label?: string | null
-    }>
-    dataset_profile?: {
-      row_count: number
-      column_count: number
-      columns: Array<{
-        name: string
-        dtype: string
-        null_ratio: number
-        min_value?: string | number | null
-        max_value?: string | number | null
-        sample_values: string[]
-      }>
-    } | null
-  } | null
-  workspace: {
-    template_id:
-      | 'overview'
-      | 'chart_focus'
-      | 'table_focus'
-      | 'dataset_profile'
-      | 'executive_summary'
-      | 'correlation_focus'
-      | 'trend_story'
-      | 'anomaly_watch'
-      | 'comparison_board'
-    title: string
-    description?: string | null
-    sections: Array<{
-      kind: 'summary_cards' | 'chart' | 'table' | 'insight' | 'dataset_profile'
-      title?: string | null
-      chart_index?: number | null
-      table_index?: number | null
-      insight_index?: number | null
-      max_items?: number | null
-      summary_card_labels?: string[]
-    }>
-  } | null
 }
 
 export interface AgentStateStreamPayload {
-  route: ChatRoute
   assistant_message: string
   used_tools: ChatResponse['used_tools']
   plan: ChatResponse['plan']
   plan_explanation?: string | null
-  status: ChatStatus
-  analytics: ChatResponse['analytics'] | null
-  workspace: ChatResponse['workspace'] | null
   resolved_dataset_id?: string | null
   analysis_type?: string | null
 }
@@ -247,7 +214,7 @@ export interface ChatSubMessageStreamEvent {
 
 export interface AgentChartStreamPayload {
   dataset_id?: string | null
-  chart: NonNullable<ChatResponse['analytics']>['charts'][number]
+  chart: AnalyticsPayloadResponse['charts'][number]
 }
 
 export interface AgentPlanStreamPayload {
@@ -273,7 +240,7 @@ interface ChatStreamEvent {
   detail?: string
   state?: AgentStateStreamPayload
   dataset_id?: string | null
-  chart?: NonNullable<ChatResponse['analytics']>['charts'][number]
+  chart?: AnalyticsPayloadResponse['charts'][number]
   ok?: boolean
   data?: AgentPlanStreamPayload['data']
   errors?: AgentPlanStreamPayload['errors']

@@ -8,7 +8,7 @@ from agents.state import AgentInvokeInput, AgentInvokeOutput, PlanStep
 from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from application.datasets.service import DatasetApplicationService
-from domain.shared import AnalyticsPayload, ChartPayload
+from domain.shared import ChartPayload
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 from shared.integrations.ai.contracts import (
     FunctionCall,
@@ -32,6 +32,7 @@ class ChatStreamingAgent(BaseAgent):
         self, invoke_input: AgentInvokeInput
     ) -> Generator[AgentStreamEvent, None, AgentInvokeOutput]:
         output = self._build_initial_output()
+        output_input_items: list[dict[str, object]] = []
 
         # 사용자 메세지를 포함하여 AI API input으로 사용하기 위한 빌드
         input_items = self._build_initial_inputs(
@@ -40,7 +41,7 @@ class ChatStreamingAgent(BaseAgent):
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
-        max_iterations = 10
+        max_iterations = 20
         iteration_count = 0
         while True:
             if iteration_count >= max_iterations:
@@ -73,7 +74,8 @@ class ChatStreamingAgent(BaseAgent):
                 stream_result=stream_result,
                 output=output,
             )
-            # 만약, 처리로직 중 프론트로 전달해야하는 것이 있을 경우
+            stream_input_items = self._build_stream_input_item_payloads(stream_result)
+            # 만약, API 호출이 끝난 후 처리 로직 중 프론트로 전달해야 하는 것이 있을 경우
             for event in function_events:
                 yield event
 
@@ -88,27 +90,28 @@ class ChatStreamingAgent(BaseAgent):
             # iteration이 끝날때 새로운 input_items을 추가하여 iteration내에 멀티턴을 위함
             if new_input_items:
                 input_items.extend(new_input_items)
+                output_input_items.extend(new_input_items)
+            elif stream_input_items:
+                # function call이 없는 최종 assistant message도 저장할 input으로 남깁니다.
+                output_input_items.extend(stream_input_items)
 
             # 실행할 function call이 없고 답변 message가 완료되면 iteration을 종료합니다.
             if not function_call_items and should_stop_iteration:
                 break
 
-        output["status"] = "completed"
+        output["input_items"] = output_input_items
         return output
 
     def _build_initial_output(self) -> AgentInvokeOutput:
         """invoke 입력과 분리된 agent 출력 기본값을 생성합니다."""
         return {
-            "route": "conversation",
+            "input_items": [],
             "assistant_message": "",
             "used_tools": [],
             "plan": [],
             "plan_explanation": None,
-            "analytics": None,
-            "workspace": None,
             "resolved_dataset_id": None,
             "analysis_type": None,
-            "status": "queued",
         }
 
     def _parse_stream_events(
@@ -163,6 +166,18 @@ class ChatStreamingAgent(BaseAgent):
             "should_stop_iteration": should_stop_iteration,
         }
 
+    def _build_stream_input_item_payloads(
+        self, stream_result: dict[str, object]
+    ) -> list[dict[str, object]]:
+        """스트림에서 생성된 response item을 다음 input 재사용 payload로 변환합니다."""
+        stream_input_items = cast(
+            list[ResponseOutputMessage | FunctionCall],
+            stream_result.get("input_items", []),
+        )
+        if not stream_input_items:
+            return []
+        return InputItemList(items=tuple(stream_input_items)).to_payload()
+
     def _log_unhandled_stream_event(self, event: object) -> None:
         if event is None or event == "" or event == [] or event == {}:
             return
@@ -180,10 +195,7 @@ class ChatStreamingAgent(BaseAgent):
         output: AgentInvokeOutput,
     ) -> tuple[list[dict[str, object]] | None, list[SseEvent]]:
 
-        stream_input_items = cast(
-            list[ResponseOutputMessage | FunctionCall],
-            stream_result.get("input_items", []),
-        )
+        stream_input_items = self._build_stream_input_item_payloads(stream_result)
 
         # 실행해야 할 function call이 있는 지 확인 후 실행
         function_call_items = cast(
@@ -200,7 +212,7 @@ class ChatStreamingAgent(BaseAgent):
         )
         if function_call_outputs:
             new_input_items = [
-                *InputItemList(items=tuple(stream_input_items)).to_payload(),
+                *stream_input_items,
                 *function_call_outputs.values(),
             ]
 
@@ -255,14 +267,11 @@ class ChatStreamingAgent(BaseAgent):
 
         analytics = data.get("analytics")
         if isinstance(analytics, dict):
-            output["analytics"] = AnalyticsPayload.model_validate(analytics)
             return
 
         chart = data.get("chart")
         if isinstance(chart, dict):
-            output["analytics"] = AnalyticsPayload(
-                charts=[ChartPayload.model_validate(chart)]
-            )
+            ChartPayload.model_validate(chart)
 
     def _handle_function_call_items(
         self,
@@ -415,9 +424,7 @@ class ChatStreamingAgent(BaseAgent):
             return
 
         used_tools = [
-            tool
-            for tool in output.get("used_tools", [])
-            if isinstance(tool, str)
+            tool for tool in output.get("used_tools", []) if isinstance(tool, str)
         ]
         for function_call in function_call_items:
             used_tools.append(function_call.name)

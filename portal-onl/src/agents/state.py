@@ -1,9 +1,5 @@
 from typing import Literal, TypedDict
 
-from domain.shared import AnalyticsPayload, ReasoningStatus, WorkspacePayload
-
-AgentRoute = Literal["conversation", "dataset_analysis", "analysis_request"]
-
 
 class PlanStep(TypedDict):
     step: str
@@ -21,17 +17,14 @@ class AgentInvokeInput(TypedDict, total=False):
 class AgentInvokeOutput(TypedDict, total=False):
     """agent 실행이 완료된 뒤 저장/응답에 쓰는 출력 값입니다."""
 
-    route: AgentRoute
+    input_items: list[dict[str, object]]
     plan: list[PlanStep]
     plan_explanation: str | None
     assistant_message: str
-    analytics: AnalyticsPayload | None
-    workspace: WorkspacePayload | None
     resolved_dataset_id: str | None
     analysis_type: str | None
     response_id: str | None
     used_tools: list[str]
-    status: ReasoningStatus
 
 
 class AgentState(AgentInvokeInput, AgentInvokeOutput, total=False):
@@ -39,13 +32,9 @@ class AgentState(AgentInvokeInput, AgentInvokeOutput, total=False):
 
 
 class AgentStateSnapshot(TypedDict):
-    route: AgentRoute
     assistant_message: str
     used_tools: list[str]
     plan: list[PlanStep]
     plan_explanation: str | None
-    analytics: AnalyticsPayload | None
-    workspace: WorkspacePayload | None
     resolved_dataset_id: str | None
     analysis_type: str | None
-    status: ReasoningStatus

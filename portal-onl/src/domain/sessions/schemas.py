@@ -8,9 +8,6 @@ from domain.datasets.schemas import (
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
-from domain.shared import AnalyticsPayload, WorkspacePayload
-
-SessionMessageRoute = Literal["conversation", "dataset_analysis", "analysis_request"]
 
 
 class SessionCreateRequest(BaseModel):
@@ -67,7 +64,6 @@ class SessionMessage(BaseModel):
     text: str
     created_at: datetime
     dataset_ids: list[str] = Field(default_factory=list)
-    route: SessionMessageRoute | None = None
     used_tools: list[str] = Field(default_factory=list)
     plan: list[SessionPlanStep] = Field(default_factory=list)
     plan_explanation: str | None = None
@@ -85,8 +81,6 @@ class SessionSnapshotResponse(BaseModel):
     messages: list[SessionMessage]
     dataset_ids: list[str]
     datasets: list[SessionSnapshotDataset]
-    analytics: AnalyticsPayload | None = None
-    workspace: WorkspacePayload | None = None
 
 
 class SessionDatasetLinkRequest(BaseModel):

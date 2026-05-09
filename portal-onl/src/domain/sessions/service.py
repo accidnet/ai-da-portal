@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 import re
-from typing import Literal, Protocol, cast
+from typing import Protocol
 from uuid import uuid4
 
 from domain.datasets.schemas import (
@@ -20,7 +20,6 @@ from domain.sessions.schemas import (
     SessionSummary,
     SessionUpdateRequest,
 )
-from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.db.models import AgentTimelineItemOrm, SessionOrm, UserMessageOrm
 from infrastructure.db.repositories import MessageRepository, SessionRepository
 
@@ -198,15 +197,12 @@ class SessionService:
                 continue
 
         timeline_messages = self._message_repository.list_session_timeline(session_id)
-        analytics, workspace = self._resolve_snapshot_outputs(timeline_messages)
 
         return SessionSnapshotResponse(
             session=self._build_session_detail(session, dataset_service),
             messages=self._build_timeline_messages(timeline_messages),
             dataset_ids=dataset_ids,
             datasets=datasets,
-            analytics=analytics,
-            workspace=workspace,
         )
 
     def _normalize_title(self, title: str | None) -> str | None:
@@ -303,7 +299,6 @@ class SessionService:
                 for dataset_id in payload.get("dataset_ids", [])
                 if isinstance(dataset_id, str)
             ],
-            route=self._coerce_message_route(payload.get("route")),
             used_tools=[
                 tool for tool in payload.get("used_tools", []) if isinstance(tool, str)
             ],
@@ -321,52 +316,6 @@ class SessionService:
                 if isinstance(sub_message, dict)
             ],
         )
-
-    def _coerce_message_route(
-        self, value: object
-    ) -> Literal["conversation", "dataset_analysis", "analysis_request"] | None:
-        """저장 payload의 route 값을 세션 메시지 enum으로 제한합니다."""
-        if value in {"conversation", "dataset_analysis", "analysis_request"}:
-            return cast(
-                Literal["conversation", "dataset_analysis", "analysis_request"],
-                value,
-            )
-        return None
-
-    def _resolve_snapshot_outputs(
-        self, messages: list[UserMessageOrm | AgentTimelineItemOrm]
-    ) -> tuple[AnalyticsPayload | None, WorkspacePayload | None]:
-        """최근 assistant timeline payload에서 시각화 복원 데이터를 추출합니다."""
-        analytics: AnalyticsPayload | None = None
-        workspace: WorkspacePayload | None = None
-        for message in messages:
-            if not isinstance(message, AgentTimelineItemOrm):
-                continue
-
-            payload = message.stream_payload or {}
-            if payload.get("role") != "assistant":
-                continue
-
-            analytics = (
-                self._coerce_analytics_payload(payload.get("analytics")) or analytics
-            )
-            workspace = (
-                self._coerce_workspace_payload(payload.get("workspace")) or workspace
-            )
-
-        return analytics, workspace
-
-    def _coerce_analytics_payload(self, value: object) -> AnalyticsPayload | None:
-        """저장된 JSON 값을 analytics payload로 검증합니다."""
-        if not isinstance(value, dict):
-            return None
-        return AnalyticsPayload.model_validate(value)
-
-    def _coerce_workspace_payload(self, value: object) -> WorkspacePayload | None:
-        """저장된 JSON 값을 workspace payload로 검증합니다."""
-        if not isinstance(value, dict):
-            return None
-        return WorkspacePayload.model_validate(value)
 
     def _build_timeline_messages(
         self, messages: list[UserMessageOrm | AgentTimelineItemOrm]

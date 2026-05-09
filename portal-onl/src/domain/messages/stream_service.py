@@ -7,13 +7,12 @@ from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from agents.runtimes import ChatStreamingAgent
-from agents.state import AgentInvokeOutput, AgentRoute
+from agents.state import AgentInvokeOutput
 from core.sse import SseEvent
 from domain.messages.schemas import (
     MessageStreamRequest,
 )
 from domain.sessions.service import SessionService
-from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClientError
 from infrastructure.db.repositories import MessageRepository
 from shared.integrations.ai.contracts import EasyInputMessage, InputItemList
@@ -145,6 +144,7 @@ class MessageStreamService:
                 session_id=session_id,
                 user_message_id=user_message_id,
                 agent_run_id=agent_run_id,
+                input_items=self._extract_input_items(output),
                 snapshot=snapshot,
                 sub_messages=sub_messages,
             )
@@ -158,22 +158,6 @@ class MessageStreamService:
                             "used_tools": snapshot["used_tools"],
                             "plan": snapshot["plan"],
                             "plan_explanation": snapshot["plan_explanation"],
-                            "analytics": (
-                                snapshot["analytics"].model_dump(mode="json")
-                                if isinstance(
-                                    snapshot["analytics"],
-                                    AnalyticsPayload,
-                                )
-                                else None
-                            ),
-                            "workspace": (
-                                snapshot["workspace"].model_dump(mode="json")
-                                if isinstance(
-                                    snapshot["workspace"],
-                                    WorkspacePayload,
-                                )
-                                else None
-                            ),
                         },
                     },
                 )
@@ -197,23 +181,35 @@ class MessageStreamService:
         session_id: str,
         user_message_id: str | None,
         agent_run_id: str | None,
+        input_items: list[dict[str, object]],
         snapshot: dict[str, object],
         sub_messages: dict[str, dict[str, object]],
     ) -> None:
         """완료된 assistant 응답을 agent timeline에 저장합니다."""
         assistant_message = str(snapshot["assistant_message"]).strip()
         if user_message_id is not None:
+            self._message_repository.record_agent_input_items(
+                session_id=session_id,
+                user_message_id=user_message_id,
+                agent_run_id=agent_run_id,
+                input_items=input_items,
+            )
             self._message_repository.record_agent_response(
                 session_id=session_id,
                 user_message_id=user_message_id,
                 agent_run_id=agent_run_id,
                 assistant_message=assistant_message,
-                input_item=self._build_assistant_input_item(assistant_message),
+                input_item=(
+                    None
+                    if input_items
+                    else self._build_assistant_input_item(assistant_message)
+                ),
                 stream_payload=self._build_assistant_stream_payload(
                     assistant_message=assistant_message,
                     snapshot=snapshot,
                     sub_messages=sub_messages,
                 ),
+                is_input_reusable=not input_items and bool(assistant_message),
             )
         self._session_service.record_message_context(session_id=session_id)
 
@@ -225,26 +221,13 @@ class MessageStreamService:
         sub_messages: dict[str, dict[str, object]],
     ) -> dict[str, object]:
         """세션 복원에 필요한 assistant 결과 payload를 저장 형태로 변환합니다."""
-        analytics = snapshot.get("analytics")
-        workspace = snapshot.get("workspace")
         return {
             "role": "assistant",
             "text": assistant_message,
-            "route": snapshot.get("route"),
             "used_tools": snapshot.get("used_tools") or [],
             "plan": snapshot.get("plan") or [],
             "plan_explanation": snapshot.get("plan_explanation"),
             "sub_messages": list(sub_messages.values()),
-            "analytics": (
-                analytics.model_dump(mode="json")
-                if isinstance(analytics, AnalyticsPayload)
-                else None
-            ),
-            "workspace": (
-                workspace.model_dump(mode="json")
-                if isinstance(workspace, WorkspacePayload)
-                else None
-            ),
         }
 
     def _build_assistant_input_item(
@@ -273,6 +256,13 @@ class MessageStreamService:
             return cast(AgentInvokeOutput, output), cast(dict[str, object], results)
 
         return cast(AgentInvokeOutput, invoke_result), {}
+
+    def _extract_input_items(self, output: AgentInvokeOutput) -> list[dict[str, object]]:
+        """agent output에서 timeline에 저장할 input item 목록을 정규화합니다."""
+        input_items = output.get("input_items", [])
+        if not isinstance(input_items, list):
+            return []
+        return [item for item in input_items if isinstance(item, dict)]
 
     def _record_stream_event(
         self,
@@ -415,18 +405,8 @@ class MessageStreamService:
                 snapshot_state(cast(dict[str, object], output)),
             )
 
-        route = cast(AgentRoute, output.get("route", "conversation"))
         assistant_message = str(output.get("assistant_message", "")).strip()
-        analytics = output.get("analytics")
-        workspace = output.get("workspace")
-        if not assistant_message and (
-            isinstance(analytics, AnalyticsPayload) or workspace is not None
-        ):
-            assistant_message = (
-                "백엔드 분석은 완료됐어요. 요약과 시각화 결과를 확인해 주세요."
-            )
         return {
-            "route": route,
             "assistant_message": assistant_message,
             "used_tools": [
                 tool for tool in output.get("used_tools", []) if isinstance(tool, str)
@@ -439,13 +419,8 @@ class MessageStreamService:
                 if isinstance(output.get("plan_explanation"), str)
                 else None
             ),
-            "analytics": analytics if isinstance(analytics, AnalyticsPayload) else None,
-            "workspace": workspace,
             "resolved_dataset_id": output.get("resolved_dataset_id"),
             "analysis_type": output.get("analysis_type"),
-            "status": output.get(
-                "status", "completed" if assistant_message else "queued"
-            ),
         }
 
     def _encode_sse_event(self, event: SseEvent) -> str:

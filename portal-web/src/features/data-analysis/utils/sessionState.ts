@@ -98,7 +98,6 @@ export function mapSnapshotMessage(
     author: payload.author ?? (payload.role === 'assistant' ? 'AI 데이터 분석가' : undefined),
     text,
     attachmentStatus: resolveSnapshotAttachmentStatus(payload, datasetFilenames),
-    route: payload.route ?? undefined,
     usedTools: payload.used_tools ?? [],
     plan: payload.plan ?? [],
     planExplanation: payload.plan_explanation?.trim() || undefined,
@@ -142,7 +141,7 @@ export function mapSnapshotToSessionState(
   snapshot: SessionSnapshotResponse,
   createWelcomeMessages: (title: string) => ChatMessage[],
 ): SessionRuntimeState {
-  const title = snapshot.workspace?.title?.trim() || snapshot.session.title
+  const title = snapshot.session.title
   const datasetOrder = new Map(snapshot.dataset_ids.map((datasetId, index) => [datasetId, index]))
   const datasets = snapshot.datasets
     .map(mapDatasetAsset)
@@ -159,8 +158,8 @@ export function mapSnapshotToSessionState(
   return {
     title,
     messages: messages.length > 0 ? messages : createWelcomeMessages(title),
-    analyticsPayload: snapshot.analytics,
-    workspacePayload: snapshot.workspace,
+    analyticsPayload: null,
+    workspacePayload: null,
     datasets,
     preferredDatasetId: snapshot.session.preferred_dataset_id ?? null,
   }

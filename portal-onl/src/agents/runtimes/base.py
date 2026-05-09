@@ -1,17 +1,15 @@
 import json
 from collections.abc import Mapping
-from typing import Literal, cast
+from typing import cast
 
 from agents.prompt_loader import load_prompt
 from agents.state import (
     AgentInvokeOutput,
-    AgentRoute,
     AgentState,
     AgentStateSnapshot,
     PlanStep,
 )
 from application.datasets.service import DatasetApplicationService
-from domain.shared import AnalyticsPayload, WorkspacePayload
 from infrastructure.ai.client import AiClient, AiClientError
 from shared.integrations.ai.contracts import (
     Message,
@@ -37,29 +35,14 @@ class BaseAgent:
 
     def snapshot_output(self, output: AgentInvokeOutput) -> AgentStateSnapshot:
         """agent 출력 값을 API와 저장소에서 쓰는 스냅샷으로 정규화합니다."""
-        route = cast(AgentRoute, output.get("route", "conversation"))
         assistant_message = self._read_string(output.get("assistant_message")) or ""
-        analytics = output.get("analytics")
-        workspace = output.get("workspace")
         plan = [
             cast(PlanStep, step)
             for step in output.get("plan", [])
             if isinstance(step, dict)
         ]
-        status = cast(
-            str,
-            output.get("status", "completed" if assistant_message else "queued"),
-        )
-        if not assistant_message and (
-            isinstance(analytics, AnalyticsPayload)
-            or isinstance(workspace, WorkspacePayload)
-        ):
-            assistant_message = (
-                "백엔드 분석은 완료됐어요. 요약과 시각화 결과를 확인해 주세요."
-            )
 
         return {
-            "route": route,
             "assistant_message": assistant_message,
             "used_tools": [
                 tool for tool in output.get("used_tools", []) if isinstance(tool, str)
@@ -70,24 +53,8 @@ class BaseAgent:
                 if isinstance(output.get("plan_explanation"), str)
                 else None
             ),
-            "analytics": (
-                analytics if isinstance(analytics, AnalyticsPayload) else None
-            ),
-            "workspace": (
-                workspace if isinstance(workspace, WorkspacePayload) else None
-            ),
             "resolved_dataset_id": self._read_string(output.get("resolved_dataset_id")),
             "analysis_type": self._read_string(output.get("analysis_type")),
-            "status": cast(
-                Literal[
-                    "queued",
-                    "profiling",
-                    "running_analysis",
-                    "completed",
-                    "failed",
-                ],
-                status,
-            ),
         }
 
     def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
@@ -147,24 +114,12 @@ class BaseAgent:
 
     def _serialize_snapshot(self, snapshot: AgentStateSnapshot) -> dict[str, object]:
         return {
-            "route": snapshot["route"],
             "assistant_message": snapshot["assistant_message"],
             "used_tools": snapshot["used_tools"],
             "plan": snapshot["plan"],
             "plan_explanation": snapshot["plan_explanation"],
-            "analytics": (
-                snapshot["analytics"].model_dump(mode="json")
-                if snapshot["analytics"] is not None
-                else None
-            ),
-            "workspace": (
-                snapshot["workspace"].model_dump(mode="json")
-                if snapshot["workspace"] is not None
-                else None
-            ),
             "resolved_dataset_id": snapshot["resolved_dataset_id"],
             "analysis_type": snapshot["analysis_type"],
-            "status": snapshot["status"],
         }
 
     def _build_llm_request_kwargs(

@@ -95,6 +95,8 @@ class MessageRepository:
         input_item: dict[str, object] | None = None,
         stream_event_type: str = "message.done",
         stream_payload: dict[str, object] | None = None,
+        is_frontend_visible: bool = True,
+        is_input_reusable: bool | None = None,
     ) -> None:
         """완료된 assistant 응답을 timeline item으로 저장합니다."""
         normalized_message = assistant_message.strip()
@@ -116,10 +118,49 @@ class MessageRepository:
                 stream_event_type=stream_event_type,
                 stream_payload=stream_payload
                 or {"role": "assistant", "text": normalized_message},
-                is_frontend_visible=True,
-                is_input_reusable=input_item is not None,
+                is_frontend_visible=is_frontend_visible,
+                is_input_reusable=(
+                    input_item is not None
+                    if is_input_reusable is None
+                    else is_input_reusable
+                ),
                 created_at=now,
             )
+            self._touch_session(db, session_id, now)
+            db.commit()
+
+    def record_agent_input_items(
+        self,
+        *,
+        session_id: str,
+        user_message_id: str,
+        agent_run_id: str | None,
+        input_items: list[dict[str, object]],
+    ) -> None:
+        """agent가 생성한 LLM 재사용 input item을 timeline에 저장합니다."""
+        reusable_items = [item for item in input_items if isinstance(item, dict)]
+        if not reusable_items:
+            return
+
+        with SessionLocal() as db:
+            self._get_session_or_raise(db, session_id)
+            if self._get_user_message(db, session_id, user_message_id) is None:
+                return
+
+            now = datetime.now(UTC)
+            for input_item in reusable_items:
+                self._add_timeline_item(
+                    db,
+                    session_id=session_id,
+                    user_message_id=user_message_id,
+                    agent_run_id=agent_run_id,
+                    input_item=input_item,
+                    stream_event_type=self._read_input_item_type(input_item),
+                    stream_payload=None,
+                    is_frontend_visible=False,
+                    is_input_reusable=True,
+                    created_at=now,
+                )
             self._touch_session(db, session_id, now)
             db.commit()
 
@@ -241,6 +282,11 @@ class MessageRepository:
         return InputItemList(
             items=(Message(role="user", content=(ResponseInputText(text=message),)),)
         ).to_payload()[0]
+
+    def _read_input_item_type(self, input_item: dict[str, object]) -> str | None:
+        """input item payload에서 timeline event type으로 쓸 type 값을 읽습니다."""
+        item_type = input_item.get("type")
+        return item_type if isinstance(item_type, str) else None
 
     def _touch_session(self, db, session_id: str, now: datetime) -> None:
         session = db.scalar(select(SessionOrm).where(SessionOrm.id == session_id))

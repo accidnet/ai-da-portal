@@ -102,7 +102,6 @@ export interface ChatMessage {
   text: string
   subMessages?: ChatSubMessage[]
   attachmentStatus?: MessageAttachmentStatus
-  route?: 'conversation' | 'dataset_analysis' | 'analysis_request'
   usedTools?: string[]
    plan?: PlanStep[]
    planExplanation?: string
