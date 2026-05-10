@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { shallowRef } from 'vue'
+import { RouterView } from 'vue-router'
 
-import AnalysisWorkspaceView from '@/features/data-analysis/components/AnalysisWorkspaceView.vue'
-import DatasetLibrary from '@/features/data-analysis/components/DatasetLibrary.vue'
-import SessionHub from '@/features/data-analysis/components/SessionHub.vue'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -14,6 +12,11 @@ import type {
   SessionItem,
   WorkspacePayload,
 } from '@/features/data-analysis/types'
+
+type RoutedPortalPage = {
+  openDatasetPicker?: () => void
+  openInteractionPicker?: () => void
+}
 
 defineProps<{
   analyticsPaneWidth: number
@@ -76,17 +79,16 @@ const emit = defineEmits<{
   closeAnalyticsPanel: []
 }>()
 
-const interactionPickerRef = ref<HTMLInputElement | null>(null)
-const datasetPickerRef = ref<HTMLInputElement | null>(null)
+const routedPageRef = shallowRef<RoutedPortalPage | null>(null)
 
-/** 채팅 첨부 파일 선택창을 메인 layout 내부 input과 연결합니다. */
-function openInteractionPicker() {
-  interactionPickerRef.value?.click()
+/** 현재 main route page의 데이터셋 업로드 선택창을 엽니다. */
+function openDatasetPicker() {
+  routedPageRef.value?.openDatasetPicker?.()
 }
 
-/** 데이터 소스 업로드 선택창을 메인 layout 내부 input과 연결합니다. */
-function openDatasetPicker() {
-  datasetPickerRef.value?.click()
+/** 현재 main route page의 채팅 첨부 선택창을 엽니다. */
+function openInteractionPicker() {
+  routedPageRef.value?.openInteractionPicker?.()
 }
 
 defineExpose({
@@ -119,85 +121,64 @@ defineExpose({
     </div>
 
     <div class="analysis-screen-shell">
-      <AnalysisWorkspaceView
-        v-if="currentScreen === 'dashboard'"
-        :conversation="conversation"
-        :composer="composer"
-        :shell-analytics="shellAnalytics"
-        :analytics-payload="analyticsPayload"
-        :workspace-payload="workspacePayload"
-        :is-resizing-analytics-pane="isResizingAnalyticsPane"
-        :is-analytics-fullscreen="isAnalyticsFullscreen"
-        :analytics-pane-width="analyticsPaneWidth"
-        :is-sending="isSending"
-        :is-uploading="isUploading"
-        :is-running-analysis="isRunningAnalysis"
-        :is-sending-interaction="isSendingInteraction"
-        :chat-error="chatError"
-        :upload-error="uploadError"
-        :analytics-error="analyticsError"
-        :is-compact-layout="isCompactLayout"
-        :is-analytics-panel-open="isAnalyticsPanelOpen"
-        :can-export-report="canExportReport"
-        :pending-attachment-name="pendingAttachmentName"
-        :pending-attachment-meta="pendingAttachmentMeta"
-        @attach="openInteractionPicker"
-        @drop-file="(files) => emit('dropFile', files)"
-        @remove-attachment="emit('removeAttachment')"
-        @send="(message) => emit('send', message)"
-        @resize-start="(event) => emit('analyticsResizeStart', event)"
-        @toggle-fullscreen="emit('toggleFullscreen')"
-        @export-report="emit('exportReport')"
-        @share-report="emit('shareReport')"
-        @close-analytics-panel="emit('closeAnalyticsPanel')"
-      />
-
-      <SessionHub
-        v-else-if="currentScreen === 'sessions'"
-        :sessions="sessionSummaries"
-        :active-session-id="activeSessionId"
-        :search-query="sessionHubSearchQuery"
-        :is-busy="isSessionMutating"
-        :error-message="sessionHubError"
-        @search-change="(value) => emit('sessionHubSearchChange', value)"
-        @open-session="(sessionId) => emit('openSession', sessionId)"
-        @rename-session="(payload) => emit('renameSession', payload)"
-        @delete-session="(sessionId) => emit('deleteSession', sessionId)"
-        @create-session="emit('createSession')"
-      />
-
-      <DatasetLibrary
-        v-else
-        :datasets="datasetsLibrary"
-        :selected-dataset-id="selectedDatasetId"
-        :active-session-id="activeSessionId"
-        :search-query="datasetLibrarySearchQuery"
-        :is-busy="isDatasetMutating"
-        :error-message="datasetLibraryError"
-        @search-change="(value) => emit('datasetLibrarySearchChange', value)"
-        @upload-file="openDatasetPicker"
-        @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
-        @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
-        @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
-        @delete-dataset="(datasetId) => emit('deleteDataset', datasetId)"
-      />
+      <RouterView v-slot="{ Component }">
+        <component
+          :is="Component"
+          ref="routedPageRef"
+          :analytics-pane-width="analyticsPaneWidth"
+          :is-resizing-analytics-pane="isResizingAnalyticsPane"
+          :is-analytics-fullscreen="isAnalyticsFullscreen"
+          :is-compact-layout="isCompactLayout"
+          :is-analytics-panel-open="isAnalyticsPanelOpen"
+          :shell-analytics="shellAnalytics"
+          :current-screen="currentScreen"
+          :active-session-id="activeSessionId"
+          :conversation="conversation"
+          :composer="composer"
+          :analytics-payload="analyticsPayload"
+          :workspace-payload="workspacePayload"
+          :is-sending="isSending"
+          :is-uploading="isUploading"
+          :is-running-analysis="isRunningAnalysis"
+          :is-sending-interaction="isSendingInteraction"
+          :chat-error="chatError"
+          :upload-error="uploadError"
+          :analytics-error="analyticsError"
+          :can-export-report="canExportReport"
+          :pending-attachment-name="pendingAttachmentName"
+          :pending-attachment-meta="pendingAttachmentMeta"
+          :session-summaries="sessionSummaries"
+          :session-hub-search-query="sessionHubSearchQuery"
+          :session-hub-error="sessionHubError"
+          :is-session-mutating="isSessionMutating"
+          :datasets-library="datasetsLibrary"
+          :selected-dataset-id="selectedDatasetId"
+          :dataset-library-search-query="datasetLibrarySearchQuery"
+          :dataset-library-error="datasetLibraryError"
+          :is-dataset-mutating="isDatasetMutating"
+          @session-hub-search-change="(value: string) => emit('sessionHubSearchChange', value)"
+          @open-session="(sessionId: string) => emit('openSession', sessionId)"
+          @rename-session="(payload: { sessionId: string; title: string }) => emit('renameSession', payload)"
+          @create-session="emit('createSession')"
+          @delete-session="(sessionId: string) => emit('deleteSession', sessionId)"
+          @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
+          @select-dataset="(datasetId: string) => emit('selectDataset', datasetId)"
+          @attach-dataset="(datasetId: string) => emit('attachDataset', datasetId)"
+          @detach-dataset="(datasetId: string) => emit('detachDataset', datasetId)"
+          @delete-dataset="(datasetId: string) => emit('deleteDataset', datasetId)"
+          @interaction-file-change="(event: Event) => emit('interactionFileChange', event)"
+          @dataset-file-change="(event: Event) => emit('datasetFileChange', event)"
+          @drop-file="(files: File[]) => emit('dropFile', files)"
+          @remove-attachment="emit('removeAttachment')"
+          @send="(message: string) => emit('send', message)"
+          @analytics-resize-start="(event: PointerEvent) => emit('analyticsResizeStart', event)"
+          @toggle-fullscreen="emit('toggleFullscreen')"
+          @export-report="emit('exportReport')"
+          @share-report="emit('shareReport')"
+          @close-analytics-panel="emit('closeAnalyticsPanel')"
+        />
+      </RouterView>
     </div>
-
-    <input
-      ref="interactionPickerRef"
-      class="dataset-picker"
-      type="file"
-      multiple
-      accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      @change="(event) => emit('interactionFileChange', event)"
-    />
-    <input
-      ref="datasetPickerRef"
-      class="dataset-picker"
-      type="file"
-      accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      @change="(event) => emit('datasetFileChange', event)"
-    />
   </main>
 </template>
 
@@ -260,14 +241,6 @@ defineExpose({
 
 .export-message {
   color: #1d6b45;
-}
-
-.dataset-picker {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
 }
 
 @media (max-width: 960px) {

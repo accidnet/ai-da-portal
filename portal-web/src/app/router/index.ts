@@ -1,12 +1,19 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+import PortalLayout from '@/layouts/portal/PortalLayout.vue'
 import DataAnalysisPage from '@/pages/DataAnalysisPage.vue'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'data-analysis',
-    component: DataAnalysisPage,
+    component: PortalLayout,
+    children: [
+      {
+        path: '',
+        name: 'data-analysis',
+        component: DataAnalysisPage,
+      },
+    ],
   },
   {
     path: '/:pathMatch(.*)*',
