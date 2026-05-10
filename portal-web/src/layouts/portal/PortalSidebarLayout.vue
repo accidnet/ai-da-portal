@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AnalysisSidebar from '@/features/data-analysis/components/AnalysisSidebar.vue'
+import AnalysisSidebar from '@/features/data-analysis/components/sidebar/AnalysisSidebar.vue'
 import type {
   AnalysisScreen,
   BackendConnectionStatus,

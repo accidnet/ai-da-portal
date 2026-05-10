@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import type { BackendConnectionStatus, OpenAiAuthStatus, AnalysisScreen, SidebarData } from '../types'
+import WorkspaceCreateDialog from './WorkspaceCreateDialog.vue'
+import type { BackendConnectionStatus, OpenAiAuthStatus, AnalysisScreen, SidebarData } from '@/features/data-analysis/types'
 
 const props = defineProps<{
   sidebar: SidebarData
@@ -30,15 +31,27 @@ const connectButtonLabel = computed(() => {
 })
 const workspaceItems = ref<string[]>([])
 const isWorkspaceExpanded = ref(false)
+const isWorkspaceDialogOpen = ref(false)
 const visibleWorkspaceItems = computed(() => (
   isWorkspaceExpanded.value ? workspaceItems.value : workspaceItems.value.slice(0, 5)
 ))
 const hasMoreWorkspaces = computed(() => workspaceItems.value.length > 5)
 const workspaceMoreLabel = computed(() => (isWorkspaceExpanded.value ? '접기' : '... 더보기'))
 
+/** 워크스페이스 생성 다이얼로그를 엽니다. */
+function openWorkspaceDialog() {
+  isWorkspaceDialogOpen.value = true
+}
+
+/** 워크스페이스 생성 다이얼로그를 닫습니다. */
+function closeWorkspaceDialog() {
+  isWorkspaceDialogOpen.value = false
+}
+
 /** 워크스페이스가 실제 API로 연결되기 전까지 사이드바 UI 상태로 항목을 추가합니다. */
-function createWorkspace() {
-  workspaceItems.value = [...workspaceItems.value, `워크스페이스${workspaceItems.value.length + 1}`]
+function createWorkspace(workspaceName: string) {
+  workspaceItems.value = [...workspaceItems.value, workspaceName]
+  closeWorkspaceDialog()
 }
 
 function handleConnectButtonClick() {
@@ -82,7 +95,7 @@ function handleConnectButtonClick() {
 
     <section class="workspace-block">
       <h2 class="section-title">워크스페이스</h2>
-      <button type="button" class="workspace-create-button" @click="createWorkspace">
+      <button type="button" class="workspace-create-button" @click="openWorkspaceDialog">
         <span class="workspace-icon workspace-icon--create material-symbols-outlined">create_new_folder</span>
         <span>워크스페이스 만들기</span>
       </button>
@@ -145,6 +158,8 @@ function handleConnectButtonClick() {
       <span>{{ accountLabel }}</span>
     </button>
   </aside>
+
+  <WorkspaceCreateDialog :open="isWorkspaceDialogOpen" @close="closeWorkspaceDialog" @create="createWorkspace" />
 </template>
 
 <style scoped>
