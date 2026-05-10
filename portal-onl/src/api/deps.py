@@ -11,7 +11,7 @@ from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService
 from features.workspaces.application.usecase import WorkspaceUsecase
-from features.workspaces.infrastructure.repository import WorkspaceRepository
+from features.workspaces.infrastructure.repositories import WorkspaceRepository
 from infrastructure.ai.client import AiClient
 from infrastructure.ai.openai_client import OpenAiProvider
 from infrastructure.db.repositories import (

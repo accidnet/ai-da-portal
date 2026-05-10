@@ -4,6 +4,8 @@ import { computed, ref, watch } from 'vue'
 const props = defineProps<{
   open: boolean
   isSubmitting?: boolean
+  initialName?: string
+  mode?: 'create' | 'edit'
 }>()
 
 const emit = defineEmits<{
@@ -18,10 +20,19 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
-      workspaceNameInput.value = ''
+      workspaceNameInput.value = props.initialName ?? ''
     }
   },
 )
+
+const dialogTitle = computed(() => (props.mode === 'edit' ? '워크스페이스 이름 변경' : '워크스페이스 만들기'))
+const dialogDescription = computed(() => (
+  props.mode === 'edit' ? '변경할 워크스페이스 이름을 입력하세요.' : '새 워크스페이스 이름을 입력하세요.'
+))
+const submitLabel = computed(() => {
+  if (props.isSubmitting) return props.mode === 'edit' ? '변경 중...' : '생성 중...'
+  return props.mode === 'edit' ? '변경' : '생성'
+})
 
 /** 입력한 워크스페이스 명을 상위 컴포넌트로 전달합니다. */
 function submitWorkspace() {
@@ -36,8 +47,8 @@ function submitWorkspace() {
     <form class="workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-dialog-title" @submit.prevent="submitWorkspace">
       <header class="workspace-dialog__header">
         <div>
-          <h2 id="workspace-dialog-title">워크스페이스 만들기</h2>
-          <p>새 워크스페이스 이름을 입력하세요.</p>
+          <h2 id="workspace-dialog-title">{{ dialogTitle }}</h2>
+          <p>{{ dialogDescription }}</p>
         </div>
         <button type="button" class="workspace-dialog__close" aria-label="닫기" :disabled="isSubmitting" @click="emit('close')">
           <span class="material-symbols-outlined">close</span>
@@ -70,7 +81,7 @@ function submitWorkspace() {
           class="workspace-dialog__button workspace-dialog__button--primary"
           :disabled="!trimmedWorkspaceName || isSubmitting"
         >
-          {{ isSubmitting ? '생성 중...' : '생성' }}
+          {{ submitLabel }}
         </button>
       </footer>
     </form>

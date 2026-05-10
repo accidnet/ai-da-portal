@@ -5,10 +5,10 @@ from sqlalchemy.orm import sessionmaker
 
 from core.config import get_settings
 from infrastructure.db.base import Base
-from features.workspaces.infrastructure import models as workspace_db_models
+from features.workspaces.infrastructure import orm as workspace_db_orm
 from infrastructure.db import models as db_models
 
-del workspace_db_models
+del workspace_db_orm
 del db_models
 
 settings = get_settings()

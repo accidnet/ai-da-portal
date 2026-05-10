@@ -2,7 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 
 import WorkspaceCreateDialog from './WorkspaceCreateDialog.vue'
-import { createWorkspace as createWorkspaceRequest, fetchWorkspaces } from '@/shared/api/portalApi'
+import {
+  createWorkspace as createWorkspaceRequest,
+  deleteWorkspace as deleteWorkspaceRequest,
+  fetchWorkspaces,
+  updateWorkspace as updateWorkspaceRequest,
+} from '@/shared/api/portalApi'
 import type {
   BackendConnectionStatus,
   OpenAiAuthStatus,
@@ -39,6 +44,9 @@ const connectButtonLabel = computed(() => {
 const workspaceItems = ref<WorkspaceItem[]>([])
 const isWorkspaceExpanded = ref(false)
 const isWorkspaceDialogOpen = ref(false)
+const workspaceDialogMode = ref<'create' | 'edit'>('create')
+const editingWorkspace = ref<WorkspaceItem | null>(null)
+const openWorkspaceMenuId = ref<string | null>(null)
 const workspaceError = ref<string | null>(null)
 const isWorkspaceMutating = ref(false)
 const visibleWorkspaceItems = computed(() => (
@@ -49,21 +57,41 @@ const workspaceMoreLabel = computed(() => (isWorkspaceExpanded.value ? '접기' 
 
 /** 워크스페이스 생성 다이얼로그를 엽니다. */
 function openWorkspaceDialog() {
+  workspaceDialogMode.value = 'create'
+  editingWorkspace.value = null
+  openWorkspaceMenuId.value = null
   isWorkspaceDialogOpen.value = true
 }
 
 /** 워크스페이스 생성 다이얼로그를 닫습니다. */
 function closeWorkspaceDialog() {
   isWorkspaceDialogOpen.value = false
+  editingWorkspace.value = null
 }
 
-/** 워크스페이스를 서버에 생성하고 사이드바 목록에 반영합니다. */
-async function createWorkspace(workspaceName: string) {
+/** 워크스페이스 생성 또는 이름 변경을 서버에 반영합니다. */
+async function saveWorkspace(workspaceName: string) {
   if (isWorkspaceMutating.value) return
 
   isWorkspaceMutating.value = true
   workspaceError.value = null
   try {
+    if (workspaceDialogMode.value === 'edit' && editingWorkspace.value) {
+      const updated = await updateWorkspaceRequest(editingWorkspace.value.id, workspaceName)
+      workspaceItems.value = workspaceItems.value.map((workspace) => (
+        workspace.id === updated.id
+          ? {
+              id: updated.id,
+              name: updated.name,
+              createdAt: updated.created_at,
+              updatedAt: updated.updated_at,
+            }
+          : workspace
+      ))
+      closeWorkspaceDialog()
+      return
+    }
+
     const created = await createWorkspaceRequest(workspaceName)
     workspaceItems.value = [
       {
@@ -76,7 +104,39 @@ async function createWorkspace(workspaceName: string) {
     ]
     closeWorkspaceDialog()
   } catch {
-    workspaceError.value = '워크스페이스를 생성하지 못했어요.'
+    workspaceError.value = workspaceDialogMode.value === 'edit'
+      ? '워크스페이스 이름을 변경하지 못했어요.'
+      : '워크스페이스를 생성하지 못했어요.'
+  } finally {
+    isWorkspaceMutating.value = false
+  }
+}
+
+/** 워크스페이스 행의 액션 메뉴를 열거나 닫습니다. */
+function toggleWorkspaceMenu(workspaceId: string) {
+  openWorkspaceMenuId.value = openWorkspaceMenuId.value === workspaceId ? null : workspaceId
+}
+
+/** 이름 변경 다이얼로그를 현재 워크스페이스 정보로 엽니다. */
+function openWorkspaceRenameDialog(workspace: WorkspaceItem) {
+  workspaceDialogMode.value = 'edit'
+  editingWorkspace.value = workspace
+  openWorkspaceMenuId.value = null
+  isWorkspaceDialogOpen.value = true
+}
+
+/** 워크스페이스를 서버와 화면 목록에서 삭제합니다. */
+async function deleteWorkspace(workspaceId: string) {
+  if (isWorkspaceMutating.value) return
+
+  isWorkspaceMutating.value = true
+  workspaceError.value = null
+  openWorkspaceMenuId.value = null
+  try {
+    await deleteWorkspaceRequest(workspaceId)
+    workspaceItems.value = workspaceItems.value.filter((workspace) => workspace.id !== workspaceId)
+  } catch {
+    workspaceError.value = '워크스페이스를 삭제하지 못했어요.'
   } finally {
     isWorkspaceMutating.value = false
   }
@@ -148,15 +208,30 @@ onMounted(() => {
         <span>워크스페이스 만들기</span>
       </button>
       <div class="workspace-list">
-        <button
+        <div
           v-for="workspace in visibleWorkspaceItems"
           :key="workspace.id"
-          type="button"
           class="workspace-item"
         >
-          <span class="workspace-icon material-symbols-outlined">folder</span>
-          <span>{{ workspace.name }}</span>
-        </button>
+          <button type="button" class="workspace-item__main">
+            <span class="workspace-icon material-symbols-outlined">folder</span>
+            <span>{{ workspace.name }}</span>
+          </button>
+          <div class="workspace-item__actions">
+            <button
+              type="button"
+              class="workspace-menu-button"
+              :aria-label="`${workspace.name} 워크스페이스 메뉴`"
+              @click.stop="toggleWorkspaceMenu(workspace.id)"
+            >
+              <span class="material-symbols-outlined">more_horiz</span>
+            </button>
+            <div v-if="openWorkspaceMenuId === workspace.id" class="workspace-menu">
+              <button type="button" @click="openWorkspaceRenameDialog(workspace)">이름 변경</button>
+              <button type="button" class="workspace-menu__danger" @click="deleteWorkspace(workspace.id)">삭제</button>
+            </div>
+          </div>
+        </div>
       </div>
       <button v-if="hasMoreWorkspaces" type="button" class="more-button" @click="isWorkspaceExpanded = !isWorkspaceExpanded">
         {{ workspaceMoreLabel }}
@@ -210,9 +285,11 @@ onMounted(() => {
 
   <WorkspaceCreateDialog
     :open="isWorkspaceDialogOpen"
+    :mode="workspaceDialogMode"
+    :initial-name="editingWorkspace?.name"
     :is-submitting="isWorkspaceMutating"
     @close="closeWorkspaceDialog"
-    @create="createWorkspace"
+    @create="saveWorkspace"
   />
 </template>
 
@@ -337,12 +414,12 @@ onMounted(() => {
 .nav-item:hover,
 .session-item:hover,
 .workspace-create-button:hover,
-.workspace-item:hover,
+.workspace-item:hover .workspace-item__main,
 .account-card:hover:not(:disabled),
 .nav-item:focus-visible,
 .session-item:focus-within,
 .workspace-create-button:focus-visible,
-.workspace-item:focus-visible,
+.workspace-item:focus-within .workspace-item__main,
 .account-card:focus-visible {
   border-color: rgba(24, 74, 140, 0.12);
   background: #f3f7fc;
@@ -388,7 +465,7 @@ onMounted(() => {
 }
 
 .workspace-create-button,
-.workspace-item {
+.workspace-item__main {
   min-width: 0;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -411,10 +488,22 @@ onMounted(() => {
 }
 
 .workspace-item {
+  position: relative;
   min-height: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 4px;
+  color: #000;
 }
 
-.workspace-item span:last-child,
+.workspace-item__main {
+  min-height: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.workspace-item__main span:last-child,
 .workspace-create-button span:last-child {
   min-width: 0;
   overflow: hidden;
@@ -436,6 +525,80 @@ onMounted(() => {
 .workspace-icon--create {
   color: var(--color-primary);
   background: rgba(43, 94, 162, 0.1);
+}
+
+.workspace-item__actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workspace-menu-button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #526174;
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspace-menu-button:hover,
+.workspace-menu-button:focus-visible {
+  color: var(--color-primary-strong);
+  background: #eef3f9;
+  outline: none;
+}
+
+.workspace-menu-button .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.workspace-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 6;
+  min-width: 116px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+}
+
+.workspace-menu button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #253044;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-menu button:hover,
+.workspace-menu button:focus-visible {
+  background: #f3f7fc;
+  outline: none;
+}
+
+.workspace-menu .workspace-menu__danger {
+  color: #a23a3a;
+}
+
+.workspace-menu .workspace-menu__danger:hover,
+.workspace-menu .workspace-menu__danger:focus-visible {
+  background: rgba(162, 58, 58, 0.1);
 }
 
 .more-button {

@@ -37,6 +37,8 @@
 | `created_at` | datetime | no       | 생성 시각          |
 | `updated_at` | datetime | no       | 마지막 갱신 시각   |
 
+지원 API는 생성, 목록 조회, 이름 변경, 삭제입니다.
+
 ### `user_messages`
 
 사용자가 입력한 원문 메시지입니다.

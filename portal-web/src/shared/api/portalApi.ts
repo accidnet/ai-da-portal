@@ -74,6 +74,11 @@ export interface WorkspaceResponse {
   updated_at: string
 }
 
+export interface WorkspaceDeleteResponse {
+  id: string
+  deleted: boolean
+}
+
 export interface DatasetLibraryResponse {
   id: string
   filename: string
@@ -496,6 +501,65 @@ export async function createWorkspace(
   }
 
   return (await response.json()) as WorkspaceResponse
+}
+
+export async function updateWorkspace(
+  workspaceId: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceResponse> {
+  // 워크스페이스 액션 메뉴에서 변경한 이름을 서버에 반영합니다.
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace update failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceResponse
+}
+
+export async function deleteWorkspace(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceDeleteResponse> {
+  // 선택한 워크스페이스를 서버 저장소에서 삭제합니다.
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace delete failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceDeleteResponse
 }
 
 export async function deleteSession(
