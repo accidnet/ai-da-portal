@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import type { BackendConnectionStatus, OpenAiAuthStatus, AnalysisScreen, SidebarData } from '../types'
 
@@ -28,6 +28,18 @@ const connectButtonLabel = computed(() => {
   if (props.isDisconnecting) return '로그아웃 중...'
   return props.authStatus.connected ? '로그아웃' : '로그인'
 })
+const workspaceItems = ref<string[]>([])
+const isWorkspaceExpanded = ref(false)
+const visibleWorkspaceItems = computed(() => (
+  isWorkspaceExpanded.value ? workspaceItems.value : workspaceItems.value.slice(0, 5)
+))
+const hasMoreWorkspaces = computed(() => workspaceItems.value.length > 5)
+const workspaceMoreLabel = computed(() => (isWorkspaceExpanded.value ? '접기' : '... 더보기'))
+
+/** 워크스페이스가 실제 API로 연결되기 전까지 사이드바 UI 상태로 항목을 추가합니다. */
+function createWorkspace() {
+  workspaceItems.value = [...workspaceItems.value, `워크스페이스${workspaceItems.value.length + 1}`]
+}
 
 function handleConnectButtonClick() {
   if (props.authStatus.connected) {
@@ -68,8 +80,30 @@ function handleConnectButtonClick() {
       </button>
     </nav>
 
+    <section class="workspace-block">
+      <h2 class="section-title">워크스페이스</h2>
+      <button type="button" class="workspace-create-button" @click="createWorkspace">
+        <span class="workspace-icon workspace-icon--create material-symbols-outlined">create_new_folder</span>
+        <span>워크스페이스 만들기</span>
+      </button>
+      <div class="workspace-list">
+        <button
+          v-for="workspace in visibleWorkspaceItems"
+          :key="workspace"
+          type="button"
+          class="workspace-item"
+        >
+          <span class="workspace-icon material-symbols-outlined">folder</span>
+          <span>{{ workspace }}</span>
+        </button>
+      </div>
+      <button v-if="hasMoreWorkspaces" type="button" class="more-button" @click="isWorkspaceExpanded = !isWorkspaceExpanded">
+        {{ workspaceMoreLabel }}
+      </button>
+    </section>
+
     <div class="sessions-block">
-      <p class="section-label">최근 세션</p>
+      <h2 class="section-title">최근</h2>
       <div class="sessions-list">
         <div
           v-for="session in sidebar.recentSessions"
@@ -100,21 +134,16 @@ function handleConnectButtonClick() {
       </div>
     </div>
 
-    <div class="connection-card">
-      <p class="account-label">{{ accountLabel }}</p>
-
-      <div class="connection-actions">
-        <button
-          type="button"
-          class="connect-button"
-          :disabled="isConnecting || isDisconnecting"
-          @click="handleConnectButtonClick"
-        >
-          {{ connectButtonLabel }}
-        </button>
-        <button type="button" class="ghost-button" @click="emit('openHelp')">도움말</button>
-      </div>
-    </div>
+    <button
+      type="button"
+      class="account-card"
+      :disabled="isConnecting || isDisconnecting"
+      :title="connectButtonLabel"
+      @click="handleConnectButtonClick"
+    >
+      <span class="account-avatar" aria-hidden="true"></span>
+      <span>{{ accountLabel }}</span>
+    </button>
   </aside>
 </template>
 
@@ -124,57 +153,77 @@ function handleConnectButtonClick() {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px 20px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--color-shadow);
+  gap: 22px;
+  padding: 20px 16px 14px;
+  border: 0;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), #fff),
+    var(--color-surface);
+  box-shadow: 0 20px 60px rgba(37, 68, 112, 0.12);
   overflow: hidden;
 }
 
 .brand-block {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  padding: 0 8px 2px;
 }
 
 .brand-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 16px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  background: var(--color-primary);
+  background: linear-gradient(135deg, #1f5ebc, var(--color-primary));
+  box-shadow: 0 8px 18px rgba(43, 94, 162, 0.24);
+}
+
+.brand-icon .material-symbols-outlined {
+  display: none;
+}
+
+.brand-icon::before {
+  content: 'A';
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .brand-block h1 {
   margin: 0;
-  font: 800 1.15rem/1.1 var(--font-heading);
-  color: var(--color-primary-strong);
+  color: #18395f;
+  font-size: 15.5px;
+  font-weight: 800;
+  line-height: 1.15;
 }
 
 .brand-block p {
-  margin: 4px 0 0;
-  color: var(--color-text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.68rem;
-  font-weight: 700;
+  margin: 2px 0 0;
+  color: #546579;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .nav-group,
+.workspace-block,
 .sessions-block,
-.connection-card {
+.account-card {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .nav-group,
-.connection-card {
+.workspace-block,
+.account-card {
   flex: 0 0 auto;
+}
+
+.nav-group {
+  padding: 0 6px;
 }
 
 .sessions-block {
@@ -187,7 +236,7 @@ function handleConnectButtonClick() {
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 6px;
@@ -196,8 +245,7 @@ function handleConnectButtonClick() {
 .nav-item,
 .session-item__select,
 .session-item__delete,
-.connect-button,
-.ghost-button {
+.account-card {
   border: 1px solid transparent;
   font: inherit;
 }
@@ -206,39 +254,44 @@ function handleConnectButtonClick() {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 13px 14px;
-  border-radius: 16px;
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 8px;
   text-align: left;
-  color: var(--color-text-muted);
+  color: #7d8b9f;
   background: transparent;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .nav-item:hover,
 .session-item:hover,
-.ghost-button:hover,
-.connect-button:hover:not(:disabled),
+.workspace-create-button:hover,
+.workspace-item:hover,
+.account-card:hover:not(:disabled),
 .nav-item:focus-visible,
 .session-item:focus-within,
-.ghost-button:focus-visible,
-.connect-button:focus-visible {
+.workspace-create-button:focus-visible,
+.workspace-item:focus-visible,
+.account-card:focus-visible {
   border-color: rgba(24, 74, 140, 0.12);
-  background: var(--color-surface-muted);
+  background: #f3f7fc;
   outline: none;
 }
 
 .nav-item--cta {
   color: #fff;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--color-primary) 0%, #2d74d6 100%);
-  box-shadow: 0 14px 30px rgba(24, 74, 140, 0.18);
+  background: #2d6dcc;
+  box-shadow: 0 10px 25px rgba(45, 109, 204, 0.24);
 }
 
 .nav-item--cta:hover,
 .nav-item--cta:focus-visible {
   color: #fff;
   border-color: rgba(24, 74, 140, 0.08);
-  background: linear-gradient(135deg, #1d5db2 0%, #3a81e3 100%);
+  background: #1f5ebc;
+  box-shadow: 0 14px 30px rgba(45, 109, 204, 0.34);
 }
 
 .nav-item--active,
@@ -248,33 +301,101 @@ function handleConnectButtonClick() {
   font-weight: 700;
 }
 
-.section-label {
+.section-title {
   margin: 0;
-  padding: 0 14px;
-  color: var(--color-text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 0.7rem;
+  color: #000;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.workspace-block,
+.sessions-block {
+  padding: 0 8px;
+}
+
+.workspace-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-create-button,
+.workspace-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid transparent;
+  color: #000;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-create-button {
+  min-height: 36px;
+  border-radius: 8px;
+  color: var(--color-primary-strong);
   font-weight: 700;
 }
 
-.section-label--inline {
-  padding: 0;
+.workspace-item {
+  min-height: 32px;
+}
+
+.workspace-item span:last-child,
+.workspace-create-button span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #728196;
+  background: #e7ebf0;
+  font-size: 16px;
+}
+
+.workspace-icon--create {
+  color: var(--color-primary);
+  background: rgba(43, 94, 162, 0.1);
+}
+
+.more-button {
+  justify-self: start;
+  min-height: 30px;
+  padding: 0 2px;
+  border: 0;
+  color: #1f2937;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .session-item {
   width: 100%;
-  min-height: 44px;
+  min-height: 32px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  padding: 6px 8px 6px 14px;
-  border-radius: 14px;
-  color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.48);
+  padding: 0 0 0 2px;
+  border-radius: 8px;
+  color: #000;
+  background: transparent;
   border: 1px solid transparent;
+  font-size: 15px;
 }
 
 .session-item__select,
@@ -308,9 +429,9 @@ function handleConnectButtonClick() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  color: var(--color-text-soft);
-  opacity: 0.72;
+  border-radius: 8px;
+  color: #000;
+  opacity: 0.9;
 }
 
 .session-item__delete:hover,
@@ -333,39 +454,37 @@ function handleConnectButtonClick() {
   line-height: 1.5;
 }
 
-.connection-card {
+.account-card {
   margin-top: auto;
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.84);
-}
-
-.connection-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 53px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
   gap: 10px;
-}
-
-.connect-button,
-.ghost-button {
-  min-height: 42px;
-  padding: 0 14px;
-  border-radius: 14px;
+  padding: 0 16px;
+  border: 1px solid #e7e7e7;
+  border-radius: 8px;
+  color: #000;
+  background: #fff;
+  text-align: left;
   cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
-.connect-button {
-  color: #fff;
-  background: var(--color-primary);
+.account-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #d6dce4, #c6cdd7);
 }
 
-.ghost-button {
-  color: var(--color-text);
-  background: var(--color-surface-muted);
+.account-card span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.connect-button:disabled {
+.account-card:disabled {
   opacity: 0.7;
   cursor: default;
 }

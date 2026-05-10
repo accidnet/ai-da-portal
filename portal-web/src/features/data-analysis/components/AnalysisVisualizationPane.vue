@@ -153,6 +153,7 @@ function visualizationComponent(section: ChartWorkspaceSection) {
 
 .analytics-header,
 .chart-headline {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -181,6 +182,8 @@ function visualizationComponent(section: ChartWorkspaceSection) {
 }
 
 .analytics-actions {
+  position: relative;
+  z-index: 3;
   display: flex;
   gap: 8px;
 }
@@ -211,7 +214,8 @@ function visualizationComponent(section: ChartWorkspaceSection) {
   content: attr(data-tooltip);
   position: absolute;
   right: 0;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
+  z-index: 5;
   padding: 6px 8px;
   border-radius: 10px;
   white-space: nowrap;
