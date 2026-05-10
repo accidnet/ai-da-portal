@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { resolveVisualizationComponent } from './visualizations'
+import { resolveVisualizationComponent } from '../visualizations'
 
 import type {
   AnalyticsChartPayload,

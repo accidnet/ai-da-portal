@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AnalysisConversationPane from './AnalysisConversationPane.vue'
-import AnalysisRightPane from './AnalysisRightPane.vue'
+import AnalysisRightPane from './analysis-right-pane/AnalysisRightPane.vue'
 import type {
   AnalyticsData,
   AnalyticsPayload,
