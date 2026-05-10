@@ -78,10 +78,6 @@ function setMode(mode: PaneMode) {
           연결 데이터
         </button>
       </div>
-
-      <button type="button" class="pane-add-button" aria-label="데이터 추가" @click="emit('uploadDataset')">
-        <span class="material-symbols-outlined">add</span>
-      </button>
     </div>
 
     <AnalysisVisualizationPane
@@ -103,6 +99,7 @@ function setMode(mode: PaneMode) {
       v-else
       :connected-datasets="connectedDatasets"
       :is-dataset-mutating="isDatasetMutating"
+      @upload-dataset="emit('uploadDataset')"
       @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
     />
@@ -159,7 +156,7 @@ function setMode(mode: PaneMode) {
 .analysis-right-pane__toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 16px;
 }
 
@@ -195,30 +192,6 @@ function setMode(mode: PaneMode) {
   color: #fff;
   background: var(--color-primary);
   box-shadow: 0 4px 10px rgba(43, 94, 162, 0.24);
-}
-
-.pane-add-button {
-  width: 40px;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border: 1px solid var(--color-primary);
-  border-radius: 6px;
-  color: var(--color-primary);
-  background: #fff;
-  cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
-}
-
-.pane-add-button:hover,
-.pane-add-button:focus-visible {
-  color: #fff;
-  background: var(--color-primary);
-  box-shadow: 0 4px 12px rgba(43, 94, 162, 0.24);
-  outline: none;
-  transform: translateY(-1px);
 }
 
 .analysis-right-pane-backdrop {

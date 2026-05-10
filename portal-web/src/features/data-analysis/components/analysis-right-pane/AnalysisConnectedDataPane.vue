@@ -9,6 +9,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  uploadDataset: []
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
 }>()
@@ -73,7 +74,12 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 
 <template>
   <section class="connected-data-pane">
-    <h2>세션과 연결된 데이터</h2>
+    <div class="connected-data-pane__header">
+      <h2>세션과 연결된 데이터</h2>
+      <button type="button" class="pane-add-button" aria-label="데이터 추가" @click="emit('uploadDataset')">
+        <span class="material-symbols-outlined">add</span>
+      </button>
+    </div>
 
     <label class="bulk-delete-row">
       <span class="checkbox" aria-hidden="true"></span>
@@ -185,10 +191,41 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 }
 
 .connected-data-pane h2 {
-  margin: 37px 0 0;
+  margin: 0;
   color: #000;
   font-size: 18px;
   font-weight: 800;
+}
+
+.connected-data-pane__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pane-add-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  color: var(--color-primary);
+  background: #fff;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.pane-add-button:hover,
+.pane-add-button:focus-visible {
+  color: #fff;
+  background: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(43, 94, 162, 0.24);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .bulk-delete-row,
@@ -202,7 +239,7 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 
 .bulk-delete-row {
   gap: 8px;
-  margin-top: 27px;
+  margin-top: 20px;
   color: #000;
   font-size: 14px;
 }
