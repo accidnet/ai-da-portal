@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import WorkspaceCreateDialog from './WorkspaceCreateDialog.vue'
-import type { BackendConnectionStatus, OpenAiAuthStatus, AnalysisScreen, SidebarData } from '@/features/data-analysis/types'
+import { createWorkspace as createWorkspaceRequest, fetchWorkspaces } from '@/shared/api/portalApi'
+import type {
+  BackendConnectionStatus,
+  OpenAiAuthStatus,
+  AnalysisScreen,
+  SidebarData,
+  WorkspaceItem,
+} from '@/features/data-analysis/types'
 
 const props = defineProps<{
   sidebar: SidebarData
@@ -29,9 +36,11 @@ const connectButtonLabel = computed(() => {
   if (props.isDisconnecting) return '로그아웃 중...'
   return props.authStatus.connected ? '로그아웃' : '로그인'
 })
-const workspaceItems = ref<string[]>([])
+const workspaceItems = ref<WorkspaceItem[]>([])
 const isWorkspaceExpanded = ref(false)
 const isWorkspaceDialogOpen = ref(false)
+const workspaceError = ref<string | null>(null)
+const isWorkspaceMutating = ref(false)
 const visibleWorkspaceItems = computed(() => (
   isWorkspaceExpanded.value ? workspaceItems.value : workspaceItems.value.slice(0, 5)
 ))
@@ -48,10 +57,29 @@ function closeWorkspaceDialog() {
   isWorkspaceDialogOpen.value = false
 }
 
-/** 워크스페이스가 실제 API로 연결되기 전까지 사이드바 UI 상태로 항목을 추가합니다. */
-function createWorkspace(workspaceName: string) {
-  workspaceItems.value = [...workspaceItems.value, workspaceName]
-  closeWorkspaceDialog()
+/** 워크스페이스를 서버에 생성하고 사이드바 목록에 반영합니다. */
+async function createWorkspace(workspaceName: string) {
+  if (isWorkspaceMutating.value) return
+
+  isWorkspaceMutating.value = true
+  workspaceError.value = null
+  try {
+    const created = await createWorkspaceRequest(workspaceName)
+    workspaceItems.value = [
+      {
+        id: created.id,
+        name: created.name,
+        createdAt: created.created_at,
+        updatedAt: created.updated_at,
+      },
+      ...workspaceItems.value,
+    ]
+    closeWorkspaceDialog()
+  } catch {
+    workspaceError.value = '워크스페이스를 생성하지 못했어요.'
+  } finally {
+    isWorkspaceMutating.value = false
+  }
 }
 
 function handleConnectButtonClick() {
@@ -62,6 +90,26 @@ function handleConnectButtonClick() {
 
   emit('connectOpenAi')
 }
+
+/** 저장된 워크스페이스 목록을 사이드바에 복원합니다. */
+async function loadWorkspaces() {
+  try {
+    const workspaces = await fetchWorkspaces()
+    workspaceItems.value = workspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      createdAt: workspace.created_at,
+      updatedAt: workspace.updated_at,
+    }))
+    workspaceError.value = null
+  } catch {
+    workspaceError.value = '워크스페이스 목록을 불러오지 못했어요.'
+  }
+}
+
+onMounted(() => {
+  void loadWorkspaces()
+})
 </script>
 
 <template>
@@ -102,17 +150,18 @@ function handleConnectButtonClick() {
       <div class="workspace-list">
         <button
           v-for="workspace in visibleWorkspaceItems"
-          :key="workspace"
+          :key="workspace.id"
           type="button"
           class="workspace-item"
         >
           <span class="workspace-icon material-symbols-outlined">folder</span>
-          <span>{{ workspace }}</span>
+          <span>{{ workspace.name }}</span>
         </button>
       </div>
       <button v-if="hasMoreWorkspaces" type="button" class="more-button" @click="isWorkspaceExpanded = !isWorkspaceExpanded">
         {{ workspaceMoreLabel }}
       </button>
+      <p v-if="workspaceError" class="workspace-error">{{ workspaceError }}</p>
     </section>
 
     <div class="sessions-block">
@@ -159,7 +208,12 @@ function handleConnectButtonClick() {
     </button>
   </aside>
 
-  <WorkspaceCreateDialog :open="isWorkspaceDialogOpen" @close="closeWorkspaceDialog" @create="createWorkspace" />
+  <WorkspaceCreateDialog
+    :open="isWorkspaceDialogOpen"
+    :is-submitting="isWorkspaceMutating"
+    @close="closeWorkspaceDialog"
+    @create="createWorkspace"
+  />
 </template>
 
 <style scoped>
@@ -395,6 +449,13 @@ function handleConnectButtonClick() {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.workspace-error {
+  margin: 0;
+  color: #a23a3a;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .session-item {

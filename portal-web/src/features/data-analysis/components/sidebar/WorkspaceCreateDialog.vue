@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
   open: boolean
+  isSubmitting?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -24,7 +25,7 @@ watch(
 
 /** 입력한 워크스페이스 명을 상위 컴포넌트로 전달합니다. */
 function submitWorkspace() {
-  if (!trimmedWorkspaceName.value) return
+  if (!trimmedWorkspaceName.value || props.isSubmitting) return
 
   emit('create', trimmedWorkspaceName.value)
 }
@@ -38,20 +39,38 @@ function submitWorkspace() {
           <h2 id="workspace-dialog-title">워크스페이스 만들기</h2>
           <p>새 워크스페이스 이름을 입력하세요.</p>
         </div>
-        <button type="button" class="workspace-dialog__close" aria-label="닫기" @click="emit('close')">
+        <button type="button" class="workspace-dialog__close" aria-label="닫기" :disabled="isSubmitting" @click="emit('close')">
           <span class="material-symbols-outlined">close</span>
         </button>
       </header>
 
       <label class="workspace-dialog__field">
         <span>워크스페이스 명</span>
-        <input v-model="workspaceNameInput" type="text" maxlength="40" placeholder="예: 고객 분석 워크스페이스" autofocus />
+        <input
+          v-model="workspaceNameInput"
+          type="text"
+          maxlength="40"
+          placeholder="예: 고객 분석 워크스페이스"
+          :disabled="isSubmitting"
+          autofocus
+        />
       </label>
 
       <footer class="workspace-dialog__actions">
-        <button type="button" class="workspace-dialog__button workspace-dialog__button--ghost" @click="emit('close')">취소</button>
-        <button type="submit" class="workspace-dialog__button workspace-dialog__button--primary" :disabled="!trimmedWorkspaceName">
-          생성
+        <button
+          type="button"
+          class="workspace-dialog__button workspace-dialog__button--ghost"
+          :disabled="isSubmitting"
+          @click="emit('close')"
+        >
+          취소
+        </button>
+        <button
+          type="submit"
+          class="workspace-dialog__button workspace-dialog__button--primary"
+          :disabled="!trimmedWorkspaceName || isSubmitting"
+        >
+          {{ isSubmitting ? '생성 중...' : '생성' }}
         </button>
       </footer>
     </form>
@@ -195,7 +214,9 @@ function submitWorkspace() {
   box-shadow: 0 8px 18px rgba(43, 94, 162, 0.2);
 }
 
-.workspace-dialog__button:disabled {
+.workspace-dialog__button:disabled,
+.workspace-dialog__field input:disabled,
+.workspace-dialog__close:disabled {
   opacity: 0.5;
   cursor: default;
 }

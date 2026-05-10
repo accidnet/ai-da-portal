@@ -67,6 +67,13 @@ export interface SessionDatasetLinkResponse {
   dataset_ids: string[]
 }
 
+export interface WorkspaceResponse {
+  id: string
+  name: string
+  created_at: string
+  updated_at: string
+}
+
 export interface DatasetLibraryResponse {
   id: string
   filename: string
@@ -442,6 +449,53 @@ export async function updateSessionPreferredDataset(
   signal?: AbortSignal,
 ): Promise<SessionDetailResponse> {
   return patchSession(sessionId, { preferred_dataset_id: preferredDatasetId }, signal)
+}
+
+export async function fetchWorkspaces(signal?: AbortSignal): Promise<WorkspaceResponse[]> {
+  // 사이드바의 워크스페이스 목록을 서버 저장소에서 조회합니다.
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Workspace list failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceResponse[]
+}
+
+export async function createWorkspace(
+  name: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceResponse> {
+  // 사용자가 입력한 워크스페이스 이름을 서버에 영속화합니다.
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace create failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceResponse
 }
 
 export async function deleteSession(

@@ -13,6 +13,13 @@ export interface LinkedDatasetSummary {
   filename: string
 }
 
+export interface WorkspaceItem {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SessionItem {
   id?: string
   title: string

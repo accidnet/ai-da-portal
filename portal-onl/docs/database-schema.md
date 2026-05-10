@@ -26,6 +26,17 @@
 | `profile`      | json     | yes      | 데이터 profile payload |
 | `created_at`   | datetime | no       | 생성 시각              |
 
+### `workspaces`
+
+사용자가 생성한 포털 워크스페이스의 최소 메타데이터입니다.
+
+| column       | type     | nullable | description        |
+| ------------ | -------- | -------- | ------------------ |
+| `id`         | string   | no       | 워크스페이스 ID    |
+| `name`       | string   | no       | 워크스페이스 이름  |
+| `created_at` | datetime | no       | 생성 시각          |
+| `updated_at` | datetime | no       | 마지막 갱신 시각   |
+
 ### `user_messages`
 
 사용자가 입력한 원문 메시지입니다.

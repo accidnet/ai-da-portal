@@ -10,6 +10,8 @@ from application.datasets.service import DatasetApplicationService
 from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService
+from features.workspaces.application.usecase import WorkspaceUsecase
+from features.workspaces.infrastructure.repository import WorkspaceRepository
 from infrastructure.ai.client import AiClient
 from infrastructure.ai.openai_client import OpenAiProvider
 from infrastructure.db.repositories import (
@@ -39,11 +41,21 @@ def get_dataset_repository() -> DatasetRepository:
 
 
 @lru_cache
+def get_workspace_repository() -> WorkspaceRepository:
+    return WorkspaceRepository()
+
+
+@lru_cache
 def get_session_service() -> SessionService:
     return SessionService(
         repository=get_session_repository(),
         message_repository=get_message_repository(),
     )
+
+
+@lru_cache
+def get_workspace_usecase() -> WorkspaceUsecase:
+    return WorkspaceUsecase(repository=get_workspace_repository())
 
 
 @lru_cache
