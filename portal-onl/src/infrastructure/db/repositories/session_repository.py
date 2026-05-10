@@ -9,12 +9,15 @@ from infrastructure.db.session import SessionLocal
 class SessionRepository:
     """세션 ORM 조회와 영속화 작업을 담당합니다."""
 
-    def create(self, *, session_id: str, title: str) -> SessionOrm:
+    def create(
+        self, *, session_id: str, title: str, workspace_id: str | None = None
+    ) -> SessionOrm:
         """새 세션을 생성하고 로드된 ORM 객체를 반환합니다."""
         now = datetime.now(UTC)
         with SessionLocal() as db:
             session = SessionOrm(
                 id=session_id,
+                workspace_id=workspace_id,
                 title=title,
                 created_at=now,
                 updated_at=now,
@@ -24,14 +27,14 @@ class SessionRepository:
             db.refresh(session)
             return session
 
-    def list_sessions(self) -> list[SessionOrm]:
+    def list_sessions(self, *, workspace_id: str | None = None) -> list[SessionOrm]:
         """최신 수정 순서로 세션 목록을 조회합니다."""
+        statement = select(SessionOrm).order_by(SessionOrm.updated_at.desc())
+        if workspace_id is not None:
+            statement = statement.where(SessionOrm.workspace_id == workspace_id)
+
         with SessionLocal() as db:
-            return list(
-                db.scalars(
-                    select(SessionOrm).order_by(SessionOrm.updated_at.desc())
-                ).all()
-            )
+            return list(db.scalars(statement).all())
 
     def get(self, session_id: str) -> SessionOrm | None:
         """세션 ID로 세션을 조회합니다."""

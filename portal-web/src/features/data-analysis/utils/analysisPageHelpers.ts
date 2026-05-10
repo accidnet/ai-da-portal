@@ -33,6 +33,7 @@ export function clampSidebarWidth(width: number): number {
 export function mapSessionSummary(session: SessionSummaryResponse): SessionItem {
   return {
     id: session.id,
+    workspaceId: session.workspace_id ?? null,
     title: session.title,
     createdAt: session.created_at,
     updatedAt: session.updated_at,

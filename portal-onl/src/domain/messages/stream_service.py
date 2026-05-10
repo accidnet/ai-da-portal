@@ -56,7 +56,7 @@ class MessageStreamService:
 
         # session id가 조회되지 않을 경우 오류 발생
         try:
-            self._session_service.get(session_id)
+            session = self._session_service.get(session_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -65,6 +65,12 @@ class MessageStreamService:
                     "새 채팅 세션을 생성한 뒤 다시 시도해 주세요."
                 ),
             ) from exc
+        workspace_id = self._normalize_workspace_id(stream_request.workspace_id)
+        if workspace_id is not None and session.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="session_id does not belong to the requested workspace_id.",
+            )
 
         # 사용자 입력 메세지는 바로 저장
         user_message_id = self._message_repository.record_user_message(
@@ -86,6 +92,13 @@ class MessageStreamService:
             status_code=status.HTTP_202_ACCEPTED,
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    def _normalize_workspace_id(self, workspace_id: str | None) -> str | None:
+        """채팅 요청의 선택적 워크스페이스 ID를 정규화합니다."""
+        if workspace_id is None:
+            return None
+        normalized = workspace_id.strip()
+        return normalized or None
 
     def _generate_stream_events(
         self,

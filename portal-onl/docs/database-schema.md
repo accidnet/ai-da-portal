@@ -6,12 +6,13 @@
 
 채팅 세션의 최소 메타데이터입니다.
 
-| column       | type     | nullable | description      |
-| ------------ | -------- | -------- | ---------------- |
-| `id`         | string   | no       | 세션 ID          |
-| `title`      | string   | no       | 세션 제목        |
-| `created_at` | datetime | no       | 생성 시각        |
-| `updated_at` | datetime | no       | 마지막 갱신 시각 |
+| column         | type     | nullable | description                            |
+| -------------- | -------- | -------- | -------------------------------------- |
+| `id`           | string   | no       | 세션 ID                                |
+| `workspace_id` | string   | yes      | `workspaces.id` FK. null이면 일반 세션 |
+| `title`        | string   | no       | 세션 제목                              |
+| `created_at`   | datetime | no       | 생성 시각                              |
+| `updated_at`   | datetime | no       | 마지막 갱신 시각                       |
 
 ### `datasets`
 
@@ -38,6 +39,8 @@
 | `updated_at` | datetime | no       | 마지막 갱신 시각   |
 
 지원 API는 생성, 목록 조회, 이름 변경, 삭제입니다.
+
+워크스페이스와 세션은 `workspaces` 1:N `sessions` 관계입니다. 워크스페이스 전용 채팅은 기존 `sessions` row에 `workspace_id`를 저장해 구분합니다.
 
 ### `user_messages`
 

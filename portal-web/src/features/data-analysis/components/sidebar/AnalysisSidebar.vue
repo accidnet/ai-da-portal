@@ -13,12 +13,15 @@ import type {
   OpenAiAuthStatus,
   AnalysisScreen,
   SidebarData,
+  SessionItem,
   WorkspaceItem,
 } from '@/features/data-analysis/types'
 
 const props = defineProps<{
   sidebar: SidebarData
+  workspaceSessions: Record<string, SessionItem[]>
   activeSessionId?: string | null
+  activeWorkspaceId?: string | null
   activeScreen: AnalysisScreen
   connectionStatus: BackendConnectionStatus
   authStatus: OpenAiAuthStatus
@@ -29,6 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectSession: [sessionId: string]
   primaryAction: [screen: AnalysisScreen]
+  selectWorkspace: [workspaceId: string]
   createSession: []
   deleteSession: [sessionId: string]
   connectOpenAi: []
@@ -54,6 +58,11 @@ const visibleWorkspaceItems = computed(() => (
 ))
 const hasMoreWorkspaces = computed(() => workspaceItems.value.length > 5)
 const workspaceMoreLabel = computed(() => (isWorkspaceExpanded.value ? '접기' : '... 더보기'))
+
+/** 워크스페이스에 소속된 세션 목록을 반환합니다. */
+function sessionsForWorkspace(workspaceId: string): SessionItem[] {
+  return props.workspaceSessions[workspaceId] ?? []
+}
 
 /** 워크스페이스 생성 다이얼로그를 엽니다. */
 function openWorkspaceDialog() {
@@ -102,6 +111,7 @@ async function saveWorkspace(workspaceName: string) {
       },
       ...workspaceItems.value,
     ]
+    emit('selectWorkspace', created.id)
     closeWorkspaceDialog()
   } catch {
     workspaceError.value = workspaceDialogMode.value === 'edit'
@@ -212,8 +222,9 @@ onMounted(() => {
           v-for="workspace in visibleWorkspaceItems"
           :key="workspace.id"
           class="workspace-item"
+          :class="{ 'workspace-item--active': workspace.id === activeWorkspaceId }"
         >
-          <button type="button" class="workspace-item__main">
+          <button type="button" class="workspace-item__main" @click="emit('selectWorkspace', workspace.id)">
             <span class="workspace-icon material-symbols-outlined">folder</span>
             <span>{{ workspace.name }}</span>
           </button>
@@ -230,6 +241,36 @@ onMounted(() => {
               <button type="button" @click="openWorkspaceRenameDialog(workspace)">이름 변경</button>
               <button type="button" class="workspace-menu__danger" @click="deleteWorkspace(workspace.id)">삭제</button>
             </div>
+          </div>
+          <div v-if="workspace.id === activeWorkspaceId" class="workspace-session-list">
+            <div
+              v-for="session in sessionsForWorkspace(workspace.id)"
+              :key="session.id ?? session.title"
+              class="workspace-session"
+              :class="{ 'workspace-session--active': session.id && session.id === activeSessionId }"
+            >
+              <button
+                type="button"
+                class="workspace-session__select"
+                :title="session.title"
+                @click="session.id && emit('selectSession', session.id)"
+              >
+                <span>{{ session.title }}</span>
+              </button>
+              <button
+                v-if="session.id"
+                type="button"
+                class="workspace-session__delete"
+                :aria-label="`${session.title} 세션 삭제`"
+                :title="`${session.title} 세션 삭제`"
+                @click.stop="emit('deleteSession', session.id)"
+              >
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <p v-if="sessionsForWorkspace(workspace.id).length === 0" class="workspace-session-empty">
+              이 워크스페이스의 세션이 아직 없어요.
+            </p>
           </div>
         </div>
       </div>
@@ -441,7 +482,9 @@ onMounted(() => {
 }
 
 .nav-item--active,
-.session-item--active {
+.session-item--active,
+.workspace-item--active .workspace-item__main,
+.workspace-session--active {
   color: var(--color-primary-strong);
   background: var(--color-surface-muted);
   font-weight: 700;
@@ -637,8 +680,28 @@ onMounted(() => {
   font-size: 15px;
 }
 
+.workspace-session-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 4px 40px;
+}
+
+.workspace-session {
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 13px;
+}
+
 .session-item__select,
-.session-item__delete {
+.session-item__delete,
+.workspace-session__select,
+.workspace-session__delete {
   appearance: none;
   min-width: 0;
   padding: 0;
@@ -647,14 +710,20 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.session-item__select {
+.session-item__select,
+.workspace-session__select {
   height: 32px;
   display: flex;
   align-items: center;
   text-align: left;
 }
 
-.session-item__select span {
+.workspace-session__select {
+  height: 30px;
+}
+
+.session-item__select span,
+.workspace-session__select span {
   min-width: 0;
   display: block;
   overflow: hidden;
@@ -662,7 +731,8 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.session-item__delete {
+.session-item__delete,
+.workspace-session__delete {
   width: 30px;
   height: 30px;
   display: inline-flex;
@@ -673,19 +743,28 @@ onMounted(() => {
   opacity: 0.9;
 }
 
+.workspace-session__delete {
+  width: 28px;
+  height: 28px;
+}
+
 .session-item__delete:hover,
-.session-item__delete:focus-visible {
+.session-item__delete:focus-visible,
+.workspace-session__delete:hover,
+.workspace-session__delete:focus-visible {
   color: #a23a3a;
   background: rgba(162, 58, 58, 0.1);
   outline: none;
   opacity: 1;
 }
 
-.session-item__delete .material-symbols-outlined {
+.session-item__delete .material-symbols-outlined,
+.workspace-session__delete .material-symbols-outlined {
   font-size: 1rem;
 }
 
 .empty-state,
+.workspace-session-empty,
 .account-label {
   margin: 0;
   color: var(--color-text-soft);

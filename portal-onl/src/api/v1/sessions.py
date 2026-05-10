@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi import HTTPException
 
 from api.deps import (
@@ -35,10 +35,11 @@ def create_session(
 
 @router.get("", response_model=list[SessionSummary])
 def list_sessions(
+    workspace_id: str | None = Query(default=None),
     service: SessionService = Depends(get_session_service),
     dataset_service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> list[SessionSummary]:
-    return service.list_sessions(dataset_service)
+    return service.list_sessions(dataset_service, workspace_id=workspace_id)
 
 
 @router.get("/{session_id}", response_model=SessionDetail)

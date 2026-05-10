@@ -24,6 +24,7 @@ import { fetchHealthcheck } from '@/shared/api/portalApi'
 const connectionStatus = ref<BackendConnectionStatus>('checking')
 const currentScreen = ref<AnalysisScreen>(resolveScreenFromHash())
 const searchQuery = ref('')
+const activeWorkspaceId = ref<string | null>(null)
 const sessionHubSearchQuery = ref('')
 const datasetLibrarySearchQuery = ref('')
 const isHelpDialogOpen = ref(false)
@@ -77,10 +78,13 @@ const {
   handleDeleteSession,
 } = useAnalysisSessions({
   currentScreen,
+  activeWorkspaceId,
   onSessionDeleted: async (sessionId) => {
     removeSessionLinks?.(sessionId)
   },
 })
+
+const activeWorkspaceIdForChat = computed(() => activeWorkspaceId.value)
 
 const activeSessionState = computed(() => {
   const sessionId = activeSessionId.value
@@ -139,6 +143,7 @@ const {
   shareAnalyticsReport,
 } = useAnalysisInteractions({
   activeSessionState,
+  activeWorkspaceId: activeWorkspaceIdForChat,
   activeDataset,
   analyticsPayload,
   workspacePayload,
@@ -153,8 +158,17 @@ const {
 
 const recentSessions = computed<SessionItem[]>(() => {
   const keyword = searchQuery.value.trim().toLowerCase()
-  if (!keyword) return sessionSummaries.value
-  return sessionSummaries.value.filter((session) => session.title.toLowerCase().includes(keyword))
+  const generalSessions = sessionSummaries.value.filter((session) => !session.workspaceId)
+  if (!keyword) return generalSessions
+  return generalSessions.filter((session) => session.title.toLowerCase().includes(keyword))
+})
+
+const workspaceSessions = computed<Record<string, SessionItem[]>>(() => {
+  return sessionSummaries.value.reduce<Record<string, SessionItem[]>>((groups, session) => {
+    if (!session.workspaceId) return groups
+    groups[session.workspaceId] = [...(groups[session.workspaceId] ?? []), session]
+    return groups
+  }, {})
 })
 
 const conversation = computed<ConversationData>(() => ({
@@ -226,6 +240,18 @@ async function handleCreateSession() {
   sessionHubSearchQuery.value = ''
   searchQuery.value = ''
   currentScreen.value = 'dashboard'
+}
+
+async function handleSelectWorkspace(workspaceId: string) {
+  activeWorkspaceId.value = workspaceId
+  resetWorkspaceFeedback()
+  await createAndSelectSession()
+  currentScreen.value = 'dashboard'
+}
+
+async function handleSelectSidebarSession(sessionId: string) {
+  closeSidebarPanel()
+  await selectSession(sessionId, 'dashboard')
 }
 
 async function handleWorkspaceSend(message: string) {
@@ -369,8 +395,10 @@ onBeforeUnmount(() => {
       :is-sidebar-open="isSidebarOpen"
       :shell-sidebar="shellSidebar"
       :recent-sessions="recentSessions"
+      :workspace-sessions="workspaceSessions"
       :current-screen="currentScreen"
       :active-session-id="activeSessionId"
+      :active-workspace-id="activeWorkspaceId"
       :connection-status="connectionStatus"
       :auth-status="authStatus"
       :is-connecting="isConnecting"
@@ -380,7 +408,8 @@ onBeforeUnmount(() => {
       @connect-open-ai="connectOpenAi"
       @disconnect-open-ai="logoutOpenAi"
       @open-help="() => { closeSidebarPanel(); openHelpDialog() }"
-      @select-session="(sessionId) => { closeSidebarPanel(); void selectSession(sessionId, 'dashboard') }"
+      @select-session="(sessionId) => { void handleSelectSidebarSession(sessionId) }"
+      @select-workspace="(workspaceId) => { void handleSelectWorkspace(workspaceId) }"
       @delete-session="(sessionId) => { void handleDeleteSession(sessionId) }"
       @close-sidebar-panel="closeSidebarPanel"
     />

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from core.config import get_settings
@@ -42,3 +42,13 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_database() -> None:
     with engine.begin() as connection:
         Base.metadata.create_all(bind=connection)
+        inspector = inspect(connection)
+        session_columns = {
+            column["name"] for column in inspector.get_columns("sessions")
+        }
+        if "workspace_id" not in session_columns:
+            # 기존 SQLite 개발 DB도 새 워크스페이스-세션 관계를 사용할 수 있게 보정합니다.
+            connection.execute(text("ALTER TABLE sessions ADD COLUMN workspace_id VARCHAR(64)"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_sessions_workspace_id ON sessions (workspace_id)")
+            )

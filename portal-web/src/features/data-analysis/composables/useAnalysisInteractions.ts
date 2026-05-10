@@ -38,6 +38,7 @@ import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessio
 
 export function useAnalysisInteractions(options: {
   activeSessionState: ComputedRef<SessionRuntimeState | null>
+  activeWorkspaceId?: ComputedRef<string | null>
   activeDataset: ComputedRef<SessionRuntimeState['datasets'][number] | null>
   analyticsPayload: ComputedRef<SessionRuntimeState['analyticsPayload']>
   workspacePayload: ComputedRef<SessionRuntimeState['workspacePayload']>
@@ -51,6 +52,7 @@ export function useAnalysisInteractions(options: {
 }) {
   const {
     activeSessionState,
+    activeWorkspaceId,
     activeDataset,
     analyticsPayload,
     workspacePayload,
@@ -376,6 +378,7 @@ export function useAnalysisInteractions(options: {
       const response = await streamChatMessage(
         {
           sessionId,
+          workspaceId: activeWorkspaceId?.value ?? null,
           message: userMessage,
           datasetIds: sessionState.datasets.map((dataset) => dataset.id),
           attachedDatasetIds,
@@ -522,6 +525,7 @@ export function useAnalysisInteractions(options: {
       const response = await streamChatMessage(
         {
           sessionId,
+          workspaceId: activeWorkspaceId?.value ?? null,
           datasetIds: [primaryDataset.id],
           // 백엔드의 남은 agent/tool 흐름을 통해 분석 패널 데이터를 생성합니다.
           message: analysisPrompt,

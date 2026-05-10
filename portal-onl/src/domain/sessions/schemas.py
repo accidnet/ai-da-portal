@@ -12,6 +12,7 @@ from domain.datasets.schemas import (
 
 class SessionCreateRequest(BaseModel):
     title: str = "New analysis session"
+    workspace_id: str | None = None
 
 
 class SessionUpdateRequest(BaseModel):
@@ -34,6 +35,7 @@ class SessionLastDataset(BaseModel):
 
 class SessionSummary(BaseModel):
     id: str
+    workspace_id: str | None = None
     title: str
     created_at: datetime
     updated_at: datetime

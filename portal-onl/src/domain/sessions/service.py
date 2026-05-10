@@ -57,21 +57,35 @@ class SessionService:
         session = self._repository.create(
             session_id=session_id,
             title=self._normalize_title(payload.title) or "New analysis session",
+            workspace_id=self._normalize_workspace_id(payload.workspace_id),
         )
         return self._build_session_detail(session, dataset_service=None)
 
     def ensure_session(
-        self, session_id: str, *, title: str | None = None
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        workspace_id: str | None = None,
     ) -> SessionDetail:
         session = self._get_session(session_id)
         if session is None:
-            session = self._create_session(session_id, title=title)
+            session = self._create_session(
+                session_id,
+                title=title,
+                workspace_id=workspace_id,
+            )
         return self._build_session_detail(session, dataset_service=None)
 
     def list_sessions(
-        self, dataset_service: "_SessionDatasetReader"
+        self,
+        dataset_service: "_SessionDatasetReader",
+        *,
+        workspace_id: str | None = None,
     ) -> list[SessionSummary]:
-        sessions = self._repository.list_sessions()
+        sessions = self._repository.list_sessions(
+            workspace_id=self._normalize_workspace_id(workspace_id)
+        )
         return [
             self._build_session_detail(session, dataset_service) for session in sessions
         ]
@@ -213,6 +227,13 @@ class SessionService:
             return None
         return normalized[:60]
 
+    def _normalize_workspace_id(self, workspace_id: str | None) -> str | None:
+        """워크스페이스 연결에 사용할 ID를 정규화합니다."""
+        if workspace_id is None:
+            return None
+        normalized = workspace_id.strip()
+        return normalized or None
+
     def _resolve_session_title(self, session_id: str, title: str | None) -> str:
         """세션 생성 시 사용할 기본 제목을 결정합니다."""
         return self._normalize_title(title) or f"Session {session_id[:8]}"
@@ -222,12 +243,17 @@ class SessionService:
         return self._repository.get(session_id)
 
     def _create_session(
-        self, session_id: str, *, title: str | None = None
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        workspace_id: str | None = None,
     ) -> SessionOrm:
         """서비스 계층에서 결정한 제목으로 세션을 생성합니다."""
         return self._repository.create(
             session_id=session_id,
             title=self._resolve_session_title(session_id, title),
+            workspace_id=self._normalize_workspace_id(workspace_id),
         )
 
     def is_auto_title_candidate(self, title: str | None) -> bool:
@@ -245,6 +271,7 @@ class SessionService:
         last_dataset = self._build_last_dataset(dataset_ids, dataset_service)
         return SessionDetail(
             id=session.id,
+            workspace_id=session.workspace_id,
             title=session.title,
             created_at=self._coerce_datetime(session.created_at),
             updated_at=self._coerce_datetime(session.updated_at),

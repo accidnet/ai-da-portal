@@ -18,9 +18,10 @@ import { mapSnapshotToSessionState, type SessionRuntimeState } from '../utils/se
 
 export function useAnalysisSessions(options: {
   currentScreen: Ref<AnalysisScreen>
+  activeWorkspaceId?: Ref<string | null>
   onSessionDeleted?: (sessionId: string) => void | Promise<void>
 }) {
-  const { currentScreen, onSessionDeleted } = options
+  const { currentScreen, activeWorkspaceId, onSessionDeleted } = options
 
   const activeSessionId = ref<string | null>(null)
   const sessionSummaries = ref<SessionItem[]>([])
@@ -150,6 +151,7 @@ export function useAnalysisSessions(options: {
     const nextSummary: SessionItem = {
       ...hidden,
       id: sessionId,
+      workspaceId: hidden?.workspaceId ?? activeWorkspaceId?.value ?? null,
       title: state?.title ?? hidden?.title ?? fallbackTitle,
       messageCount: state?.messages.length ?? hidden?.messageCount ?? 0,
       datasetCount: state?.datasets.length ?? hidden?.datasetCount ?? 0,
@@ -234,7 +236,8 @@ export function useAnalysisSessions(options: {
       return currentSessionId
     }
 
-    const created = await createSession(DEFAULT_SESSION_TITLE)
+    const workspaceId = activeWorkspaceId?.value ?? null
+    const created = await createSession(DEFAULT_SESSION_TITLE, workspaceId)
     const previousState = sessionStates.value[currentSessionId]
     activeSessionId.value = created.id
     hiddenSessionSummaries.value = {
@@ -293,6 +296,9 @@ export function useAnalysisSessions(options: {
     activeSessionId.value = sessionId
     currentScreen.value = targetScreen
     const summary = sessionSummaries.value.find((session) => session.id === sessionId)
+    if (activeWorkspaceId && summary) {
+      activeWorkspaceId.value = summary.workspaceId ?? null
+    }
     ensureSessionState(sessionId, summary?.title ?? DEFAULT_SESSION_TITLE)
     await hydrateSessionSnapshot(sessionId)
   }

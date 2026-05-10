@@ -13,8 +13,10 @@ defineProps<{
   isSidebarOpen: boolean
   shellSidebar: SidebarData
   recentSessions: SessionItem[]
+  workspaceSessions: Record<string, SessionItem[]>
   currentScreen: AnalysisScreen
   activeSessionId: string | null
+  activeWorkspaceId: string | null
   connectionStatus: BackendConnectionStatus
   authStatus: OpenAiAuthStatus
   isConnecting: boolean
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   connectOpenAi: []
   disconnectOpenAi: []
   openHelp: []
+  selectWorkspace: [workspaceId: string]
   selectSession: [sessionId: string]
   deleteSession: [sessionId: string]
   closeSidebarPanel: []
@@ -50,8 +53,10 @@ const emit = defineEmits<{
 
     <AnalysisSidebar
       :sidebar="{ ...shellSidebar, recentSessions }"
+      :workspace-sessions="workspaceSessions"
       :active-screen="currentScreen"
       :active-session-id="activeSessionId"
+      :active-workspace-id="activeWorkspaceId"
       :connection-status="connectionStatus"
       :auth-status="authStatus"
       :is-connecting="isConnecting"
@@ -61,6 +66,7 @@ const emit = defineEmits<{
       @connect-open-ai="emit('connectOpenAi')"
       @disconnect-open-ai="emit('disconnectOpenAi')"
       @open-help="emit('openHelp')"
+      @select-workspace="(workspaceId) => emit('selectWorkspace', workspaceId)"
       @select-session="(sessionId) => emit('selectSession', sessionId)"
       @delete-session="(sessionId) => emit('deleteSession', sessionId)"
     />

@@ -22,6 +22,7 @@ export interface WorkspaceItem {
 
 export interface SessionItem {
   id?: string
+  workspaceId?: string | null
   title: string
   createdAt?: string
   updatedAt?: string

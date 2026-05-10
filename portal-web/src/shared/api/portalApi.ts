@@ -24,6 +24,7 @@ export interface OpenAiLogoutResponse {
 
 export interface SessionSummaryResponse {
   id: string
+  workspace_id?: string | null
   title: string
   created_at?: string
   updated_at: string
@@ -353,6 +354,7 @@ export async function logoutOpenAi(signal?: AbortSignal): Promise<OpenAiLogoutRe
 
 export async function createSession(
   title: string,
+  workspaceId?: string | null,
   signal?: AbortSignal,
 ): Promise<SessionDetailResponse> {
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions`, {
@@ -361,7 +363,7 @@ export async function createSession(
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, workspace_id: workspaceId ?? null }),
     signal,
   })
 
@@ -394,8 +396,16 @@ export async function resolveSessionTitle(
   return (await response.json()) as SessionTitleResponse
 }
 
-export async function fetchSessions(signal?: AbortSignal): Promise<SessionSummaryResponse[]> {
-  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions`, {
+export async function fetchSessions(
+  signal?: AbortSignal,
+  workspaceId?: string | null,
+): Promise<SessionSummaryResponse[]> {
+  const params = new URLSearchParams()
+  if (workspaceId) {
+    params.set('workspace_id', workspaceId)
+  }
+  const query = params.toString()
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/sessions${query ? `?${query}` : ''}`, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -619,6 +629,7 @@ export async function fetchSessionSnapshot(
 export async function streamChatMessage(
   payload: {
     sessionId: string
+    workspaceId?: string | null
     message: string
     datasetIds?: string[]
     attachedDatasetIds?: string[]
@@ -635,6 +646,7 @@ export async function streamChatMessage(
     headers,
     body: JSON.stringify({
       session_id: payload.sessionId,
+      workspace_id: payload.workspaceId ?? null,
       message: payload.message,
       uploaded_dataset_ids: payload.datasetIds ?? [],
       attached_dataset_ids: payload.attachedDatasetIds ?? [],
