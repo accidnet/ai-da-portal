@@ -10,6 +10,7 @@ import type {
   AnalysisScreen,
   ComposerData,
   ConversationData,
+  DatasetAsset,
   DatasetLibraryItem,
   SessionItem,
   WorkspacePayload,
@@ -38,6 +39,7 @@ defineProps<{
   canExportReport: boolean
   pendingAttachmentName: string | null
   pendingAttachmentMeta: string | null
+  connectedDatasets: DatasetAsset[]
   sessionSummaries: SessionItem[]
   sessionHubSearchQuery: string
   sessionHubError: string | null
@@ -114,6 +116,8 @@ defineExpose({
     :can-export-report="canExportReport"
     :pending-attachment-name="pendingAttachmentName"
     :pending-attachment-meta="pendingAttachmentMeta"
+    :connected-datasets="connectedDatasets"
+    :is-dataset-mutating="isDatasetMutating"
     @attach="openInteractionPicker"
     @drop-file="(files) => emit('dropFile', files)"
     @remove-attachment="emit('removeAttachment')"
@@ -123,6 +127,9 @@ defineExpose({
     @export-report="emit('exportReport')"
     @share-report="emit('shareReport')"
     @close-analytics-panel="emit('closeAnalyticsPanel')"
+    @upload-dataset="openDatasetPicker"
+    @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
+    @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
   />
 
   <SessionHub

@@ -8,6 +8,7 @@ import type {
   AnalysisScreen,
   ComposerData,
   ConversationData,
+  DatasetAsset,
   DatasetLibraryItem,
   SessionItem,
   WorkspacePayload,
@@ -43,6 +44,7 @@ defineProps<{
   canExportReport: boolean
   pendingAttachmentName: string | null
   pendingAttachmentMeta: string | null
+  connectedDatasets: DatasetAsset[]
   sessionSummaries: SessionItem[]
   sessionHubSearchQuery: string
   sessionHubError: string | null
@@ -77,6 +79,7 @@ const emit = defineEmits<{
   exportReport: []
   shareReport: []
   closeAnalyticsPanel: []
+  uploadDataset: []
 }>()
 
 const routedPageRef = shallowRef<RoutedPortalPage | null>(null)
@@ -147,6 +150,7 @@ defineExpose({
           :can-export-report="canExportReport"
           :pending-attachment-name="pendingAttachmentName"
           :pending-attachment-meta="pendingAttachmentMeta"
+          :connected-datasets="connectedDatasets"
           :session-summaries="sessionSummaries"
           :session-hub-search-query="sessionHubSearchQuery"
           :session-hub-error="sessionHubError"
@@ -156,6 +160,7 @@ defineExpose({
           :dataset-library-search-query="datasetLibrarySearchQuery"
           :dataset-library-error="datasetLibraryError"
           :is-dataset-mutating="isDatasetMutating"
+          @upload-dataset="emit('uploadDataset')"
           @session-hub-search-change="(value: string) => emit('sessionHubSearchChange', value)"
           @open-session="(sessionId: string) => emit('openSession', sessionId)"
           @rename-session="(payload: { sessionId: string; title: string }) => emit('renameSession', payload)"

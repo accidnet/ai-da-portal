@@ -90,6 +90,7 @@ const activeSessionSummary = computed(
   () => sessionSummaries.value.find((session) => session.id === activeSessionId.value) ?? null,
 )
 const activeDataset = computed(() => activeSessionState.value?.datasets[0] ?? null)
+const activeSessionDatasets = computed(() => activeSessionState.value?.datasets ?? [])
 
 const {
   datasetsLibrary,
@@ -420,6 +421,7 @@ onBeforeUnmount(() => {
       :can-export-report="canExportReport"
       :pending-attachment-name="pendingAttachmentName"
       :pending-attachment-meta="pendingAttachmentMeta"
+      :connected-datasets="activeSessionDatasets"
       :session-summaries="sessionSummaries"
       :session-hub-search-query="sessionHubSearchQuery"
       :session-hub-error="sessionHubError"
@@ -451,6 +453,7 @@ onBeforeUnmount(() => {
       @export-report="exportAnalyticsReport"
       @share-report="shareAnalyticsReport"
       @close-analytics-panel="closeAnalyticsPanel"
+      @upload-dataset="mainLayoutRef?.openDatasetPicker()"
     />
 
     <div v-if="isHelpDialogOpen" class="analysis-overlay" @click.self="closeHelpDialog">

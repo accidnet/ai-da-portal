@@ -6,6 +6,7 @@ import type {
   AnalyticsPayload,
   ComposerData,
   ConversationData,
+  DatasetAsset,
   WorkspacePayload,
 } from '../types'
 
@@ -30,6 +31,8 @@ defineProps<{
   canExportReport: boolean
   pendingAttachmentName: string | null
   pendingAttachmentMeta: string | null
+  connectedDatasets: DatasetAsset[]
+  isDatasetMutating: boolean
 }>()
 
 const emit = defineEmits<{
@@ -42,6 +45,9 @@ const emit = defineEmits<{
   exportReport: []
   shareReport: []
   closeAnalyticsPanel: []
+  uploadDataset: []
+  selectDataset: [datasetId: string]
+  detachDataset: [datasetId: string]
 }>()
 </script>
 
@@ -81,10 +87,15 @@ const emit = defineEmits<{
       :is-loading="isSending || isUploading || isRunningAnalysis"
       :analytics-error="analyticsError"
       :can-export-report="canExportReport"
+      :connected-datasets="connectedDatasets"
+      :is-dataset-mutating="isDatasetMutating"
       @toggle-fullscreen="emit('toggleFullscreen')"
       @export-report="emit('exportReport')"
       @share-report="emit('shareReport')"
       @close-analytics-panel="emit('closeAnalyticsPanel')"
+      @upload-dataset="emit('uploadDataset')"
+      @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
+      @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
     />
   </div>
 </template>
