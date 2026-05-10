@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import DataAnalysisLayout from '@/layouts/DataAnalysisLayout.vue'
+import PortalLayout from '@/layouts/portal/PortalLayout.vue'
 import { useAnalysisPaneLayout } from '@/features/data-analysis/composables/useAnalysisPaneLayout'
 import { useOpenAiAuth } from '@/features/data-analysis/composables/useOpenAiAuth'
 import { useDatasetLibrary } from '@/features/data-analysis/composables/useDatasetLibrary'
@@ -30,7 +30,7 @@ const sharedAnalysis = ref<SharedAnalysisSnapshot | null>(null)
 const isCompactLayout = ref(false)
 const isSidebarOpen = ref(false)
 const isAnalyticsPanelOpen = ref(false)
-const dataAnalysisLayoutRef = ref<InstanceType<typeof DataAnalysisLayout> | null>(null)
+const portalLayoutRef = ref<InstanceType<typeof PortalLayout> | null>(null)
 
 const {
   sidebarWidth,
@@ -146,7 +146,7 @@ const {
   syncSessionSummaryWithState,
   revealSessionSummary,
   loadDatasets,
-  openDatasetPicker: () => dataAnalysisLayoutRef.value?.openDatasetPicker(),
+  openDatasetPicker: () => portalLayoutRef.value?.openDatasetPicker(),
 })
 
 const recentSessions = computed<SessionItem[]>(() => {
@@ -361,8 +361,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <DataAnalysisLayout
-    ref="dataAnalysisLayoutRef"
+  <PortalLayout
+    ref="portalLayoutRef"
     :sidebar-width="sidebarWidth"
     :is-resizing-sidebar="isResizingSidebar"
     :analytics-pane-width="analyticsPaneWidth"
