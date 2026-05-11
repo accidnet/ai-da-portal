@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 import AnalysisConnectedDataPane from './AnalysisConnectedDataPane.vue'
 import AnalysisVisualizationPane from './AnalysisVisualizationPane.vue'
+import { ANALYSIS_RIGHT_PANE_MODE_STORAGE_KEY } from '@/features/data-analysis/constants/analysisPage'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -11,6 +12,7 @@ import type {
 } from '@/features/data-analysis/types'
 
 type PaneMode = 'visualization' | 'data'
+const DEFAULT_PANE_MODE: PaneMode = 'visualization'
 
 defineProps<{
   shellAnalytics: AnalyticsData
@@ -36,12 +38,35 @@ const emit = defineEmits<{
   detachDataset: [datasetId: string]
 }>()
 
-const activeMode = ref<PaneMode>('data')
+function isPaneMode(value: string | null): value is PaneMode {
+  return value === 'visualization' || value === 'data'
+}
+
+/** 마지막으로 선택한 우측 패널 모드를 복원하고, 저장값이 없으면 시각화를 기본값으로 사용합니다. */
+function readStoredPaneMode(): PaneMode {
+  if (typeof window === 'undefined') {
+    return DEFAULT_PANE_MODE
+  }
+
+  const storedMode = window.localStorage.getItem(ANALYSIS_RIGHT_PANE_MODE_STORAGE_KEY)
+  return isPaneMode(storedMode) ? storedMode : DEFAULT_PANE_MODE
+}
+
+const activeMode = ref<PaneMode>(readStoredPaneMode())
 
 /** 우측 패널에서 표시할 분석 보조 화면을 전환합니다. */
 function setMode(mode: PaneMode) {
   activeMode.value = mode
 }
+
+watch(activeMode, (mode) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  // 새로고침이나 재진입 시 마지막 선택한 우측 패널을 유지합니다.
+  window.localStorage.setItem(ANALYSIS_RIGHT_PANE_MODE_STORAGE_KEY, mode)
+})
 </script>
 
 <template>
