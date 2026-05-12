@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef } from 'vue'
+import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
 import type {
@@ -10,14 +10,8 @@ import type {
   ConversationData,
   DatasetAsset,
   DatasetLibraryItem,
-  SessionItem,
   WorkspacePayload,
 } from '@/features/data-analysis/types'
-
-type RoutedPortalPage = {
-  openDatasetPicker?: () => void
-  openInteractionPicker?: () => void
-}
 
 defineProps<{
   analyticsPaneWidth: number
@@ -42,12 +36,7 @@ defineProps<{
   uploadError: string | null
   analyticsError: string | null
   canExportReport: boolean
-  pendingAttachmentName: string | null
-  pendingAttachmentMeta: string | null
   connectedDatasets: DatasetAsset[]
-  sessionSummaries: SessionItem[]
-  sessionHubSearchQuery: string
-  sessionHubError: string | null
   isSessionMutating: boolean
   datasetsLibrary: DatasetLibraryItem[]
   selectedDatasetId: string | null
@@ -56,47 +45,32 @@ defineProps<{
   isDatasetMutating: boolean
 }>()
 
+const datasetPickerRef = ref<HTMLInputElement | null>(null)
+
 const emit = defineEmits<{
   toggleSidebarPanel: []
   toggleAnalyticsPanel: []
-  sessionHubSearchChange: [value: string]
-  openSession: [sessionId: string]
-  renameSession: [payload: { sessionId: string; title: string }]
-  createSession: []
-  deleteSession: [sessionId: string]
   datasetLibrarySearchChange: [value: string]
   selectDataset: [datasetId: string]
   attachDataset: [datasetId: string]
   detachDataset: [datasetId: string]
   deleteDataset: [datasetId: string]
-  interactionFileChange: [event: Event]
   datasetFileChange: [event: Event]
-  dropFile: [files: File[]]
-  removeAttachment: []
   send: [message: string]
   analyticsResizeStart: [event: PointerEvent]
   toggleFullscreen: []
   exportReport: []
   shareReport: []
   closeAnalyticsPanel: []
-  uploadDataset: []
 }>()
-
-const routedPageRef = shallowRef<RoutedPortalPage | null>(null)
 
 /** 현재 main route page의 데이터셋 업로드 선택창을 엽니다. */
 function openDatasetPicker() {
-  routedPageRef.value?.openDatasetPicker?.()
-}
-
-/** 현재 main route page의 채팅 첨부 선택창을 엽니다. */
-function openInteractionPicker() {
-  routedPageRef.value?.openInteractionPicker?.()
+  datasetPickerRef.value?.click()
 }
 
 defineExpose({
   openDatasetPicker,
-  openInteractionPicker,
 })
 </script>
 
@@ -127,7 +101,6 @@ defineExpose({
       <RouterView v-slot="{ Component }">
         <component
           :is="Component"
-          ref="routedPageRef"
           :analytics-pane-width="analyticsPaneWidth"
           :is-resizing-analytics-pane="isResizingAnalyticsPane"
           :is-analytics-fullscreen="isAnalyticsFullscreen"
@@ -148,33 +121,20 @@ defineExpose({
           :upload-error="uploadError"
           :analytics-error="analyticsError"
           :can-export-report="canExportReport"
-          :pending-attachment-name="pendingAttachmentName"
-          :pending-attachment-meta="pendingAttachmentMeta"
           :connected-datasets="connectedDatasets"
-          :session-summaries="sessionSummaries"
-          :session-hub-search-query="sessionHubSearchQuery"
-          :session-hub-error="sessionHubError"
           :is-session-mutating="isSessionMutating"
           :datasets-library="datasetsLibrary"
           :selected-dataset-id="selectedDatasetId"
           :dataset-library-search-query="datasetLibrarySearchQuery"
           :dataset-library-error="datasetLibraryError"
           :is-dataset-mutating="isDatasetMutating"
-          @upload-dataset="emit('uploadDataset')"
-          @session-hub-search-change="(value: string) => emit('sessionHubSearchChange', value)"
-          @open-session="(sessionId: string) => emit('openSession', sessionId)"
-          @rename-session="(payload: { sessionId: string; title: string }) => emit('renameSession', payload)"
-          @create-session="emit('createSession')"
-          @delete-session="(sessionId: string) => emit('deleteSession', sessionId)"
+          @upload-dataset="openDatasetPicker"
           @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
           @select-dataset="(datasetId: string) => emit('selectDataset', datasetId)"
           @attach-dataset="(datasetId: string) => emit('attachDataset', datasetId)"
           @detach-dataset="(datasetId: string) => emit('detachDataset', datasetId)"
           @delete-dataset="(datasetId: string) => emit('deleteDataset', datasetId)"
-          @interaction-file-change="(event: Event) => emit('interactionFileChange', event)"
           @dataset-file-change="(event: Event) => emit('datasetFileChange', event)"
-          @drop-file="(files: File[]) => emit('dropFile', files)"
-          @remove-attachment="emit('removeAttachment')"
           @send="(message: string) => emit('send', message)"
           @analytics-resize-start="(event: PointerEvent) => emit('analyticsResizeStart', event)"
           @toggle-fullscreen="emit('toggleFullscreen')"
@@ -184,6 +144,14 @@ defineExpose({
         />
       </RouterView>
     </div>
+
+    <input
+      ref="datasetPickerRef"
+      class="dataset-picker"
+      type="file"
+      accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      @change="(event) => emit('datasetFileChange', event)"
+    />
   </main>
 </template>
 
@@ -246,6 +214,14 @@ defineExpose({
 
 .export-message {
   color: #1d6b45;
+}
+
+.dataset-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (max-width: 960px) {

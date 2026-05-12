@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import PortalMainLayout from './PortalMainLayout.vue'
 import PortalSidebarLayout from './PortalSidebarLayout.vue'
@@ -17,15 +18,16 @@ import type {
   SessionItem,
   SharedAnalysisSnapshot,
 } from '@/features/data-analysis/types'
-import { createWelcomeMessages, formatFileSize, resolveScreenFromHash } from '@/features/data-analysis/utils/analysisPageHelpers'
+import { createWelcomeMessages } from '@/features/data-analysis/utils/analysisPageHelpers'
 import { getSharedAnalysisIdFromUrl, loadSharedAnalysisSnapshot, openAnalysisPreview } from '@/features/data-analysis/utils/analysisShare'
 import { fetchHealthcheck } from '@/shared/api/portalApi'
 
 const connectionStatus = ref<BackendConnectionStatus>('checking')
-const currentScreen = ref<AnalysisScreen>(resolveScreenFromHash())
+const route = useRoute()
+const router = useRouter()
+const currentScreen = ref<AnalysisScreen>(screenFromRouteName(route.name))
 const searchQuery = ref('')
 const activeWorkspaceId = ref<string | null>(null)
-const sessionHubSearchQuery = ref('')
 const datasetLibrarySearchQuery = ref('')
 const isHelpDialogOpen = ref(false)
 const sharedAnalysis = ref<SharedAnalysisSnapshot | null>(null)
@@ -60,11 +62,18 @@ const {
 
 let removeSessionLinks: ((sessionId: string) => void) | null = null
 
+function screenFromRouteName(routeName: unknown): AnalysisScreen {
+  return routeName === 'data-sources' ? 'datasets' : 'dashboard'
+}
+
+function routeNameFromScreen(screen: AnalysisScreen): 'analysis' | 'data-sources' {
+  return screen === 'datasets' ? 'data-sources' : 'analysis'
+}
+
 const {
   activeSessionId,
   sessionSummaries,
   sessionStates,
-  sessionHubError,
   isSessionMutating,
   ensureSessionState,
   updateSessionTitleLocally,
@@ -74,7 +83,6 @@ const {
   revealSessionSummary,
   createAndSelectSession,
   selectSession,
-  handleRenameSession,
   handleDeleteSession,
 } = useAnalysisSessions({
   currentScreen,
@@ -125,7 +133,6 @@ const analyticsPayload = computed(() => activeSessionState.value?.analyticsPaylo
 const workspacePayload = computed(() => activeSessionState.value?.workspacePayload ?? null)
 
 const {
-  pendingAttachment,
   chatError,
   analyticsError,
   exportMessage,
@@ -133,10 +140,7 @@ const {
   isRunningAnalysis,
   isSendingInteraction,
   canExportReport,
-  clearPendingAttachment,
   clearInteractionFeedback,
-  queueInteractionFile,
-  handleInteractionFileChange,
   handleSendMessage,
   cancelActiveChatStream,
   exportAnalyticsReport,
@@ -152,7 +156,6 @@ const {
   updateSessionTitleLocally,
   syncSessionSummaryWithState,
   revealSessionSummary,
-  loadDatasets,
   openDatasetPicker: () => mainLayoutRef.value?.openDatasetPicker(),
 })
 
@@ -174,9 +177,7 @@ const workspaceSessions = computed<Record<string, SessionItem[]>>(() => {
 const conversation = computed<ConversationData>(() => ({
   messages: activeSessionState.value?.messages ?? createWelcomeMessages(),
   thinkingLabel: isSending.value
-    ? isSendingInteraction.value
-      ? '파일을 업로드하고 데이터를 분석하고 있어요...'
-      : '데이터를 분석하고 있어요...'
+    ? '데이터를 분석하고 있어요...'
     : isUploading.value
       ? '데이터셋을 업로드하고 있어요...'
       : isRunningAnalysis.value
@@ -189,21 +190,9 @@ const composer = computed<ComposerData>(() => {
   return {
     chips: [],
     placeholder: activeDataset.value
-      ? `${activeDataset.value.filename} 데이터에 대해 질문하거나 다른 파일을 추가해보세요...`
-      : '분석 요청을 입력하고 CSV 같은 파일을 함께 첨부해보세요...',
+      ? `${activeDataset.value.filename} 데이터에 대해 질문해보세요...`
+      : '데이터 소스 화면에서 파일을 먼저 등록한 뒤 분석 요청을 입력해 주세요.',
   }
-})
-
-const pendingAttachmentName = computed(() => {
-  if (pendingAttachment.value.length === 0) return null
-  if (pendingAttachment.value.length === 1) return pendingAttachment.value[0].name
-  return `${pendingAttachment.value[0].name} 외 ${pendingAttachment.value.length - 1}개`
-})
-
-const pendingAttachmentMeta = computed(() => {
-  if (pendingAttachment.value.length === 0) return null
-  const totalSize = pendingAttachment.value.reduce((sum, file) => sum + file.size, 0)
-  return `${pendingAttachment.value.length}개 파일 · ${formatFileSize(totalSize)} · 메시지와 함께 전송`
 })
 
 const sharedAnalysisCreatedAtLabel = computed(() => {
@@ -221,13 +210,10 @@ function resetWorkspaceFeedback() {
 
 async function handleScreenChange(screen: AnalysisScreen) {
   currentScreen.value = screen
+  await router.push({ name: routeNameFromScreen(screen) })
   if (screen === 'datasets') {
     await loadDatasets()
   }
-}
-
-function handleSessionHubSearchChange(value: string) {
-  sessionHubSearchQuery.value = value
 }
 
 function handleDatasetLibrarySearchChange(value: string) {
@@ -237,9 +223,9 @@ function handleDatasetLibrarySearchChange(value: string) {
 async function handleCreateSession() {
   resetWorkspaceFeedback()
   await createAndSelectSession()
-  sessionHubSearchQuery.value = ''
   searchQuery.value = ''
   currentScreen.value = 'dashboard'
+  await router.push({ name: 'analysis' })
 }
 
 async function handleSelectWorkspace(workspaceId: string) {
@@ -247,31 +233,17 @@ async function handleSelectWorkspace(workspaceId: string) {
   resetWorkspaceFeedback()
   await createAndSelectSession()
   currentScreen.value = 'dashboard'
+  await router.push({ name: 'analysis' })
 }
 
 async function handleSelectSidebarSession(sessionId: string) {
   closeSidebarPanel()
   await selectSession(sessionId, 'dashboard')
+  await router.push({ name: 'analysis' })
 }
 
 async function handleWorkspaceSend(message: string) {
-  await handleSendMessage(message, {
-    setUploadError: (message) => {
-      uploadError.value = message
-    },
-  })
-}
-
-function handleWorkspaceDropFile(files: File[]) {
-  queueInteractionFile(files, (message) => {
-    uploadError.value = message
-  })
-}
-
-function onInteractionFileChange(event: Event) {
-  handleInteractionFileChange(event, (message) => {
-    uploadError.value = message
-  })
+  await handleSendMessage(message)
 }
 
 function openHelpDialog() {
@@ -346,8 +318,22 @@ watch(currentScreen, async (screen) => {
   }
 })
 
-watch(currentScreen, (screen) => {
-  window.location.hash = screen === 'dashboard' ? '#/dashboard' : screen === 'datasets' ? '#/datasets' : '#/sessions'
+watch(
+  () => route.name,
+  async (routeName) => {
+    const nextScreen = screenFromRouteName(routeName)
+    currentScreen.value = nextScreen
+    if (nextScreen === 'datasets' && datasetsLibrary.value.length === 0) {
+      await loadDatasets()
+    }
+  },
+  { immediate: true },
+)
+
+watch(currentScreen, async (screen) => {
+  if (route.name !== routeNameFromScreen(screen)) {
+    await router.push({ name: routeNameFromScreen(screen) })
+  }
 })
 
 onMounted(async () => {
@@ -375,6 +361,7 @@ onMounted(async () => {
     if (snapshot) {
       sharedAnalysis.value = snapshot
       currentScreen.value = 'dashboard'
+      await router.push({ name: 'analysis' })
     } else {
       exportMessage.value = '공유 링크를 찾지 못했어요. 같은 브라우저에서 생성한 링크인지 확인해 주세요.'
     }
@@ -448,12 +435,7 @@ onBeforeUnmount(() => {
       :upload-error="uploadError"
       :analytics-error="analyticsError"
       :can-export-report="canExportReport"
-      :pending-attachment-name="pendingAttachmentName"
-      :pending-attachment-meta="pendingAttachmentMeta"
       :connected-datasets="activeSessionDatasets"
-      :session-summaries="sessionSummaries"
-      :session-hub-search-query="sessionHubSearchQuery"
-      :session-hub-error="sessionHubError"
       :is-session-mutating="isSessionMutating"
       :datasets-library="datasetsLibrary"
       :selected-dataset-id="selectedDatasetId"
@@ -462,27 +444,18 @@ onBeforeUnmount(() => {
       :is-dataset-mutating="isDatasetMutating"
       @toggle-sidebar-panel="toggleSidebarPanel"
       @toggle-analytics-panel="toggleAnalyticsPanel"
-      @session-hub-search-change="handleSessionHubSearchChange"
-      @open-session="(sessionId) => selectSession(sessionId, 'dashboard')"
-      @rename-session="handleRenameSession"
-      @create-session="handleCreateSession"
-      @delete-session="handleDeleteSession"
       @dataset-library-search-change="handleDatasetLibrarySearchChange"
       @select-dataset="handleSelectDataset"
       @attach-dataset="handleAttachDataset"
       @detach-dataset="handleDetachDataset"
       @delete-dataset="handleDeleteDataset"
-      @interaction-file-change="onInteractionFileChange"
       @dataset-file-change="handleDatasetFileChange"
-      @drop-file="handleWorkspaceDropFile"
-      @remove-attachment="clearPendingAttachment"
       @send="handleWorkspaceSend"
       @analytics-resize-start="startAnalyticsPaneResize"
       @toggle-fullscreen="toggleAnalyticsFullscreen"
       @export-report="exportAnalyticsReport"
       @share-report="shareAnalyticsReport"
       @close-analytics-panel="closeAnalyticsPanel"
-      @upload-dataset="mainLayoutRef?.openDatasetPicker()"
     />
 
     <div v-if="isHelpDialogOpen" class="analysis-overlay" @click.self="closeHelpDialog">

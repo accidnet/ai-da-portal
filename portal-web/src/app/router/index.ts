@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import PortalLayout from '@/layouts/portal/PortalLayout.vue'
-import DataAnalysisPage from '@/pages/DataAnalysisPage.vue'
+import AnalysisPage from '@/pages/AnalysisPage.vue'
+import DataSourcesPage from '@/pages/DataSourcesPage.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -10,8 +11,17 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        name: 'data-analysis',
-        component: DataAnalysisPage,
+        redirect: { name: 'analysis' },
+      },
+      {
+        path: 'analysis',
+        name: 'analysis',
+        component: AnalysisPage,
+      },
+      {
+        path: 'data-sources',
+        name: 'data-sources',
+        component: DataSourcesPage,
       },
     ],
   },

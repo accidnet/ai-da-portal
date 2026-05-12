@@ -7,25 +7,18 @@ const props = defineProps<{
   conversation: ConversationData
   composer: ComposerData
   sendDisabled?: boolean
-  attachDisabled?: boolean
   errorMessage?: string | null
-  attachedFileName?: string | null
-  attachedFileMeta?: string | null
 }>()
 
 const emit = defineEmits<{
   send: [message: string]
-  attach: []
-  dropFile: [files: File[]]
-  removeAttachment: []
 }>()
 
 const draft = ref('')
-const isDragActive = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 const canSend = computed(
-  () => (draft.value.trim().length > 0 || Boolean(props.attachedFileName)) && !props.sendDisabled,
+  () => draft.value.trim().length > 0 && !props.sendDisabled,
 )
 
 const inlineThinkingMessageIndex = computed(() => {
@@ -134,7 +127,7 @@ function formatPlanStepMarker(status: 'pending' | 'in_progress' | 'completed'): 
 
 function submit() {
   const message = draft.value.trim()
-  if ((!message && !props.attachedFileName) || props.sendDisabled) {
+  if (!message || props.sendDisabled) {
     return
   }
   emit('send', message)
@@ -147,48 +140,6 @@ function onKeydown(event: KeyboardEvent) {
     event.preventDefault()
     submit()
   }
-}
-
-function handleDragEnter() {
-  if (props.attachDisabled) {
-    return
-  }
-
-  isDragActive.value = true
-}
-
-function handleDragOver(event: DragEvent) {
-  if (props.attachDisabled) {
-    return
-  }
-
-  event.preventDefault()
-  isDragActive.value = true
-}
-
-function handleDragLeave(event: DragEvent) {
-  const nextTarget = event.relatedTarget as Node | null
-  if (nextTarget && event.currentTarget instanceof HTMLElement && event.currentTarget.contains(nextTarget)) {
-    return
-  }
-
-  isDragActive.value = false
-}
-
-function handleDrop(event: DragEvent) {
-  if (props.attachDisabled) {
-    return
-  }
-
-  event.preventDefault()
-  isDragActive.value = false
-  const files = Array.from(event.dataTransfer?.files ?? [])
-
-  if (!files.length) {
-    return
-  }
-
-  emit('dropFile', files)
 }
 
 function syncTextareaHeight() {
@@ -207,13 +158,6 @@ watch(draft, () => {
   nextTick(syncTextareaHeight)
 })
 
-watch(
-  () => props.attachedFileName,
-  () => {
-    nextTick(syncTextareaHeight)
-  },
-)
-
 onMounted(() => {
   syncTextareaHeight()
 })
@@ -222,11 +166,6 @@ onMounted(() => {
 <template>
   <section
     class="conversation-shell"
-    :class="{ 'conversation-shell--drag-active': isDragActive }"
-    @dragenter="handleDragEnter"
-    @dragover="handleDragOver"
-    @dragleave="handleDragLeave"
-    @drop="handleDrop"
   >
     <div class="conversation-scroll">
       <article
@@ -317,41 +256,12 @@ onMounted(() => {
         </div>
       </article>
 
-      <div v-if="isDragActive" class="drop-overlay" aria-hidden="true">
-        <div class="drop-overlay__card">
-          <span class="material-symbols-outlined">upload_file</span>
-          <strong>CSV 파일을 여기에 놓으세요</strong>
-          <p>드롭한 파일은 입력창에 첨부되고 전송 시 함께 분석됩니다.</p>
-        </div>
-      </div>
     </div>
 
     <footer class="composer-shell">
       <p v-if="errorMessage" class="composer-error">{{ errorMessage }}</p>
 
-      <div v-if="attachedFileName" class="composer-attachment">
-        <div class="composer-attachment__file-icon">
-          <span class="material-symbols-outlined">description</span>
-        </div>
-        <div class="composer-attachment__content">
-          <strong>{{ attachedFileName }}</strong>
-          <span>{{ attachedFileMeta ?? '메시지와 함께 전송 예정' }}</span>
-        </div>
-        <button type="button" :disabled="attachDisabled" @click="emit('removeAttachment')">
-          <span class="material-symbols-outlined">close</span>
-        </button>
-      </div>
-
       <div class="composer-box">
-        <button
-          type="button"
-          class="composer-icon-button"
-          aria-label="파일 첨부"
-          :disabled="attachDisabled"
-          @click="emit('attach')"
-        >
-          <span class="material-symbols-outlined">attach_file</span>
-        </button>
         <textarea
           ref="textareaRef"
           v-model="draft"
@@ -388,12 +298,6 @@ onMounted(() => {
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
-.conversation-shell--drag-active {
-  border-color: rgba(24, 74, 140, 0.36);
-  box-shadow: 0 0 0 4px rgba(24, 74, 140, 0.08);
-  transform: translateY(-1px);
-}
-
 .conversation-scroll {
   position: relative;
   min-height: 0;
@@ -401,42 +305,6 @@ onMounted(() => {
   overflow-y: auto;
   display: grid;
   gap: 24px;
-}
-
-.drop-overlay {
-  position: absolute;
-  inset: 16px;
-  display: grid;
-  place-items: center;
-  border-radius: 24px;
-  background: rgba(235, 243, 253, 0.88);
-  border: 2px dashed rgba(24, 74, 140, 0.28);
-  backdrop-filter: blur(4px);
-}
-
-.drop-overlay__card {
-  padding: 22px 24px;
-  border-radius: 22px;
-  text-align: center;
-  color: var(--color-primary-strong);
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 16px 34px rgba(16, 56, 104, 0.12);
-}
-
-.drop-overlay__card .material-symbols-outlined {
-  font-size: 2rem;
-}
-
-.drop-overlay__card strong {
-  display: block;
-  margin-top: 10px;
-  font-size: 1rem;
-}
-
-.drop-overlay__card p {
-  margin: 8px 0 0;
-  color: var(--color-text-muted);
-  font-size: 0.86rem;
 }
 
 .message-row {
@@ -813,69 +681,9 @@ onMounted(() => {
   font-size: 0.82rem;
 }
 
-.composer-attachment {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
-  border: 1px solid rgba(24, 74, 140, 0.12);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.composer-attachment__file-icon {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  color: var(--color-primary-strong);
-  background: var(--color-surface-muted);
-}
-
-.composer-attachment__content {
-  min-width: 0;
-  flex: 1;
-}
-
-.composer-attachment strong,
-.composer-attachment span {
-  display: block;
-}
-
-.composer-attachment strong {
-  color: var(--color-text);
-  font-size: 0.85rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer-attachment span {
-  margin-top: 4px;
-  color: var(--color-text-soft);
-  font-size: 0.74rem;
-}
-
-.composer-attachment button {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 12px;
-  color: var(--color-text-soft);
-  background: rgba(24, 74, 140, 0.08);
-  cursor: pointer;
-}
-
 .composer-box {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: end;
   padding: 12px;
@@ -885,7 +693,6 @@ onMounted(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
-.composer-icon-button,
 .composer-send-button {
   width: 44px;
   height: 44px;
@@ -897,19 +704,6 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.composer-icon-button {
-  color: var(--color-text-soft);
-  background: transparent;
-  transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
-}
-
-.composer-icon-button:hover:not(:disabled) {
-  color: var(--color-primary-strong);
-  background: rgba(24, 74, 140, 0.08);
-  box-shadow: 0 8px 18px rgba(16, 56, 104, 0.14);
-  transform: translateY(-1px);
-}
-
 .composer-send-button {
   border: 0;
   color: #fff;
@@ -917,8 +711,7 @@ onMounted(() => {
 }
 
 .composer-send-button:disabled,
-.composer-box textarea:disabled,
-.composer-icon-button:disabled {
+.composer-box textarea:disabled {
   opacity: 0.65;
   cursor: default;
 }

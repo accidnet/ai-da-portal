@@ -450,14 +450,6 @@ async function patchSession(
   return (await response.json()) as SessionDetailResponse
 }
 
-export async function updateSessionTitle(
-  sessionId: string,
-  title: string,
-  signal?: AbortSignal,
-): Promise<SessionDetailResponse> {
-  return patchSession(sessionId, { title }, signal)
-}
-
 export async function updateSessionPreferredDataset(
   sessionId: string,
   preferredDatasetId: string | null,
@@ -632,7 +624,6 @@ export async function streamChatMessage(
     workspaceId?: string | null
     message: string
     datasetIds?: string[]
-    attachedDatasetIds?: string[]
   },
   options: StreamChatMessageOptions = {},
 ): Promise<ChatResponse> {
@@ -648,8 +639,7 @@ export async function streamChatMessage(
       session_id: payload.sessionId,
       workspace_id: payload.workspaceId ?? null,
       message: payload.message,
-      uploaded_dataset_ids: payload.datasetIds ?? [],
-      attached_dataset_ids: payload.attachedDatasetIds ?? [],
+      dataset_ids: payload.datasetIds ?? [],
     }),
     signal: options.signal,
   })

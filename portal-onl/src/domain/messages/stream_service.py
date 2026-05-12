@@ -76,7 +76,7 @@ class MessageStreamService:
         user_message_id = self._message_repository.record_user_message(
             session_id=session_id,
             user_message=stream_request.message,
-            dataset_ids=stream_request.attached_dataset_ids,
+            dataset_ids=stream_request.dataset_ids,
         )
 
         # 스트리밍 시작
@@ -85,7 +85,7 @@ class MessageStreamService:
                 session_id=session_id,
                 user_message_id=user_message_id,
                 message=stream_request.message,
-                dataset_ids=stream_request.uploaded_dataset_ids,
+                dataset_ids=stream_request.dataset_ids,
                 agent_runtime=agent_runtime,
             ),
             media_type="text/event-stream",

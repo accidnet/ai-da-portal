@@ -1,6 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 
-import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions, updateSessionTitle } from '../../../shared/api/portalApi'
+import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions } from '../../../shared/api/portalApi'
 import type { AnalysisScreen, SessionItem } from '../types'
 import {
   ACTIVE_SESSION_STORAGE_KEY,
@@ -27,7 +27,7 @@ export function useAnalysisSessions(options: {
   const sessionSummaries = ref<SessionItem[]>([])
   const sessionStates = ref<Record<string, SessionRuntimeState>>({})
   const hiddenSessionSummaries = ref<Record<string, SessionItem>>({})
-  const sessionHubError = ref<string | null>(null)
+  const sessionError = ref<string | null>(null)
   const isSessionMutating = ref(false)
 
   let latestSnapshotRequestId = 0
@@ -133,7 +133,7 @@ export function useAnalysisSessions(options: {
     activeSessionId.value = DRAFT_SESSION_ID
     sessionStates.value[DRAFT_SESSION_ID] = createSessionState(DEFAULT_SESSION_TITLE)
     currentScreen.value = 'dashboard'
-    sessionHubError.value = null
+    sessionError.value = null
   }
 
   function isTemporarySession(sessionId: string | null): boolean {
@@ -203,7 +203,7 @@ export function useAnalysisSessions(options: {
           return
         }
       }
-      sessionHubError.value = null
+      sessionError.value = null
     } catch {
       if (!activeSessionId.value) {
         activeSessionId.value = LOCAL_SESSION_ID
@@ -217,7 +217,7 @@ export function useAnalysisSessions(options: {
         ]
         ensureSessionState(LOCAL_SESSION_ID, DEFAULT_SESSION_TITLE)
       }
-      sessionHubError.value = '세션 목록을 서버에서 불러오지 못해 로컬 세션으로 전환했어요.'
+      sessionError.value = '세션 목록을 서버에서 불러오지 못해 로컬 세션으로 전환했어요.'
     }
   }
 
@@ -280,10 +280,10 @@ export function useAnalysisSessions(options: {
         updatedAt: snapshot.session.updated_at,
         createdAt: snapshot.session.created_at,
       })
-      sessionHubError.value = null
+      sessionError.value = null
       return true
     } catch {
-      sessionHubError.value = '세션 메시지를 서버에서 불러오지 못했어요.'
+      sessionError.value = '세션 메시지를 서버에서 불러오지 못했어요.'
       return false
     }
   }
@@ -303,26 +303,6 @@ export function useAnalysisSessions(options: {
     await hydrateSessionSnapshot(sessionId)
   }
 
-  async function handleRenameSession(payload: { sessionId: string; title: string }) {
-    try {
-      isSessionMutating.value = true
-      const updated = await updateSessionTitle(payload.sessionId, payload.title)
-      updateSessionSummary(payload.sessionId, {
-        title: updated.title,
-        updatedAt: updated.updated_at,
-      })
-      const state = sessionStates.value[payload.sessionId]
-      if (state) {
-        state.title = updated.title
-      }
-      sessionHubError.value = null
-    } catch (error) {
-      sessionHubError.value = error instanceof Error ? error.message : '세션 제목을 수정하지 못했어요.'
-    } finally {
-      isSessionMutating.value = false
-    }
-  }
-
   async function handleDeleteSession(sessionId: string) {
     try {
       isSessionMutating.value = true
@@ -340,9 +320,9 @@ export function useAnalysisSessions(options: {
           openDraftSession()
         }
       }
-      sessionHubError.value = null
+      sessionError.value = null
     } catch (error) {
-      sessionHubError.value = error instanceof Error ? error.message : '세션을 삭제하지 못했어요.'
+      sessionError.value = error instanceof Error ? error.message : '세션을 삭제하지 못했어요.'
     } finally {
       isSessionMutating.value = false
     }
@@ -352,7 +332,7 @@ export function useAnalysisSessions(options: {
     activeSessionId,
     sessionSummaries,
     sessionStates,
-    sessionHubError,
+    sessionError,
     isSessionMutating,
     ensureSessionState,
     updateSessionSummary,
@@ -365,7 +345,6 @@ export function useAnalysisSessions(options: {
     hydrateSessionSnapshot,
     createAndSelectSession,
     selectSession,
-    handleRenameSession,
     handleDeleteSession,
   }
 }

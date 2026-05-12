@@ -1,11 +1,8 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
 import {
-  fetchDatasetPreview,
-  fetchDatasetProfile,
   resolveSessionTitle,
   streamChatMessage,
-  uploadDataset,
   type AgentChartStreamPayload,
   type AgentPlanStreamPayload,
   type AgentStateStreamPayload,
@@ -16,14 +13,10 @@ import type {
   AnalyticsPayload,
   ChatMessage,
   ChatSubMessage,
-  MessageAttachmentPreview,
 } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import {
   buildReportContent,
-  createAttachmentPreview,
-  formatFileSize,
-  isUploadableDatasetFile,
   normalizeAssistantMessage,
   sanitizeFileNameSegment,
 } from '../utils/analysisPageHelpers'
@@ -34,7 +27,7 @@ import {
   openAnalysisPreview,
   saveSharedAnalysisSnapshot,
 } from '../utils/analysisShare'
-import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessionState'
+import type { SessionRuntimeState } from '../utils/sessionState'
 
 export function useAnalysisInteractions(options: {
   activeSessionState: ComputedRef<SessionRuntimeState | null>
@@ -47,7 +40,6 @@ export function useAnalysisInteractions(options: {
   updateSessionTitleLocally: (sessionId: string, title: string) => void
   syncSessionSummaryWithState: (sessionId: string) => void
   revealSessionSummary: (sessionId: string, fallbackTitle?: string) => void
-  loadDatasets: () => Promise<void>
   openDatasetPicker: () => void
 }) {
   const {
@@ -61,17 +53,15 @@ export function useAnalysisInteractions(options: {
     updateSessionTitleLocally,
     syncSessionSummaryWithState,
     revealSessionSummary,
-    loadDatasets,
     openDatasetPicker,
   } = options
 
-  const interactionPickerRef = ref<HTMLInputElement | null>(null)
-  const pendingAttachment = ref<File[]>([])
   const chatError = ref<string | null>(null)
   const analyticsError = ref<string | null>(null)
   const exportMessage = ref<string | null>(null)
   const isSending = ref(false)
   const isRunningAnalysis = ref(false)
+  // 메시지 입력 첨부 업로드 제거 후에도 기존 layout prop 계약을 유지하기 위한 상태입니다.
   const isSendingInteraction = ref(false)
   let activeChatStreamController: AbortController | null = null
 
@@ -84,48 +74,10 @@ export function useAnalysisInteractions(options: {
     activeChatStreamController = null
   }
 
-  function openInteractionPicker() {
-    interactionPickerRef.value?.click()
-  }
-
-  function clearPendingAttachment() {
-    pendingAttachment.value = []
-  }
-
   function clearInteractionFeedback() {
     chatError.value = null
     analyticsError.value = null
     exportMessage.value = null
-  }
-
-  function formatAttachmentName(files: File[]): string {
-    if (files.length === 0) return ''
-    if (files.length === 1) return files[0].name
-    return `${files[0].name} 외 ${files.length - 1}개`
-  }
-
-  function formatAttachmentMeta(files: File[], suffix?: string): string {
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0)
-    const base = `${files.length}개 파일 · ${formatFileSize(totalSize)}`
-    return suffix ? `${base} · ${suffix}` : base
-  }
-
-  function queueInteractionFile(files: File | File[], setUploadError: (message: string | null) => void) {
-    const nextFiles = Array.isArray(files) ? files : [files]
-    const invalidFile = nextFiles.find((file) => !isUploadableDatasetFile(file))
-    if (invalidFile) {
-      setUploadError('CSV 또는 스프레드시트 파일만 업로드할 수 있어요.')
-      return
-    }
-    setUploadError(null)
-    pendingAttachment.value = nextFiles
-  }
-
-  function handleInteractionFileChange(event: Event, setUploadError: (message: string | null) => void) {
-    const input = event.target as HTMLInputElement
-    const files = Array.from(input.files ?? [])
-    input.value = ''
-    if (files.length) queueInteractionFile(files, setUploadError)
   }
 
   function applyStreamingAssistantState(
@@ -275,36 +227,24 @@ export function useAnalysisInteractions(options: {
     return streamedText.trim()
   }
 
-  async function handleSendMessage(message: string, options: { setUploadError: (message: string | null) => void }) {
+  async function handleSendMessage(message: string) {
     if (isSending.value || isRunningAnalysis.value) {
       return
     }
 
-    const { setUploadError } = options
-
     clearInteractionFeedback()
-    setUploadError(null)
     const sessionId = await ensureActiveSession()
     const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
-    const attachedFiles = pendingAttachment.value
-    const hasAttachedFiles = attachedFiles.length > 0
-    const userMessage = message || (hasAttachedFiles ? `${formatAttachmentName(attachedFiles)} 파일을 분석해줘.` : '')
+    const userMessage = message.trim()
+    if (!userMessage) return
     const shouldResolveSessionTitle = !sessionState.messages.some((entry) => entry.role === 'user')
     const userMessageEntry: ChatMessage = {
       role: 'user',
       text: userMessage,
-      attachmentStatus: hasAttachedFiles
-        ? {
-            filename: formatAttachmentName(attachedFiles),
-            meta: formatAttachmentMeta(attachedFiles),
-          }
-        : undefined,
     }
-    const userMessageIndex = sessionState.messages.length
     sessionState.messages = [...sessionState.messages, userMessageEntry]
     isSending.value = true
-    isSendingInteraction.value = hasAttachedFiles
-    pendingAttachment.value = []
+    isSendingInteraction.value = false
     const assistantMessageIndex = sessionState.messages.length
     const chatStreamController = new AbortController()
     activeChatStreamController = chatStreamController
@@ -321,8 +261,6 @@ export function useAnalysisInteractions(options: {
 
     try {
       const shouldSeparateNextAgentIteration: { current: boolean } = { current: false }
-      let attachmentPreview: MessageAttachmentPreview | undefined
-      let attachedDatasetIds: string[] = []
       if (shouldResolveSessionTitle) {
         void resolveSessionTitle(sessionId, userMessage)
           .then((response) => {
@@ -334,54 +272,12 @@ export function useAnalysisInteractions(options: {
           .catch(() => undefined)
       }
 
-      if (hasAttachedFiles) {
-        const uploadedDatasets = await Promise.all(
-          attachedFiles.map(async (file) => {
-            // 채팅 스트림의 중복 업로드를 막기 위해 업로드 API에서 데이터셋을 먼저 확정합니다.
-            const detail = await uploadDataset(file, sessionId)
-            const [preview, profile] = await Promise.all([
-              fetchDatasetPreview(detail.id),
-              fetchDatasetProfile(detail.id),
-            ])
-            return { detail, preview, profile, size: file.size }
-          }),
-        )
-        const datasets = uploadedDatasets.map(({ detail, preview, profile }) =>
-          mapDatasetInfoToAsset({ detail, preview, profile }),
-        )
-        attachedDatasetIds = datasets.map((dataset) => dataset.id)
-        const uploadedDatasetIds = new Set(datasets.map((dataset) => dataset.id))
-        sessionState.datasets = [
-          ...datasets,
-          ...sessionState.datasets.filter((item) => !uploadedDatasetIds.has(item.id)),
-        ]
-        sessionState.messages = sessionState.messages.map((entry, index) =>
-          index === userMessageIndex
-            ? {
-                ...entry,
-                attachmentStatus: {
-                  filename: formatAttachmentName(attachedFiles),
-                  meta: formatAttachmentMeta(attachedFiles, '업로드 완료'),
-                },
-              }
-            : entry,
-        )
-        const uploadedDataset = uploadedDatasets[0]
-        attachmentPreview = createAttachmentPreview(
-          uploadedDataset.detail.filename,
-          uploadedDataset.size,
-          uploadedDataset.preview,
-        )
-        await loadDatasets()
-      }
-
       const response = await streamChatMessage(
         {
           sessionId,
           workspaceId: activeWorkspaceId?.value ?? null,
           message: userMessage,
           datasetIds: sessionState.datasets.map((dataset) => dataset.id),
-          attachedDatasetIds,
         },
         {
           signal: chatStreamController.signal,
@@ -446,7 +342,6 @@ export function useAnalysisInteractions(options: {
         usedTools: response.used_tools,
         plan: response.plan.length ? response.plan : streamedAssistantPlan,
         planExplanation: response.plan_explanation?.trim() || streamedAssistantPlanExplanation,
-        attachmentPreview,
       }
 
       sessionState.messages = sessionState.messages.map((entry, index) =>
@@ -468,20 +363,6 @@ export function useAnalysisInteractions(options: {
         error instanceof Error
           ? error.message
           : '메시지를 보내지 못했어요. ChatGPT 연결과 백엔드 상태를 확인해 주세요.'
-      sessionState.messages = sessionState.messages.map((entry, index) =>
-        index === userMessageIndex
-          ? {
-              ...entry,
-              attachmentStatus: hasAttachedFiles
-                ? {
-                    filename: formatAttachmentName(attachedFiles),
-                    meta: formatAttachmentMeta(attachedFiles, '업로드 실패'),
-                  }
-                : entry.attachmentStatus,
-            }
-          : entry,
-      )
-      pendingAttachment.value = attachedFiles
       if (!hasVisibleAssistantContent(sessionState.messages[assistantMessageIndex])) {
         sessionState.messages = sessionState.messages.filter(
           (_, index) => index !== assistantMessageIndex,
@@ -625,8 +506,6 @@ export function useAnalysisInteractions(options: {
   )
 
   return {
-    interactionPickerRef,
-    pendingAttachment,
     chatError,
     analyticsError,
     exportMessage,
@@ -634,11 +513,7 @@ export function useAnalysisInteractions(options: {
     isRunningAnalysis,
     isSendingInteraction,
     canExportReport,
-    openInteractionPicker,
-    clearPendingAttachment,
     clearInteractionFeedback,
-    queueInteractionFile,
-    handleInteractionFileChange,
     handleSendMessage,
     cancelActiveChatStream,
     runAnalysis,

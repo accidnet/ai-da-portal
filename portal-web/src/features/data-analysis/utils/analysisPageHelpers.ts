@@ -3,24 +3,16 @@ import type {
   ChatMessage,
   DatasetLibraryItem,
   MessageAttachmentPreview,
-  AnalysisScreen,
   SessionItem,
   WorkspacePayload,
 } from '../types'
-import { DEFAULT_SESSION_TITLE, SCREEN_HASHES } from '../constants/analysisPage'
+import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import type { SessionRuntimeState } from './sessionState'
 import type {
   DatasetLibraryResponse,
   OpenAiAuthStatusResponse,
   SessionSummaryResponse,
 } from '../../../shared/api/portalApi'
-
-export function resolveScreenFromHash(hash = window.location.hash): AnalysisScreen {
-  const normalizedHash = hash.trim().toLowerCase()
-  if (normalizedHash === SCREEN_HASHES.sessions) return 'sessions'
-  if (normalizedHash === SCREEN_HASHES.datasets) return 'datasets'
-  return 'dashboard'
-}
 
 export function clampAnalyticsPaneWidth(width: number): number {
   return Math.min(Math.max(width, 320), 720)

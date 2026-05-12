@@ -29,16 +29,11 @@ defineProps<{
   isCompactLayout: boolean
   isAnalyticsPanelOpen: boolean
   canExportReport: boolean
-  pendingAttachmentName: string | null
-  pendingAttachmentMeta: string | null
   connectedDatasets: DatasetAsset[]
   isDatasetMutating: boolean
 }>()
 
 const emit = defineEmits<{
-  attach: []
-  dropFile: [files: File[]]
-  removeAttachment: []
   send: [message: string]
   resizeStart: [event: PointerEvent]
   toggleFullscreen: []
@@ -65,13 +60,7 @@ const emit = defineEmits<{
       :conversation="conversation"
       :composer="composer"
       :send-disabled="isSending || isRunningAnalysis"
-      :attach-disabled="isUploading || isRunningAnalysis"
       :error-message="chatError || uploadError"
-      :attached-file-name="pendingAttachmentName"
-      :attached-file-meta="pendingAttachmentMeta"
-      @attach="emit('attach')"
-      @drop-file="(files) => emit('dropFile', files)"
-      @remove-attachment="emit('removeAttachment')"
       @send="(message) => emit('send', message)"
     />
     <button class="pane-resizer" type="button" aria-label="분석 패널 너비 조절" @pointerdown="(event) => emit('resizeStart', event)">

@@ -50,9 +50,8 @@ export function loadSharedAnalysisSnapshot(shareId: string): SharedAnalysisSnaps
 export function buildSharedAnalysisUrl(shareId: string): string {
   const url = new URL(window.location.href)
   url.searchParams.set('share', shareId)
-  if (!url.hash) {
-    url.hash = '#/dashboard'
-  }
+  url.pathname = '/analysis'
+  url.hash = ''
   return url.toString()
 }
 

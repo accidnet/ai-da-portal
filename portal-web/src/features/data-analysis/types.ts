@@ -6,7 +6,7 @@ export interface NavItem {
   action?: 'create-session'
 }
 
-export type AnalysisScreen = 'dashboard' | 'sessions' | 'datasets'
+export type AnalysisScreen = 'dashboard' | 'datasets'
 
 export interface LinkedDatasetSummary {
   id: string
