@@ -27,6 +27,27 @@
 | `profile`      | json     | yes      | 데이터 profile payload |
 | `created_at`   | datetime | no       | 생성 시각              |
 
+### `data_source_items`
+
+원천 데이터 파일/폴더 트리를 DB에서 재현하기 위한 flat 노드 테이블입니다. 실제 파일은 flat storage에 저장하고, 트리 구조는 `relative_path`, `parent_id`, `depth`로 복원합니다.
+
+| column          | type     | nullable | description                                      |
+| --------------- | -------- | -------- | ------------------------------------------------ |
+| `id`            | string   | no       | 파일/폴더 노드 ID                                |
+| `parent_id`     | string   | yes      | 상위 `data_source_items.id` FK                   |
+| `item_type`     | string   | no       | `file` 또는 `folder`                             |
+| `name`          | string   | no       | 파일/폴더 이름                                   |
+| `relative_path` | text     | no       | 업로드 루트 기준 상대 경로                       |
+| `depth`         | integer  | no       | 트리 깊이                                        |
+| `sort_order`    | integer  | no       | 동일 레벨 표시 순서                              |
+| `content_type`  | string   | yes      | 파일 MIME type                                   |
+| `size_bytes`    | integer  | yes      | 파일 크기. 폴더는 null                           |
+| `storage_path`  | text     | yes      | flat 저장소의 실제 파일 경로. 폴더는 null        |
+| `created_at`    | datetime | no       | 생성 시각                                        |
+| `updated_at`    | datetime | no       | 마지막 갱신 시각                                 |
+
+`relative_path`는 unique입니다.
+
 ### `workspaces`
 
 사용자가 생성한 포털 워크스페이스의 최소 메타데이터입니다.

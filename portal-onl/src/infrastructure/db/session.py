@@ -5,9 +5,11 @@ from sqlalchemy.orm import sessionmaker
 
 from core.config import get_settings
 from infrastructure.db.base import Base
+from features.data_sources.infrastructure import orm as data_source_db_orm
 from features.workspaces.infrastructure import orm as workspace_db_orm
 from infrastructure.db import models as db_models
 
+del data_source_db_orm
 del workspace_db_orm
 del db_models
 
