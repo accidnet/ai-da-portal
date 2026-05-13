@@ -3,11 +3,13 @@ import { computed, ref } from "vue";
 
 import type {
   DataSourceItem,
+  DataSourceUploadProgress,
   UploadPickerMode,
 } from "@/features/data-source/types";
 
 const props = defineProps<{
   items: DataSourceItem[];
+  uploadProgress: DataSourceUploadProgress;
 }>();
 
 const emit = defineEmits<{
@@ -23,6 +25,15 @@ const collapsedFolderIds = ref<Set<string>>(new Set());
 const uploadedItems = computed(() => {
   return flattenVisibleItems(props.items);
 });
+const isUploadProgressVisible = computed(() => props.uploadProgress.status !== "idle");
+const uploadProgressTone = computed(() => ({
+  "source-upload-progress--active":
+    props.uploadProgress.status === "queued" ||
+    props.uploadProgress.status === "uploading" ||
+    props.uploadProgress.status === "processing",
+  "source-upload-progress--completed": props.uploadProgress.status === "completed",
+  "source-upload-progress--failed": props.uploadProgress.status === "failed",
+}));
 
 /** 트리 응답을 파일 브라우저 행 목록으로 펼치되 접힌 폴더 하위는 제외합니다. */
 function flattenVisibleItems(items: DataSourceItem[]): DataSourceItem[] {
@@ -78,6 +89,13 @@ function formatDate(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+/** 바이트 값을 파일 업로드 진행 표시용으로 변환합니다. */
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** 원천 데이터 상세 패널을 전환합니다. */
@@ -148,6 +166,33 @@ function setActiveDetail(detail: SourceDetail) {
           </button>
         </div>
       </header>
+
+      <div
+        v-if="isUploadProgressVisible"
+        class="source-upload-progress"
+        :class="uploadProgressTone"
+        role="status"
+      >
+        <div class="source-upload-progress__meta">
+          <span class="material-symbols-outlined">
+            {{ uploadProgress.status === "failed" ? "error" : "cloud_upload" }}
+          </span>
+          <div>
+            <strong>{{ uploadProgress.message }}</strong>
+            <small>
+              {{ uploadProgress.fileCount }}개 항목 ·
+              {{ formatBytes(uploadProgress.loadedBytes) }} /
+              {{ formatBytes(uploadProgress.totalBytes) }}
+            </small>
+          </div>
+        </div>
+        <div class="source-upload-progress__track" aria-hidden="true">
+          <span :style="{ width: `${uploadProgress.percent}%` }"></span>
+        </div>
+        <strong class="source-upload-progress__percent">
+          {{ uploadProgress.percent }}%
+        </strong>
+      </div>
 
       <div class="source-file-toolbar">
         <button type="button" class="file-tool-button" disabled>
@@ -342,7 +387,7 @@ function setActiveDetail(detail: SourceDetail) {
 .source-detail-panel {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px;
   overflow: hidden;
@@ -384,6 +429,94 @@ function setActiveDetail(detail: SourceDetail) {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.source-upload-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(24, 74, 140, 0.18);
+  border-radius: 12px;
+  background: rgba(248, 251, 255, 0.96);
+}
+
+.source-upload-progress__meta {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.source-upload-progress__meta .material-symbols-outlined {
+  color: var(--color-primary);
+}
+
+.source-upload-progress__meta strong,
+.source-upload-progress__meta small {
+  display: block;
+}
+
+.source-upload-progress__meta strong {
+  color: var(--color-text);
+  font-size: 0.88rem;
+}
+
+.source-upload-progress__meta small {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.source-upload-progress__track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.source-upload-progress__track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width 0.18s ease;
+}
+
+.source-upload-progress__percent {
+  color: var(--color-primary);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.source-upload-progress--completed {
+  border-color: rgba(44, 139, 92, 0.24);
+  background: rgba(240, 250, 245, 0.96);
+}
+
+.source-upload-progress--completed .source-upload-progress__track span {
+  background: #2c8b5c;
+}
+
+.source-upload-progress--completed .source-upload-progress__percent,
+.source-upload-progress--completed .source-upload-progress__meta .material-symbols-outlined {
+  color: #1d6b45;
+}
+
+.source-upload-progress--failed {
+  border-color: rgba(189, 73, 73, 0.26);
+  background: rgba(255, 247, 247, 0.96);
+}
+
+.source-upload-progress--failed .source-upload-progress__track span {
+  background: #bd4949;
+}
+
+.source-upload-progress--failed .source-upload-progress__percent,
+.source-upload-progress--failed .source-upload-progress__meta .material-symbols-outlined {
+  color: #a43f3f;
 }
 
 .file-tool-button {
@@ -514,6 +647,7 @@ function setActiveDetail(detail: SourceDetail) {
 
 .source-detail-panel--pending {
   grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto;
   align-items: center;
 }
 
@@ -548,6 +682,15 @@ function setActiveDetail(detail: SourceDetail) {
 
   .source-detail-header {
     display: grid;
+  }
+
+  .source-upload-progress {
+    grid-template-columns: 1fr auto;
+  }
+
+  .source-upload-progress__track {
+    grid-column: 1 / -1;
+    order: 3;
   }
 
   .source-file-browser__body {

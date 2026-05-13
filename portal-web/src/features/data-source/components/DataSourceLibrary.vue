@@ -5,6 +5,7 @@ import DatasetCatalogPanel from "./DatasetCatalogPanel.vue";
 import SourceDataPanel from "./SourceDataPanel.vue";
 import type {
   DataSourceItem,
+  DataSourceUploadProgress,
   DatasetLibraryItem,
   UploadPickerMode,
 } from "@/features/data-source/types";
@@ -12,6 +13,7 @@ import type {
 const props = defineProps<{
   datasets: DatasetLibraryItem[];
   dataSourceItems: DataSourceItem[];
+  dataSourceUploadProgress: DataSourceUploadProgress;
   selectedDatasetId?: string | null;
   activeSessionId?: string | null;
   searchQuery: string;
@@ -84,6 +86,7 @@ function setActiveView(view: LibraryView) {
     <SourceDataPanel
       v-if="activeView === 'source'"
       :items="props.dataSourceItems"
+      :upload-progress="props.dataSourceUploadProgress"
       @upload-file="(mode) => emit('uploadFile', mode)"
     />
     <DatasetCatalogPanel

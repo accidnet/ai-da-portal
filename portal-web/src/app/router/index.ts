@@ -4,6 +4,18 @@ import PortalLayout from '@/layouts/portal/PortalLayout.vue'
 import AnalysisPage from '@/pages/AnalysisPage.vue'
 import DataSourcesPage from '@/pages/DataSourcesPage.vue'
 
+const LAST_PORTAL_ROUTE_STORAGE_KEY = 'portal:last-route-name'
+
+/** 사용자가 마지막으로 머문 주요 화면 라우트를 복원합니다. */
+function readLastPortalRouteName(): 'analysis' | 'data-sources' {
+  if (typeof window === 'undefined') {
+    return 'analysis'
+  }
+
+  const routeName = window.localStorage.getItem(LAST_PORTAL_ROUTE_STORAGE_KEY)
+  return routeName === 'data-sources' ? 'data-sources' : 'analysis'
+}
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
@@ -11,7 +23,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        redirect: { name: 'analysis' },
+        redirect: () => ({ name: readLastPortalRouteName() }),
       },
       {
         path: 'analysis',

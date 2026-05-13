@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import DataSourceLibrary from '@/features/data-source/components/DataSourceLibrary.vue'
-import type { DataSourceItem, DatasetLibraryItem, UploadPickerMode } from '@/features/data-source/types'
+import type {
+  DataSourceItem,
+  DataSourceUploadProgress,
+  DatasetLibraryItem,
+  UploadPickerMode,
+} from '@/features/data-source/types'
 
 defineProps<{
   activeSessionId: string | null
   datasetsLibrary: DatasetLibraryItem[]
   dataSourceItems: DataSourceItem[]
+  dataSourceUploadProgress: DataSourceUploadProgress
   selectedDatasetId: string | null
   datasetLibrarySearchQuery: string
   datasetLibraryError: string | null
@@ -26,6 +32,7 @@ const emit = defineEmits<{
   <DataSourceLibrary
     :datasets="datasetsLibrary"
     :data-source-items="dataSourceItems"
+    :data-source-upload-progress="dataSourceUploadProgress"
     :selected-dataset-id="selectedDatasetId"
     :active-session-id="activeSessionId"
     :search-query="datasetLibrarySearchQuery"

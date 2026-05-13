@@ -128,11 +128,11 @@ export function useAnalysisSessions(options: {
     })
   }
 
-  function openDraftSession() {
+  function openDraftSession(targetScreen: AnalysisScreen = 'dashboard') {
     // 새 분석은 첫 메시지가 전송되기 전까지 서버 목록에 노출하지 않습니다.
     activeSessionId.value = DRAFT_SESSION_ID
     sessionStates.value[DRAFT_SESSION_ID] = createSessionState(DEFAULT_SESSION_TITLE)
-    currentScreen.value = 'dashboard'
+    currentScreen.value = targetScreen
     sessionError.value = null
   }
 
@@ -176,7 +176,7 @@ export function useAnalysisSessions(options: {
       const sessions = await fetchSessions()
       sessionSummaries.value = sessions.map(mapSessionSummary)
       if (sessionSummaries.value.length === 0) {
-        openDraftSession()
+        openDraftSession(currentScreen.value)
         return
       }
 

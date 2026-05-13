@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
-import type { UploadPickerMode, UploadPickerTarget } from '@/features/data-source/types'
+import type { DataSourceUploadProgress, UploadPickerMode, UploadPickerTarget } from '@/features/data-source/types'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -42,6 +42,7 @@ defineProps<{
   isSessionMutating: boolean
   datasetsLibrary: DatasetLibraryItem[]
   dataSourceItems: DataSourceItem[]
+  dataSourceUploadProgress: DataSourceUploadProgress
   selectedDatasetId: string | null
   datasetLibrarySearchQuery: string
   datasetLibraryError: string | null
@@ -148,6 +149,7 @@ defineExpose({
           :dataset-library-error="datasetLibraryError"
           :is-dataset-mutating="isDatasetMutating"
           :data-source-items="dataSourceItems"
+          :data-source-upload-progress="dataSourceUploadProgress"
           @upload-dataset="(mode?: UploadPickerMode) => openDatasetPicker(mode, currentScreen === 'datasets' ? 'data-source' : 'dataset')"
           @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
           @select-dataset="(datasetId: string) => emit('selectDataset', datasetId)"

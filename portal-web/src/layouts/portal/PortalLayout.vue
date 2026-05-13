@@ -25,6 +25,7 @@ import { getSharedAnalysisIdFromUrl, loadSharedAnalysisSnapshot, openAnalysisPre
 import { fetchHealthcheck } from '@/shared/api/portalApi'
 
 const connectionStatus = ref<BackendConnectionStatus>('checking')
+const LAST_PORTAL_ROUTE_STORAGE_KEY = 'portal:last-route-name'
 const route = useRoute()
 const router = useRouter()
 const currentScreen = ref<AnalysisScreen>(screenFromRouteName(route.name))
@@ -70,6 +71,12 @@ function screenFromRouteName(routeName: unknown): AnalysisScreen {
 
 function routeNameFromScreen(screen: AnalysisScreen): 'analysis' | 'data-sources' {
   return screen === 'datasets' ? 'data-sources' : 'analysis'
+}
+
+/** 사용자가 마지막으로 머문 주요 페이지를 새로고침 이후 복원할 수 있게 저장합니다. */
+function writeLastPortalRouteName(screen: AnalysisScreen) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(LAST_PORTAL_ROUTE_STORAGE_KEY, routeNameFromScreen(screen))
 }
 
 const {
@@ -133,6 +140,7 @@ removeSessionLinks = removeDatasetSessionLinks
 
 const {
   dataSourceItems,
+  dataSourceUploadProgress,
   loadDataSourceTree,
   handleDataSourceFileChange,
 } = useDataSourceItems()
@@ -327,6 +335,8 @@ watch(activeSessionId, () => {
 })
 
 watch(currentScreen, async (screen) => {
+  writeLastPortalRouteName(screen)
+
   if (isCompactLayout.value && screen !== 'dashboard') {
     isAnalyticsPanelOpen.value = false
   }
@@ -344,6 +354,7 @@ watch(
   async (routeName) => {
     const nextScreen = screenFromRouteName(routeName)
     currentScreen.value = nextScreen
+    writeLastPortalRouteName(nextScreen)
     if (nextScreen === 'datasets' && datasetsLibrary.value.length === 0) {
       await loadDatasets()
     }
@@ -464,6 +475,7 @@ onBeforeUnmount(() => {
       :is-session-mutating="isSessionMutating"
       :datasets-library="datasetsLibrary"
       :data-source-items="dataSourceItems"
+      :data-source-upload-progress="dataSourceUploadProgress"
       :selected-dataset-id="selectedDatasetId"
       :dataset-library-search-query="datasetLibrarySearchQuery"
       :dataset-library-error="datasetLibraryError"

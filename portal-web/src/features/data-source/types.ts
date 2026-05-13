@@ -42,6 +42,18 @@ export interface DatasetAsset {
 
 export type UploadPickerMode = 'files' | 'folder'
 export type UploadPickerTarget = 'dataset' | 'data-source'
+export type DataSourceUploadStatus = 'idle' | 'queued' | 'uploading' | 'processing' | 'completed' | 'failed'
+
+export interface DataSourceUploadProgress {
+  status: DataSourceUploadStatus
+  fileCount: number
+  loadedBytes: number
+  totalBytes: number
+  percent: number
+  message: string
+  startedAt: string | null
+  updatedAt: string | null
+}
 
 export interface DataSourceItem {
   id: string
