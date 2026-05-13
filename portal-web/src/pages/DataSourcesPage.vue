@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import DataSourceLibrary from '@/features/data-source/components/DataSourceLibrary.vue'
-import type { DatasetLibraryItem } from '@/features/data-source/types'
+import type { DatasetLibraryItem, UploadPickerMode } from '@/features/data-source/types'
 
 defineProps<{
   activeSessionId: string | null
@@ -13,7 +13,7 @@ defineProps<{
 
 const emit = defineEmits<{
   datasetLibrarySearchChange: [value: string]
-  uploadDataset: []
+  uploadDataset: [mode?: UploadPickerMode]
   selectDataset: [datasetId: string]
   attachDataset: [datasetId: string]
   detachDataset: [datasetId: string]
@@ -30,7 +30,7 @@ const emit = defineEmits<{
     :is-busy="isDatasetMutating"
     :error-message="datasetLibraryError"
     @search-change="(value) => emit('datasetLibrarySearchChange', value)"
-    @upload-file="emit('uploadDataset')"
+    @upload-file="(mode) => emit('uploadDataset', mode)"
     @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
     @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
     @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"

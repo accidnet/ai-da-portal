@@ -3,7 +3,10 @@ import { ref } from "vue";
 
 import DatasetCatalogPanel from "./DatasetCatalogPanel.vue";
 import SourceDataPanel from "./SourceDataPanel.vue";
-import type { DatasetLibraryItem } from "@/features/data-source/types";
+import type {
+  DatasetLibraryItem,
+  UploadPickerMode,
+} from "@/features/data-source/types";
 
 const props = defineProps<{
   datasets: DatasetLibraryItem[];
@@ -20,7 +23,7 @@ const emit = defineEmits<{
   attachDataset: [datasetId: string];
   detachDataset: [datasetId: string];
   deleteDataset: [datasetId: string];
-  uploadFile: [];
+  uploadFile: [mode: UploadPickerMode];
 }>();
 
 type LibraryView = "source" | "catalog";
@@ -78,8 +81,8 @@ function setActiveView(view: LibraryView) {
 
     <SourceDataPanel
       v-if="activeView === 'source'"
-      :datasets-count="props.datasets.length"
-      @upload-file="emit('uploadFile')"
+      :datasets="props.datasets"
+      @upload-file="(mode) => emit('uploadFile', mode)"
     />
     <DatasetCatalogPanel
       v-else

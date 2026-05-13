@@ -11,7 +11,7 @@ import {
 } from '../../../shared/api/portalApi'
 import type { DatasetLibraryItem, SessionItem } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
-import { isUploadableDatasetFile, mapDatasetLibraryItem } from '../utils/analysisPageHelpers'
+import { mapDatasetLibraryItem } from '../utils/analysisPageHelpers'
 import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessionState'
 
 export function useDatasetLibrary(options: {
@@ -90,17 +90,9 @@ export function useDatasetLibrary(options: {
     datasetPickerRef.value?.click()
   }
 
-  async function processDatasetFile(file: File) {
-    if (!isUploadableDatasetFile(file)) {
-      uploadError.value = 'CSV 또는 스프레드시트 파일만 업로드할 수 있어요.'
-      return
-    }
-
-    uploadError.value = null
-    isUploading.value = true
-
+  /** 선택된 원천 데이터 파일 하나를 업로드하고 세션 상태에 반영합니다. */
+  async function processDatasetFile(file: File, sessionId: string): Promise<boolean> {
     try {
-      const sessionId = await ensureActiveSession()
       const detail = await uploadDataset(file, sessionId)
       const [preview, profile] = await Promise.all([fetchDatasetPreview(detail.id), fetchDatasetProfile(detail.id)])
       const dataset = mapDatasetInfoToAsset({ detail, preview, profile })
@@ -125,9 +117,36 @@ export function useDatasetLibrary(options: {
       ]
       activeSessionId.value = sessionId
       syncSessionSummaryWithState(sessionId)
-      await loadDatasets()
+      return true
     } catch {
-      uploadError.value = '데이터셋 업로드에 실패했어요. CSV 또는 스프레드시트 파일로 다시 시도해 주세요.'
+      return false
+    }
+  }
+
+  /** 파일 여러 개 또는 폴더 선택 결과를 순차 업로드합니다. */
+  async function processDatasetFiles(files: File[]) {
+    if (files.length === 0) return
+
+    uploadError.value = null
+    isUploading.value = true
+
+    try {
+      const sessionId = await ensureActiveSession()
+      let successCount = 0
+
+      for (const file of files) {
+        const isUploaded = await processDatasetFile(file, sessionId)
+        if (isUploaded) successCount += 1
+      }
+
+      await loadDatasets()
+
+      if (successCount < files.length) {
+        uploadError.value =
+          successCount > 0
+            ? `${successCount}개 파일은 업로드했지만 ${files.length - successCount}개 파일은 처리하지 못했어요.`
+            : '선택한 파일을 업로드하지 못했어요. 서버에서 처리 가능한 데이터 형식인지 확인해 주세요.'
+      }
     } finally {
       isUploading.value = false
     }
@@ -135,9 +154,9 @@ export function useDatasetLibrary(options: {
 
   function handleDatasetFileChange(event: Event) {
     const input = event.target as HTMLInputElement
-    const file = input.files?.[0]
+    const files = Array.from(input.files ?? [])
     input.value = ''
-    if (file) void processDatasetFile(file)
+    if (files.length > 0) void processDatasetFiles(files)
   }
 
   async function handleSelectDataset(datasetId: string) {

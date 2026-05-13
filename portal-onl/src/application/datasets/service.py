@@ -26,6 +26,8 @@ from tools.datasets.dataframe_loader import load_dataframe
 
 
 class DatasetApplicationService:
+    """업로드된 원천 데이터의 저장, 조회, 프로파일 생성을 담당합니다."""
+
     def __init__(
         self,
         dataset_repository: DatasetRepository,
@@ -35,6 +37,7 @@ class DatasetApplicationService:
         self._session_service = session_service
 
     async def upload(self, file: UploadFile) -> DatasetInfo:
+        """원천 데이터 파일을 저장하고, 가능한 경우 표 형태 프로파일을 생성합니다."""
         # dataset 고유 id 부여
         dataset_id = str(uuid4())
 
@@ -50,10 +53,14 @@ class DatasetApplicationService:
         # file 저장
         storage_path = self._store_uploaded_file(dataset_id, filename, content)
 
-        # dataframe으로 변환 후 미리보기와 프로파일 생성
-        dataframe = self._load_dataframe(content, suffix=suffix)
-        preview = build_preview_from_dataframe(dataframe)
-        profile = build_profile_from_dataframe(dataframe)
+        # 표 형태로 읽을 수 없는 파일도 원천 데이터로 보관하기 위해 빈 프로파일을 사용합니다.
+        try:
+            dataframe = self._load_dataframe(content, suffix=suffix)
+            preview = build_preview_from_dataframe(dataframe)
+            profile = build_profile_from_dataframe(dataframe)
+        except Exception:
+            preview = DatasetPreviewPayload()
+            profile = DatasetProfilePayload(row_count=0, column_count=0)
 
         # Dataset 기본 정보
         dataset = self._dataset_repository.create(

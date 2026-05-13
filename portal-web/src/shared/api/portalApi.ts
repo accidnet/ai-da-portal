@@ -808,7 +808,8 @@ export async function uploadDataset(
   signal?: AbortSignal,
 ): Promise<DatasetInfoResponse> {
   const formData = new FormData()
-  formData.append('file', file)
+  const uploadPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+  formData.append('file', file, uploadPath)
 
   formData.append('session_id', sessionId)
 

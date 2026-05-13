@@ -39,3 +39,5 @@ export interface DatasetAsset {
   preview?: DatasetPreview | null
   profile?: DatasetProfile | null
 }
+
+export type UploadPickerMode = 'files' | 'folder'

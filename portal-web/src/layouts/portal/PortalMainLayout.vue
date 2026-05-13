@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
+import type { UploadPickerMode } from '@/features/data-source/types'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -64,9 +65,23 @@ const emit = defineEmits<{
   closeAnalyticsPanel: []
 }>()
 
-/** 현재 main route page의 데이터셋 업로드 선택창을 엽니다. */
-function openDatasetPicker() {
-  datasetPickerRef.value?.click()
+/** 현재 main route page의 데이터 직접 업로드 선택창을 엽니다. */
+function openDatasetPicker(mode: UploadPickerMode = 'files') {
+  const picker = datasetPickerRef.value
+  if (!picker) return
+
+  picker.value = ''
+  picker.multiple = true
+  picker.removeAttribute('accept')
+  picker.removeAttribute('webkitdirectory')
+  picker.removeAttribute('directory')
+
+  if (mode === 'folder') {
+    picker.setAttribute('webkitdirectory', '')
+    picker.setAttribute('directory', '')
+  }
+
+  picker.click()
 }
 
 defineExpose({
@@ -128,7 +143,7 @@ defineExpose({
           :dataset-library-search-query="datasetLibrarySearchQuery"
           :dataset-library-error="datasetLibraryError"
           :is-dataset-mutating="isDatasetMutating"
-          @upload-dataset="openDatasetPicker"
+          @upload-dataset="(mode?: UploadPickerMode) => openDatasetPicker(mode)"
           @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
           @select-dataset="(datasetId: string) => emit('selectDataset', datasetId)"
           @attach-dataset="(datasetId: string) => emit('attachDataset', datasetId)"
@@ -149,7 +164,7 @@ defineExpose({
       ref="datasetPickerRef"
       class="dataset-picker"
       type="file"
-      accept=".csv,.tsv,.xls,.xlsx,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      multiple
       @change="(event) => emit('datasetFileChange', event)"
     />
   </main>
