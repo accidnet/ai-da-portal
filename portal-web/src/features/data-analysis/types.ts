@@ -1,3 +1,11 @@
+export type {
+  DatasetAsset,
+  DatasetColumnProfile,
+  DatasetLibraryItem,
+  DatasetPreview,
+  DatasetProfile,
+} from '@/features/data-source/types'
+
 export interface NavItem {
   label: string
   icon: string
@@ -30,20 +38,6 @@ export interface SessionItem {
   datasetCount?: number
   lastDataset?: LinkedDatasetSummary | null
   preferredDatasetId?: string | null
-}
-
-export interface DatasetLibraryItem {
-  id: string
-  filename: string
-  storagePath: string | null
-  createdAt: string
-  rowCount: number
-  columnCount: number
-  linkedSessionCount: number
-  linkedSessionIds: string[]
-  latestUsedAt: string | null
-  preview?: DatasetPreview | null
-  profile?: DatasetProfile | null
 }
 
 export interface SidebarData {
@@ -165,34 +159,6 @@ export interface InsightData {
   title: string
   body: string
   actionLabel: string
-}
-
-export interface DatasetColumnProfile {
-  name: string
-  dtype: string
-  nullRatio: number
-  minValue?: string | number | null
-  maxValue?: string | number | null
-  sampleValues: string[]
-}
-
-export interface DatasetProfile {
-  rowCount: number
-  columnCount: number
-  columns: DatasetColumnProfile[]
-}
-
-export interface DatasetPreview {
-  columns: string[]
-  rows: Record<string, string | number | null>[]
-}
-
-export interface DatasetAsset {
-  id: string
-  filename: string
-  createdAt: string
-  preview?: DatasetPreview | null
-  profile?: DatasetProfile | null
 }
 
 export interface AnalyticsData {

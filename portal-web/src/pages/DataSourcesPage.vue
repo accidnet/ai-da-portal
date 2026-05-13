@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import DatasetLibrary from '@/features/data-analysis/components/DatasetLibrary.vue'
-import type { DatasetLibraryItem } from '@/features/data-analysis/types'
+import DataSourceLibrary from '@/features/data-source/components/DataSourceLibrary.vue'
+import type { DatasetLibraryItem } from '@/features/data-source/types'
 
 defineProps<{
   activeSessionId: string | null
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <DatasetLibrary
+  <DataSourceLibrary
     :datasets="datasetsLibrary"
     :selected-dataset-id="selectedDatasetId"
     :active-session-id="activeSessionId"

@@ -1,80 +1,88 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref } from "vue";
 
-import type { DatasetLibraryItem } from '../types'
+import type { DatasetLibraryItem } from "@/features/data-source/types";
 
 const props = defineProps<{
-  datasets: DatasetLibraryItem[]
-  selectedDatasetId?: string | null
-  activeSessionId?: string | null
-  searchQuery: string
-  isBusy?: boolean
-  errorMessage?: string | null
-}>()
+  datasets: DatasetLibraryItem[];
+  selectedDatasetId?: string | null;
+  activeSessionId?: string | null;
+  searchQuery: string;
+  isBusy?: boolean;
+  errorMessage?: string | null;
+}>();
 
 const emit = defineEmits<{
-  searchChange: [value: string]
-  selectDataset: [datasetId: string]
-  attachDataset: [datasetId: string]
-  detachDataset: [datasetId: string]
-  deleteDataset: [datasetId: string]
-  uploadFile: []
-}>()
+  searchChange: [value: string];
+  selectDataset: [datasetId: string];
+  attachDataset: [datasetId: string];
+  detachDataset: [datasetId: string];
+  deleteDataset: [datasetId: string];
+}>();
 
-const sortOrder = ref<'desc' | 'asc'>('desc')
+const sortOrder = ref<"desc" | "asc">("desc");
 
+/** 검색어와 정렬 상태를 반영한 데이터셋 카탈로그 목록입니다. */
 const filteredDatasets = computed(() => {
-  const keyword = props.searchQuery.trim().toLowerCase()
+  const keyword = props.searchQuery.trim().toLowerCase();
   const filtered = keyword
     ? props.datasets.filter((dataset) => {
-        const haystacks = [dataset.filename, dataset.storagePath ?? '']
-        return haystacks.some((value) => value.toLowerCase().includes(keyword))
+        const haystacks = [dataset.filename, dataset.storagePath ?? ""];
+        return haystacks.some((value) => value.toLowerCase().includes(keyword));
       })
-    : props.datasets
+    : props.datasets;
 
   return [...filtered].sort((left, right) => {
-    const leftTime = new Date(left.createdAt).getTime()
-    const rightTime = new Date(right.createdAt).getTime()
-    return sortOrder.value === 'desc' ? rightTime - leftTime : leftTime - rightTime
-  })
-})
+    const leftTime = new Date(left.createdAt).getTime();
+    const rightTime = new Date(right.createdAt).getTime();
+    return sortOrder.value === "desc"
+      ? rightTime - leftTime
+      : leftTime - rightTime;
+  });
+});
 
+/** 현재 활성 세션과 데이터셋 연결 여부를 확인합니다. */
 function isLinkedToActiveSession(dataset: DatasetLibraryItem): boolean {
-  return Boolean(props.activeSessionId && dataset.linkedSessionIds.includes(props.activeSessionId))
+  return Boolean(
+    props.activeSessionId &&
+      dataset.linkedSessionIds.includes(props.activeSessionId),
+  );
 }
 
+/** 데이터셋 등록일을 화면 표시용 한국어 날짜로 변환합니다. */
 function formatDate(value?: string | null): string {
-  if (!value) return '없음'
+  if (!value) return "없음";
 
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
 
-  return new Intl.DateTimeFormat('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
+/** 데이터셋 카탈로그의 등록일 정렬 방향을 전환합니다. */
 function toggleSortOrder() {
-  sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
+  sortOrder.value = sortOrder.value === "desc" ? "asc" : "desc";
 }
 </script>
 
 <template>
-  <section class="library-shell">
-    <header class="panel-card library-header">
+  <section class="catalog-workspace">
+    <section class="panel-card catalog-intro">
       <div>
-        <p>데이터 소스</p>
-        <h2>데이터 소스 라이브러리</h2>
-        <span>파일 업로드와 활성 세션 연결 상태를 한 화면에서 관리할 수 있어요.</span>
+        <p>데이터셋 카탈로그</p>
+        <h3>등록된 원천 데이터를 분석용 데이터셋으로 구성</h3>
+        <span>업로드 파일과 DB 소스를 선택해 세션에 연결할 데이터셋을 관리합니다.</span>
       </div>
-      <div class="header-status">
-        {{ activeSessionId ? '활성 세션 연결 가능' : '활성 세션 없음' }}
-      </div>
-    </header>
+      <button type="button" class="toolbar-button toolbar-button--primary" disabled>
+        데이터셋 만들기 준비중
+      </button>
+    </section>
 
     <section class="panel-card library-toolbar">
       <label class="library-search">
@@ -83,15 +91,17 @@ function toggleSortOrder() {
           :value="searchQuery"
           type="search"
           placeholder="파일명, 타입, 경로 검색"
-          @input="emit('searchChange', ($event.target as HTMLInputElement).value)"
-        >
+          @input="
+            emit('searchChange', ($event.target as HTMLInputElement).value)
+          "
+        />
       </label>
 
       <div class="toolbar-actions">
-        <button type="button" class="toolbar-button toolbar-button--primary" @click="emit('uploadFile')">파일 업로드</button>
-        <button type="button" class="toolbar-button" disabled>폴더 업로드 준비중</button>
-        <button type="button" class="toolbar-button" disabled>DB 연결 준비중</button>
-        <button type="button" class="toolbar-button" disabled>클라우드 연결 준비중</button>
+        <button type="button" class="toolbar-button" disabled>필터 준비중</button>
+        <button type="button" class="toolbar-button" disabled>
+          스키마 보기 준비중
+        </button>
       </div>
     </section>
 
@@ -99,7 +109,7 @@ function toggleSortOrder() {
 
     <section class="panel-card dataset-table-shell">
       <header class="dataset-table-header">
-        <strong>{{ filteredDatasets.length }}개 데이터 소스</strong>
+        <strong>{{ filteredDatasets.length }}개 데이터셋</strong>
       </header>
 
       <div class="dataset-table-wrap">
@@ -108,10 +118,16 @@ function toggleSortOrder() {
             <tr>
               <th>파일명</th>
               <th>
-                <button type="button" class="sort-button" @click="toggleSortOrder">
+                <button
+                  type="button"
+                  class="sort-button"
+                  @click="toggleSortOrder"
+                >
                   등록일
                   <span class="material-symbols-outlined">filter_list</span>
-                  <small>{{ sortOrder === 'desc' ? '최신순' : '오래된순' }}</small>
+                  <small>{{
+                    sortOrder === "desc" ? "최신순" : "오래된순"
+                  }}</small>
                 </button>
               </th>
               <th>상태</th>
@@ -133,13 +149,24 @@ function toggleSortOrder() {
               <td>
                 <div class="dataset-name-cell">
                   <strong>{{ dataset.filename }}</strong>
-                  <span>{{ dataset.storagePath ?? '저장 경로 미지정' }}</span>
+                  <span>{{ dataset.storagePath ?? "저장 경로 미지정" }}</span>
                 </div>
               </td>
               <td>{{ formatDate(dataset.createdAt) }}</td>
               <td>
-                <span class="status-badge" :class="isLinkedToActiveSession(dataset) ? 'status-badge--linked' : 'status-badge--idle'">
-                  {{ isLinkedToActiveSession(dataset) ? '활성 세션 연결됨' : '미연결' }}
+                <span
+                  class="status-badge"
+                  :class="
+                    isLinkedToActiveSession(dataset)
+                      ? 'status-badge--linked'
+                      : 'status-badge--idle'
+                  "
+                >
+                  {{
+                    isLinkedToActiveSession(dataset)
+                      ? "활성 세션 연결됨"
+                      : "미연결"
+                  }}
                 </span>
               </td>
               <td>{{ dataset.linkedSessionCount }}개</td>
@@ -163,7 +190,12 @@ function toggleSortOrder() {
                   >
                     해제
                   </button>
-                  <button type="button" class="action-button action-button--danger" :disabled="isBusy" @click.stop="emit('deleteDataset', dataset.id)">
+                  <button
+                    type="button"
+                    class="action-button action-button--danger"
+                    :disabled="isBusy"
+                    @click.stop="emit('deleteDataset', dataset.id)"
+                  >
                     삭제
                   </button>
                 </div>
@@ -183,8 +215,7 @@ function toggleSortOrder() {
 </template>
 
 <style scoped>
-.library-shell {
-  min-height: 0;
+.catalog-workspace {
   display: grid;
   gap: 16px;
 }
@@ -196,41 +227,34 @@ function toggleSortOrder() {
   box-shadow: var(--color-shadow);
 }
 
-.library-header,
+.catalog-intro,
 .library-toolbar,
 .dataset-table-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 20px 22px;
+  padding: 18px 20px;
 }
 
-.library-header p {
-  margin: 0;
+.catalog-intro p {
+  margin: 0 0 6px;
   color: var(--color-text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.library-header h2 {
-  margin: 8px 0 6px;
-  font-family: var(--font-heading);
+.catalog-intro h3 {
+  margin: 0 0 6px;
+  color: var(--color-text);
+  font-size: 1rem;
+  line-height: 1.35;
 }
 
-.library-header span,
-.header-status {
+.catalog-intro span {
   color: var(--color-text-muted);
-}
-
-.header-status {
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: var(--color-surface-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
 }
 
 .library-search {
@@ -257,6 +281,7 @@ function toggleSortOrder() {
 .row-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -409,9 +434,17 @@ function toggleSortOrder() {
 }
 
 @media (max-width: 900px) {
-  .library-header,
+  .catalog-intro,
   .library-toolbar {
     display: grid;
+  }
+}
+
+@media (max-width: 640px) {
+  .catalog-intro,
+  .library-toolbar,
+  .dataset-table-header {
+    padding: 16px;
   }
 }
 </style>
