@@ -7,7 +7,7 @@ import {
   deleteWorkspace as deleteWorkspaceRequest,
   fetchWorkspaces,
   updateWorkspace as updateWorkspaceRequest,
-} from '@/shared/api/portalApi'
+} from '@/features/data-analysis/api/analysisApi'
 import type {
   BackendConnectionStatus,
   OpenAiAuthStatus,

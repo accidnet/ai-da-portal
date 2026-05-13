@@ -7,6 +7,7 @@ import PortalSidebarLayout from './PortalSidebarLayout.vue'
 import { useAnalysisPaneLayout } from '@/features/data-analysis/composables/useAnalysisPaneLayout'
 import { useAnalysisSessions } from '@/features/data-analysis/composables/useAnalysisSessions'
 import { useDatasetLibrary } from '@/features/data-analysis/composables/useDatasetLibrary'
+import { useDataSourceItems } from '@/features/data-source/composables/useDataSourceItems'
 import { useOpenAiAuth } from '@/features/data-analysis/composables/useOpenAiAuth'
 import { useAnalysisInteractions } from '@/features/data-analysis/composables/useAnalysisInteractions'
 import { shellAnalytics, shellSidebar } from '@/features/data-analysis/constants/analysisPage'
@@ -18,6 +19,7 @@ import type {
   SessionItem,
   SharedAnalysisSnapshot,
 } from '@/features/data-analysis/types'
+import type { UploadPickerTarget } from '@/features/data-source/types'
 import { createWelcomeMessages } from '@/features/data-analysis/utils/analysisPageHelpers'
 import { getSharedAnalysisIdFromUrl, loadSharedAnalysisSnapshot, openAnalysisPreview } from '@/features/data-analysis/utils/analysisShare'
 import { fetchHealthcheck } from '@/shared/api/portalApi'
@@ -129,6 +131,12 @@ const {
 
 removeSessionLinks = removeDatasetSessionLinks
 
+const {
+  dataSourceItems,
+  loadDataSourceTree,
+  handleDataSourceFileChange,
+} = useDataSourceItems()
+
 const analyticsPayload = computed(() => activeSessionState.value?.analyticsPayload ?? null)
 const workspacePayload = computed(() => activeSessionState.value?.workspacePayload ?? null)
 
@@ -213,7 +221,17 @@ async function handleScreenChange(screen: AnalysisScreen) {
   await router.push({ name: routeNameFromScreen(screen) })
   if (screen === 'datasets') {
     await loadDatasets()
+    await loadDataSourceTree()
   }
+}
+
+async function handleUploadFileChange(event: Event, target: UploadPickerTarget) {
+  if (target === 'data-source') {
+    await handleDataSourceFileChange(event)
+    return
+  }
+
+  handleDatasetFileChange(event)
 }
 
 function handleDatasetLibrarySearchChange(value: string) {
@@ -316,6 +334,9 @@ watch(currentScreen, async (screen) => {
   if (screen === 'datasets' && datasetsLibrary.value.length === 0) {
     await loadDatasets()
   }
+  if (screen === 'datasets' && dataSourceItems.value.length === 0) {
+    await loadDataSourceTree()
+  }
 })
 
 watch(
@@ -325,6 +346,9 @@ watch(
     currentScreen.value = nextScreen
     if (nextScreen === 'datasets' && datasetsLibrary.value.length === 0) {
       await loadDatasets()
+    }
+    if (nextScreen === 'datasets' && dataSourceItems.value.length === 0) {
+      await loadDataSourceTree()
     }
   },
   { immediate: true },
@@ -354,6 +378,7 @@ onMounted(async () => {
   // 브라우저 새로고침 후에도 마지막으로 작업하던 분석 세션을 복원합니다.
   await loadSessions()
   await loadDatasets()
+  await loadDataSourceTree()
 
   const sharedId = getSharedAnalysisIdFromUrl()
   if (sharedId) {
@@ -438,6 +463,7 @@ onBeforeUnmount(() => {
       :connected-datasets="activeSessionDatasets"
       :is-session-mutating="isSessionMutating"
       :datasets-library="datasetsLibrary"
+      :data-source-items="dataSourceItems"
       :selected-dataset-id="selectedDatasetId"
       :dataset-library-search-query="datasetLibrarySearchQuery"
       :dataset-library-error="datasetLibraryError"
@@ -449,7 +475,7 @@ onBeforeUnmount(() => {
       @attach-dataset="handleAttachDataset"
       @detach-dataset="handleDetachDataset"
       @delete-dataset="handleDeleteDataset"
-      @dataset-file-change="handleDatasetFileChange"
+      @dataset-file-change="handleUploadFileChange"
       @send="handleWorkspaceSend"
       @analytics-resize-start="startAnalyticsPaneResize"
       @toggle-fullscreen="toggleAnalyticsFullscreen"

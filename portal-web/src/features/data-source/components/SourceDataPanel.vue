@@ -2,12 +2,12 @@
 import { computed, ref } from "vue";
 
 import type {
-  DatasetLibraryItem,
+  DataSourceItem,
   UploadPickerMode,
 } from "@/features/data-source/types";
 
 const props = defineProps<{
-  datasets: DatasetLibraryItem[];
+  items: DataSourceItem[];
 }>();
 
 const emit = defineEmits<{
@@ -17,17 +17,54 @@ const emit = defineEmits<{
 type SourceDetail = "upload" | "db";
 
 const activeDetail = ref<SourceDetail>("upload");
+const collapsedFolderIds = ref<Set<string>>(new Set());
 
-/** 원천 데이터 파일 목록을 최신 등록순으로 정리합니다. */
-const uploadedFiles = computed(() => {
-  return [...props.datasets].sort((left, right) => {
-    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-  });
+/** 원천 데이터 파일 목록을 폴더 접힘 상태를 반영해 정리합니다. */
+const uploadedItems = computed(() => {
+  return flattenVisibleItems(props.items);
 });
 
-/** 저장 경로를 디렉토리 목록에 표시할 짧은 경로로 변환합니다. */
-function formatFilePath(dataset: DatasetLibraryItem): string {
-  return dataset.storagePath ?? dataset.filename;
+/** 트리 응답을 파일 브라우저 행 목록으로 펼치되 접힌 폴더 하위는 제외합니다. */
+function flattenVisibleItems(items: DataSourceItem[]): DataSourceItem[] {
+  const sortedItems = [...items].sort((left, right) => {
+    if (left.itemType !== right.itemType) {
+      return left.itemType === "folder" ? -1 : 1;
+    }
+    return left.name.localeCompare(right.name);
+  });
+
+  return sortedItems.flatMap((item) => {
+    if (item.itemType !== "folder" || collapsedFolderIds.value.has(item.id)) {
+      return [item];
+    }
+    return [item, ...flattenVisibleItems(item.children)];
+  });
+}
+
+/** 원천 데이터 노드의 상태 텍스트를 반환합니다. */
+function formatStatus(item: DataSourceItem): string {
+  if (item.itemType === "folder") {
+    return collapsedFolderIds.value.has(item.id) ? "접힘" : "열림";
+  }
+  return "등록됨";
+}
+
+/** 폴더 행 클릭 시 하위 항목을 접거나 펼칩니다. */
+function toggleFolder(item: DataSourceItem) {
+  if (item.itemType !== "folder") return;
+
+  const nextCollapsedIds = new Set(collapsedFolderIds.value);
+  if (nextCollapsedIds.has(item.id)) {
+    nextCollapsedIds.delete(item.id);
+  } else {
+    nextCollapsedIds.add(item.id);
+  }
+  collapsedFolderIds.value = nextCollapsedIds;
+}
+
+/** 파일 브라우저 행 클릭을 처리합니다. */
+function handleItemClick(item: DataSourceItem) {
+  toggleFolder(item);
 }
 
 /** 등록일을 파일 목록 표시용 날짜로 변환합니다. */
@@ -134,31 +171,50 @@ function setActiveDetail(detail: SourceDetail) {
           <span>상태</span>
           <span>관리</span>
         </div>
-        <div v-if="uploadedFiles.length === 0" class="source-file-empty">
-          <span class="material-symbols-outlined">folder_open</span>
-          아직 업로드된 원천 데이터가 없습니다.
-        </div>
-        <template v-else>
-          <button
-            v-for="dataset in uploadedFiles"
-            :key="dataset.id"
-            type="button"
-            class="source-file-row"
-          >
-            <span class="source-file-name">
-              <span class="material-symbols-outlined">description</span>
-              <span>
-                <strong>{{ dataset.filename }}</strong>
-                <small>{{ formatFilePath(dataset) }}</small>
+        <div class="source-file-browser__body">
+          <div v-if="uploadedItems.length === 0" class="source-file-empty">
+            <span class="material-symbols-outlined">folder_open</span>
+            아직 업로드된 원천 데이터가 없습니다.
+          </div>
+          <template v-else>
+            <button
+              v-for="dataset in uploadedItems"
+              :key="dataset.id"
+              type="button"
+              class="source-file-row"
+              :class="{ 'source-file-row--folder': dataset.itemType === 'folder' }"
+              :style="{ '--file-depth': dataset.depth }"
+              :aria-expanded="
+                dataset.itemType === 'folder'
+                  ? !collapsedFolderIds.has(dataset.id)
+                  : undefined
+              "
+              @click="handleItemClick(dataset)"
+            >
+              <span class="source-file-name">
+                <span
+                  v-if="dataset.itemType === 'folder'"
+                  class="material-symbols-outlined source-folder-caret"
+                >
+                  {{ collapsedFolderIds.has(dataset.id) ? "chevron_right" : "expand_more" }}
+                </span>
+                <span v-else class="source-folder-caret"></span>
+                <span class="material-symbols-outlined">
+                  {{ dataset.itemType === "folder" ? "folder" : "description" }}
+                </span>
+                <span>
+                  <strong>{{ dataset.name }}</strong>
+                  <small>{{ dataset.relativePath }}</small>
+                </span>
               </span>
-            </span>
-            <span>{{ formatDate(dataset.createdAt) }}</span>
-            <span class="source-file-status">등록됨</span>
-            <span class="source-file-controls">
-              <span class="material-symbols-outlined">more_horiz</span>
-            </span>
-          </button>
-        </template>
+              <span>{{ formatDate(dataset.createdAt) }}</span>
+              <span class="source-file-status">{{ formatStatus(dataset) }}</span>
+              <span class="source-file-controls">
+                <span class="material-symbols-outlined">more_horiz</span>
+              </span>
+            </button>
+          </template>
+        </div>
       </div>
     </section>
 
@@ -177,7 +233,10 @@ function setActiveDetail(detail: SourceDetail) {
 
 <style scoped>
 .source-workspace {
+  min-height: 0;
+  height: 100%;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -281,9 +340,12 @@ function setActiveDetail(detail: SourceDetail) {
 }
 
 .source-detail-panel {
+  min-height: 0;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px;
+  overflow: hidden;
 }
 
 .source-detail-header {
@@ -346,6 +408,9 @@ function setActiveDetail(detail: SourceDetail) {
 }
 
 .source-file-browser {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -369,6 +434,11 @@ function setActiveDetail(detail: SourceDetail) {
   text-transform: uppercase;
 }
 
+.source-file-browser__body {
+  min-height: 0;
+  overflow: auto;
+}
+
 .source-file-row {
   width: 100%;
   padding: 12px 14px;
@@ -381,16 +451,27 @@ function setActiveDetail(detail: SourceDetail) {
   text-align: left;
 }
 
+.source-file-row--folder {
+  background: rgba(248, 251, 255, 0.96);
+}
+
 .source-file-name {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  padding-left: calc(var(--file-depth, 0) * 18px);
 }
 
 .source-file-name .material-symbols-outlined {
   flex: 0 0 auto;
   color: var(--color-primary);
+}
+
+.source-folder-caret {
+  width: 16px;
+  min-width: 16px;
+  color: var(--color-text-muted);
 }
 
 .source-file-name strong,
@@ -469,8 +550,8 @@ function setActiveDetail(detail: SourceDetail) {
     display: grid;
   }
 
-  .source-file-browser {
-    overflow-x: auto;
+  .source-file-browser__body {
+    overflow: auto;
   }
 
   .source-file-browser__head,

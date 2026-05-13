@@ -4,12 +4,14 @@ import { ref } from "vue";
 import DatasetCatalogPanel from "./DatasetCatalogPanel.vue";
 import SourceDataPanel from "./SourceDataPanel.vue";
 import type {
+  DataSourceItem,
   DatasetLibraryItem,
   UploadPickerMode,
 } from "@/features/data-source/types";
 
 const props = defineProps<{
   datasets: DatasetLibraryItem[];
+  dataSourceItems: DataSourceItem[];
   selectedDatasetId?: string | null;
   activeSessionId?: string | null;
   searchQuery: string;
@@ -81,7 +83,7 @@ function setActiveView(view: LibraryView) {
 
     <SourceDataPanel
       v-if="activeView === 'source'"
-      :datasets="props.datasets"
+      :items="props.dataSourceItems"
       @upload-file="(mode) => emit('uploadFile', mode)"
     />
     <DatasetCatalogPanel
@@ -104,9 +106,9 @@ function setActiveView(view: LibraryView) {
 <style scoped>
 .library-shell {
   min-height: 0;
+  height: 100%;
   display: grid;
-  align-content: start;
-  grid-auto-rows: max-content;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
 }
 

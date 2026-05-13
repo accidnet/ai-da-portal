@@ -1,6 +1,6 @@
 import { onUnmounted, ref } from 'vue'
 
-import { authorizeOpenAi, fetchOpenAiAuthStatus, logoutOpenAi as requestOpenAiLogout } from '../../../shared/api/portalApi'
+import { authorizeOpenAi, fetchOpenAiAuthStatus, logoutOpenAi as requestOpenAiLogout } from '@/features/data-analysis/api/analysisApi'
 import type { OpenAiAuthStatus } from '../types'
 import { OPENAI_AUTH_POPUP_SOURCE } from '../constants/analysisPage'
 import { mapOpenAiAuthStatus } from '../utils/analysisPageHelpers'

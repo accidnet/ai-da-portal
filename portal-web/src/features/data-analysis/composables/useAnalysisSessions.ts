@@ -1,6 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 
-import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions } from '../../../shared/api/portalApi'
+import { createSession, deleteSession, fetchSessionSnapshot, fetchSessions } from '@/features/data-analysis/api/analysisApi'
 import type { AnalysisScreen, SessionItem } from '../types'
 import {
   ACTIVE_SESSION_STORAGE_KEY,

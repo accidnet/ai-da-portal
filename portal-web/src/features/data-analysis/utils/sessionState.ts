@@ -11,7 +11,7 @@ import type {
   SessionSnapshotDatasetResponse,
   SessionSnapshotMessageResponse,
   SessionSnapshotResponse,
-} from '../../../shared/api/portalApi'
+} from '@/features/data-analysis/api/analysisApi'
 
 export interface SessionRuntimeState {
   title: string

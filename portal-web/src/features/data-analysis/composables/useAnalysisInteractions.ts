@@ -7,7 +7,7 @@ import {
   type AgentPlanStreamPayload,
   type AgentStateStreamPayload,
   type ChatSubMessageStreamEvent,
-} from '../../../shared/api/portalApi'
+} from '@/features/data-analysis/api/analysisApi'
 import type {
   AnalyticsChartPayload,
   AnalyticsPayload,

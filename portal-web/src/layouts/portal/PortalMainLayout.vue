@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
-import type { UploadPickerMode } from '@/features/data-source/types'
+import type { UploadPickerMode, UploadPickerTarget } from '@/features/data-source/types'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -13,6 +13,7 @@ import type {
   DatasetLibraryItem,
   WorkspacePayload,
 } from '@/features/data-analysis/types'
+import type { DataSourceItem } from '@/features/data-source/types'
 
 defineProps<{
   analyticsPaneWidth: number
@@ -40,6 +41,7 @@ defineProps<{
   connectedDatasets: DatasetAsset[]
   isSessionMutating: boolean
   datasetsLibrary: DatasetLibraryItem[]
+  dataSourceItems: DataSourceItem[]
   selectedDatasetId: string | null
   datasetLibrarySearchQuery: string
   datasetLibraryError: string | null
@@ -47,6 +49,7 @@ defineProps<{
 }>()
 
 const datasetPickerRef = ref<HTMLInputElement | null>(null)
+const uploadPickerTarget = ref<UploadPickerTarget>('dataset')
 
 const emit = defineEmits<{
   toggleSidebarPanel: []
@@ -56,7 +59,7 @@ const emit = defineEmits<{
   attachDataset: [datasetId: string]
   detachDataset: [datasetId: string]
   deleteDataset: [datasetId: string]
-  datasetFileChange: [event: Event]
+  datasetFileChange: [event: Event, target: UploadPickerTarget]
   send: [message: string]
   analyticsResizeStart: [event: PointerEvent]
   toggleFullscreen: []
@@ -66,10 +69,11 @@ const emit = defineEmits<{
 }>()
 
 /** 현재 main route page의 데이터 직접 업로드 선택창을 엽니다. */
-function openDatasetPicker(mode: UploadPickerMode = 'files') {
+function openDatasetPicker(mode: UploadPickerMode = 'files', target: UploadPickerTarget = 'dataset') {
   const picker = datasetPickerRef.value
   if (!picker) return
 
+  uploadPickerTarget.value = target
   picker.value = ''
   picker.multiple = true
   picker.removeAttribute('accept')
@@ -143,13 +147,14 @@ defineExpose({
           :dataset-library-search-query="datasetLibrarySearchQuery"
           :dataset-library-error="datasetLibraryError"
           :is-dataset-mutating="isDatasetMutating"
-          @upload-dataset="(mode?: UploadPickerMode) => openDatasetPicker(mode)"
+          :data-source-items="dataSourceItems"
+          @upload-dataset="(mode?: UploadPickerMode) => openDatasetPicker(mode, currentScreen === 'datasets' ? 'data-source' : 'dataset')"
           @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
           @select-dataset="(datasetId: string) => emit('selectDataset', datasetId)"
           @attach-dataset="(datasetId: string) => emit('attachDataset', datasetId)"
           @detach-dataset="(datasetId: string) => emit('detachDataset', datasetId)"
           @delete-dataset="(datasetId: string) => emit('deleteDataset', datasetId)"
-          @dataset-file-change="(event: Event) => emit('datasetFileChange', event)"
+          @dataset-file-change="(event: Event) => emit('datasetFileChange', event, uploadPickerTarget)"
           @send="(message: string) => emit('send', message)"
           @analytics-resize-start="(event: PointerEvent) => emit('analyticsResizeStart', event)"
           @toggle-fullscreen="emit('toggleFullscreen')"
@@ -165,7 +170,7 @@ defineExpose({
       class="dataset-picker"
       type="file"
       multiple
-      @change="(event) => emit('datasetFileChange', event)"
+      @change="(event) => emit('datasetFileChange', event, uploadPickerTarget)"
     />
   </main>
 </template>

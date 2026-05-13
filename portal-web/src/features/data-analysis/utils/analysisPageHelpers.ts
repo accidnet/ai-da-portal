@@ -12,7 +12,7 @@ import type {
   DatasetLibraryResponse,
   OpenAiAuthStatusResponse,
   SessionSummaryResponse,
-} from '../../../shared/api/portalApi'
+} from '@/features/data-analysis/api/analysisApi'
 
 export function clampAnalyticsPaneWidth(width: number): number {
   return Math.min(Math.max(width, 320), 720)

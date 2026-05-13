@@ -8,7 +8,7 @@ import {
   fetchDatasetProfile,
   fetchDatasets,
   uploadDataset,
-} from '../../../shared/api/portalApi'
+} from '@/features/data-analysis/api/analysisApi'
 import type { DatasetLibraryItem, SessionItem } from '../types'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import { mapDatasetLibraryItem } from '../utils/analysisPageHelpers'

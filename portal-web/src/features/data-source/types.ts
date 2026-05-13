@@ -41,3 +41,20 @@ export interface DatasetAsset {
 }
 
 export type UploadPickerMode = 'files' | 'folder'
+export type UploadPickerTarget = 'dataset' | 'data-source'
+
+export interface DataSourceItem {
+  id: string
+  parentId: string | null
+  itemType: 'file' | 'folder'
+  name: string
+  relativePath: string
+  depth: number
+  sortOrder: number
+  contentType: string | null
+  sizeBytes: number | null
+  storagePath: string | null
+  createdAt: string
+  updatedAt: string
+  children: DataSourceItem[]
+}
