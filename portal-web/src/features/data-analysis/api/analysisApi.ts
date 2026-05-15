@@ -52,6 +52,8 @@ export interface SessionTitleResponse {
 export interface DatasetInfoResponse {
   id: string
   filename: string
+  name?: string | null
+  description?: string | null
   storage_path: string | null
   created_at: string
 }
@@ -81,6 +83,8 @@ export interface WorkspaceDeleteResponse {
 export interface DatasetLibraryResponse {
   id: string
   filename: string
+  name?: string | null
+  description?: string | null
   storage_path: string | null
   created_at: string
   row_count: number
@@ -88,6 +92,32 @@ export interface DatasetLibraryResponse {
   linked_session_count: number
   linked_session_ids: string[]
   latest_used_at: string | null
+}
+
+export interface DatasetSourceTreeNodeResponse {
+  id: string
+  source_ref_id: string | null
+  item_type: 'file' | 'folder'
+  name: string
+  relative_path: string
+  depth: number
+  content_type: string | null
+  size_bytes: number | null
+  row_count: number
+  column_count: number
+  file_count: number
+  children: DatasetSourceTreeNodeResponse[]
+}
+
+export interface DatasetSourcesResponse {
+  dataset_id: string
+  sources: DatasetSourceTreeNodeResponse[]
+}
+
+export interface CreateDatasetFromSourcesPayload {
+  name: string
+  description?: string | null
+  dataSourceItemIds?: string[]
 }
 
 export interface DatasetPreviewResponse {
@@ -848,6 +878,25 @@ export async function fetchDatasetProfile(
   return (await response.json()) as DatasetProfileResponse
 }
 
+export async function fetchDatasetSources(
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<DatasetSourcesResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets/${datasetId}/sources`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Dataset sources failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as DatasetSourcesResponse
+}
+
 export async function fetchDatasets(signal?: AbortSignal): Promise<DatasetLibraryResponse[]> {
   const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets`, {
     method: 'GET',
@@ -870,6 +919,39 @@ export async function fetchDatasets(signal?: AbortSignal): Promise<DatasetLibrar
   }
 
   return (await response.json()) as DatasetLibraryResponse[]
+}
+
+export async function createDatasetFromSources(
+  payload: CreateDatasetFromSourcesPayload,
+  signal?: AbortSignal,
+): Promise<DatasetInfoResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/datasets`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: payload.name,
+      description: payload.description ?? null,
+      data_source_item_ids: payload.dataSourceItemIds ?? [],
+    }),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Dataset create failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as DatasetInfoResponse
 }
 
 export async function attachDatasetToSession(

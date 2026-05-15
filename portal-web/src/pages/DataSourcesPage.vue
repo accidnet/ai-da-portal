@@ -9,6 +9,7 @@ import type {
   DatasetLibraryItem,
   UploadPickerMode,
 } from '@/features/data-source/types'
+import type { CreateDatasetFromSourcesPayload } from '@/features/data-analysis/api/analysisApi'
 
 defineProps<{
   activeSessionId: string | null
@@ -24,10 +25,11 @@ defineProps<{
 const emit = defineEmits<{
   datasetLibrarySearchChange: [value: string]
   uploadDataset: [mode?: UploadPickerMode]
-  selectDataset: [datasetId: string]
+  selectDataset: [datasetId: string | null]
   attachDataset: [datasetId: string]
   detachDataset: [datasetId: string]
   deleteDataset: [datasetId: string]
+  createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload]
 }>()
 
 type LibraryView = 'source' | 'catalog'
@@ -94,6 +96,7 @@ function setActiveView(view: LibraryView) {
       :datasets="datasetsLibrary"
       :selected-dataset-id="selectedDatasetId"
       :active-session-id="activeSessionId"
+      :data-source-items="dataSourceItems"
       :search-query="datasetLibrarySearchQuery"
       :is-busy="isDatasetMutating"
       :error-message="datasetLibraryError"
@@ -102,6 +105,7 @@ function setActiveView(view: LibraryView) {
       @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
       @delete-dataset="(datasetId) => emit('deleteDataset', datasetId)"
+      @create-dataset-from-sources="(payload) => emit('createDatasetFromSources', payload)"
     />
   </section>
 </template>

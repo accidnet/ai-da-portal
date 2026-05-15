@@ -12,6 +12,7 @@ from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService
 from features.workspaces.application.usecase import WorkspaceUsecase
 from features.workspaces.infrastructure.repositories import WorkspaceRepository
+from features.data_sources.infrastructure.repositories import DataSourceRepository
 from infrastructure.ai.client import AiClient
 from infrastructure.ai.openai_client import OpenAiProvider
 from infrastructure.db.repositories import (
@@ -43,6 +44,11 @@ def get_dataset_repository() -> DatasetRepository:
 @lru_cache
 def get_workspace_repository() -> WorkspaceRepository:
     return WorkspaceRepository()
+
+
+@lru_cache
+def get_data_source_repository() -> DataSourceRepository:
+    return DataSourceRepository()
 
 
 @lru_cache
@@ -84,6 +90,7 @@ def get_dataset_service() -> DatasetApplicationService:
     return DatasetApplicationService(
         dataset_repository=get_dataset_repository(),
         session_service=get_session_service(),
+        data_source_repository=get_data_source_repository(),
     )
 
 

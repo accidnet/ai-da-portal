@@ -2,16 +2,19 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 import {
   attachDatasetToSession,
+  createDatasetFromSources,
   deleteDataset,
   detachDatasetFromSession,
   fetchDatasetPreview,
   fetchDatasetProfile,
+  fetchDatasetSources,
   fetchDatasets,
   uploadDataset,
 } from '@/features/data-analysis/api/analysisApi'
 import type { DatasetLibraryItem, SessionItem } from '../types'
+import type { CreateDatasetFromSourcesPayload } from '@/features/data-analysis/api/analysisApi'
 import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
-import { mapDatasetLibraryItem } from '../utils/analysisPageHelpers'
+import { mapDatasetLibraryItem, mapDatasetSourceTreeItem } from '../utils/analysisPageHelpers'
 import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessionState'
 
 export function useDatasetLibrary(options: {
@@ -43,12 +46,16 @@ export function useDatasetLibrary(options: {
 
   async function ensureDatasetLibraryDetails(datasetId: string) {
     const target = datasetsLibrary.value.find((dataset) => dataset.id === datasetId)
-    if (!target || (target.preview && target.profile)) {
+    if (!target || (target.preview && target.profile && target.sourceTree)) {
       return target ?? null
     }
 
     try {
-      const [preview, profile] = await Promise.all([fetchDatasetPreview(datasetId), fetchDatasetProfile(datasetId)])
+      const [preview, profile, sources] = await Promise.all([
+        fetchDatasetPreview(datasetId),
+        fetchDatasetProfile(datasetId),
+        fetchDatasetSources(datasetId),
+      ])
       target.preview = { columns: preview.columns, rows: preview.rows }
       target.profile = {
         rowCount: profile.profile.row_count,
@@ -62,6 +69,7 @@ export function useDatasetLibrary(options: {
           sampleValues: column.sample_values,
         })),
       }
+      target.sourceTree = sources.sources.map(mapDatasetSourceTreeItem)
       datasetsLibrary.value = [...datasetsLibrary.value]
     } catch {
       datasetLibraryError.value = '데이터셋 상세 정보를 불러오지 못했어요.'
@@ -83,6 +91,22 @@ export function useDatasetLibrary(options: {
       datasetLibraryError.value = null
     } catch {
       datasetLibraryError.value = '데이터 소스 목록을 불러오지 못했어요.'
+    }
+  }
+
+  /** 원천 데이터 트리 선택 결과로 서버 데이터셋을 생성하고 목록을 갱신합니다. */
+  async function handleCreateDatasetFromSources(payload: CreateDatasetFromSourcesPayload) {
+    try {
+      isDatasetMutating.value = true
+      datasetLibraryError.value = null
+      const created = await createDatasetFromSources(payload)
+      await loadDatasets()
+      selectedDatasetId.value = created.id
+      await ensureDatasetLibraryDetails(created.id)
+    } catch (error) {
+      datasetLibraryError.value = error instanceof Error ? error.message : '데이터셋 생성에 실패했어요.'
+    } finally {
+      isDatasetMutating.value = false
     }
   }
 
@@ -159,7 +183,12 @@ export function useDatasetLibrary(options: {
     if (files.length > 0) void processDatasetFiles(files)
   }
 
-  async function handleSelectDataset(datasetId: string) {
+  async function handleSelectDataset(datasetId: string | null) {
+    if (datasetId === null) {
+      selectedDatasetId.value = null
+      return
+    }
+
     selectedDatasetId.value = datasetId
     await ensureDatasetLibraryDetails(datasetId)
   }
@@ -176,6 +205,8 @@ export function useDatasetLibrary(options: {
           detail: {
             id: details.id,
             filename: details.filename,
+            name: details.name,
+            description: details.description,
             storage_path: details.storagePath,
             created_at: details.createdAt,
           },
@@ -287,6 +318,7 @@ export function useDatasetLibrary(options: {
     openDatasetPicker,
     processDatasetFile,
     handleDatasetFileChange,
+    handleCreateDatasetFromSources,
     handleSelectDataset,
     handleAttachDataset,
     handleDetachDataset,

@@ -10,9 +10,11 @@ import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
 import type { SessionRuntimeState } from './sessionState'
 import type {
   DatasetLibraryResponse,
+  DatasetSourceTreeNodeResponse,
   OpenAiAuthStatusResponse,
   SessionSummaryResponse,
 } from '@/features/data-analysis/api/analysisApi'
+import type { DatasetSourceTreeItem } from '@/features/data-source/types'
 
 export function clampAnalyticsPaneWidth(width: number): number {
   return Math.min(Math.max(width, 320), 720)
@@ -40,6 +42,8 @@ export function mapDatasetLibraryItem(dataset: DatasetLibraryResponse): DatasetL
   return {
     id: dataset.id,
     filename: dataset.filename,
+    name: dataset.name,
+    description: dataset.description,
     storagePath: dataset.storage_path,
     createdAt: dataset.created_at,
     rowCount: dataset.row_count,
@@ -49,6 +53,24 @@ export function mapDatasetLibraryItem(dataset: DatasetLibraryResponse): DatasetL
     latestUsedAt: dataset.latest_used_at,
     preview: null,
     profile: null,
+    sourceTree: null,
+  }
+}
+
+export function mapDatasetSourceTreeItem(source: DatasetSourceTreeNodeResponse): DatasetSourceTreeItem {
+  return {
+    id: source.id,
+    sourceRefId: source.source_ref_id,
+    itemType: source.item_type,
+    name: source.name,
+    relativePath: source.relative_path,
+    depth: source.depth,
+    contentType: source.content_type,
+    sizeBytes: source.size_bytes,
+    rowCount: source.row_count,
+    columnCount: source.column_count,
+    fileCount: source.file_count,
+    children: source.children.map(mapDatasetSourceTreeItem),
   }
 }
 

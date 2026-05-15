@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
-import type { DatasetLibraryItem } from "@/features/data-source/types";
+import type { CreateDatasetFromSourcesPayload } from "@/features/data-analysis/api/analysisApi";
+import type {
+  DataSourceItem,
+  DatasetLibraryItem,
+  DatasetSourceTreeItem,
+} from "@/features/data-source/types";
 
 const props = defineProps<{
   datasets: DatasetLibraryItem[];
+  dataSourceItems: DataSourceItem[];
   selectedDatasetId?: string | null;
   activeSessionId?: string | null;
   searchQuery: string;
@@ -14,22 +20,65 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   searchChange: [value: string];
-  selectDataset: [datasetId: string];
+  selectDataset: [datasetId: string | null];
   attachDataset: [datasetId: string];
   detachDataset: [datasetId: string];
   deleteDataset: [datasetId: string];
+  createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload];
 }>();
 
 const sortOrder = ref<"desc" | "asc">("desc");
+const isCreateDialogOpen = ref(false);
+const datasetNameInput = ref("");
+const datasetDescriptionInput = ref("");
+const sourceSearchQuery = ref("");
+const selectedSourceIds = ref<Set<string>>(new Set());
+const collapsedSourceFolderIds = ref<Set<string>>(new Set());
+const createDatasetError = ref<string | null>(null);
+const isCreateSubmitting = ref(false);
+
+/** 데이터셋 생성 요청 중 모달 입력과 닫기 동작을 잠급니다. */
+const isCreatePending = computed(() => isCreateSubmitting.value || props.isBusy);
 
 /** 활성 세션에 연결된 데이터셋 수를 요약 카드에 표시합니다. */
 const linkedDatasetCount = computed(() => {
   return props.datasets.filter((dataset) => isLinkedToActiveSession(dataset)).length;
 });
 
+/** 현재 선택된 데이터셋 상세 정보를 테이블 확장 영역에 표시합니다. */
+const selectedDataset = computed(() => {
+  return props.datasets.find((dataset) => dataset.id === props.selectedDatasetId) ?? null;
+});
+
 /** 카탈로그 전체 데이터 규모를 행 기준으로 합산합니다. */
 const totalRowCount = computed(() => {
   return props.datasets.reduce((total, dataset) => total + dataset.rowCount, 0);
+});
+
+/** 데이터셋 생성 모달에서 표시할 원천 데이터 트리 목록입니다. */
+const visibleSourceItems = computed(() => {
+  const keyword = sourceSearchQuery.value.trim().toLowerCase();
+  const flattened = flattenVisibleSourceItems(props.dataSourceItems);
+  if (!keyword) return flattened;
+
+  return flattened.filter((item) => {
+    const haystacks = [item.name, item.relativePath];
+    return haystacks.some((value) => value.toLowerCase().includes(keyword));
+  });
+});
+
+/** 선택된 원천 데이터가 실제로 포함하는 파일 수를 계산합니다. */
+const selectedSourceFileCount = computed(() => {
+  const fileIds = new Set<string>();
+  for (const item of props.dataSourceItems) {
+    collectSelectedFileIds(item, fileIds);
+  }
+  return fileIds.size;
+});
+
+/** 선택된 데이터셋에 연결된 원천 데이터를 렌더링 가능한 flat tree row로 변환합니다. */
+const selectedDatasetSourceRows = computed(() => {
+  return flattenDatasetSourceTree(selectedDataset.value?.sourceTree ?? []);
 });
 
 /** 검색어와 정렬 상태를 반영한 데이터셋 카탈로그 목록입니다. */
@@ -59,6 +108,134 @@ function isLinkedToActiveSession(dataset: DatasetLibraryItem): boolean {
   );
 }
 
+/** 모달의 원천 데이터 트리를 접힘 상태에 맞게 펼칩니다. */
+function flattenVisibleSourceItems(items: DataSourceItem[]): DataSourceItem[] {
+  const sortedItems = [...items].sort((left, right) => {
+    if (left.itemType !== right.itemType) {
+      return left.itemType === "folder" ? -1 : 1;
+    }
+    return left.name.localeCompare(right.name);
+  });
+
+  return sortedItems.flatMap((item) => {
+    if (item.itemType !== "folder" || collapsedSourceFolderIds.value.has(item.id)) {
+      return [item];
+    }
+    return [item, ...flattenVisibleSourceItems(item.children)];
+  });
+}
+
+/** 특정 폴더 아래의 모든 하위 노드를 수집합니다. */
+function collectDescendantItems(item: DataSourceItem): DataSourceItem[] {
+  return item.children.flatMap((child) => [child, ...collectDescendantItems(child)]);
+}
+
+/** 선택 상태에서 실제 파일 노드만 중복 없이 집계합니다. */
+function collectSelectedFileIds(item: DataSourceItem, fileIds: Set<string>) {
+  if (item.itemType === "file" && selectedSourceIds.value.has(item.id)) {
+    fileIds.add(item.id);
+    return;
+  }
+
+  if (item.itemType === "folder" && selectedSourceIds.value.has(item.id)) {
+    for (const descendant of collectDescendantItems(item)) {
+      if (descendant.itemType === "file") {
+        fileIds.add(descendant.id);
+      }
+    }
+    return;
+  }
+
+  for (const child of item.children) {
+    collectSelectedFileIds(child, fileIds);
+  }
+}
+
+/** 데이터셋 원천 트리를 화면 row 목록으로 펼칩니다. */
+function flattenDatasetSourceTree(
+  items: DatasetSourceTreeItem[],
+): DatasetSourceTreeItem[] {
+  return items.flatMap((item) => [item, ...flattenDatasetSourceTree(item.children)]);
+}
+
+/** 이미 선택된 데이터셋 row를 다시 누르면 선택을 해제합니다. */
+function toggleDatasetRow(datasetId: string) {
+  emit("selectDataset", datasetId === props.selectedDatasetId ? null : datasetId);
+}
+
+/** 폴더 선택 시 하위 전체 선택/해제를 함께 적용합니다. */
+function toggleSourceSelection(item: DataSourceItem) {
+  const relatedItems =
+    item.itemType === "folder" ? [item, ...collectDescendantItems(item)] : [item];
+  const relatedIds = relatedItems.map((sourceItem) => sourceItem.id);
+  const nextIds = new Set(selectedSourceIds.value);
+  const isEveryRelatedSelected = relatedIds.every((id) => nextIds.has(id));
+
+  for (const id of relatedIds) {
+    if (isEveryRelatedSelected) {
+      nextIds.delete(id);
+    } else {
+      nextIds.add(id);
+    }
+  }
+
+  selectedSourceIds.value = nextIds;
+}
+
+/** 폴더 행의 펼침 상태를 전환합니다. */
+function toggleSourceFolder(item: DataSourceItem) {
+  if (item.itemType !== "folder") return;
+
+  const nextIds = new Set(collapsedSourceFolderIds.value);
+  if (nextIds.has(item.id)) {
+    nextIds.delete(item.id);
+  } else {
+    nextIds.add(item.id);
+  }
+  collapsedSourceFolderIds.value = nextIds;
+}
+
+/** 데이터셋 생성 모달을 초기 상태로 엽니다. */
+function openCreateDatasetDialog() {
+  datasetNameInput.value = "";
+  datasetDescriptionInput.value = "";
+  sourceSearchQuery.value = "";
+  selectedSourceIds.value = new Set();
+  collapsedSourceFolderIds.value = new Set();
+  createDatasetError.value = null;
+  isCreateDialogOpen.value = true;
+}
+
+/** 데이터셋 생성 모달을 닫습니다. */
+function closeCreateDatasetDialog() {
+  if (isCreatePending.value) return;
+
+  isCreateDialogOpen.value = false;
+  createDatasetError.value = null;
+  isCreateSubmitting.value = false;
+}
+
+/** 선택한 원천 데이터와 메타데이터로 데이터셋 생성을 요청합니다. */
+function submitCreateDataset() {
+  const name = datasetNameInput.value.trim();
+  if (!name) {
+    createDatasetError.value = "데이터셋 명을 입력해 주세요.";
+    return;
+  }
+  if (selectedSourceFileCount.value === 0) {
+    createDatasetError.value = "데이터셋에 포함할 파일 또는 폴더를 선택해 주세요.";
+    return;
+  }
+
+  isCreateSubmitting.value = true;
+  createDatasetError.value = null;
+  emit("createDatasetFromSources", {
+    name,
+    description: datasetDescriptionInput.value.trim() || null,
+    dataSourceItemIds: Array.from(selectedSourceIds.value),
+  });
+}
+
 /** 데이터셋 등록일을 화면 표시용 한국어 날짜로 변환합니다. */
 function formatDate(value?: string | null): string {
   if (!value) return "없음";
@@ -84,6 +261,29 @@ function formatNumber(value: number): string {
 function toggleSortOrder() {
   sortOrder.value = sortOrder.value === "desc" ? "asc" : "desc";
 }
+
+watch(
+  () => props.isBusy,
+  (isBusy, wasBusy) => {
+    if (!isCreateSubmitting.value || isBusy || !wasBusy) return;
+
+    isCreateSubmitting.value = false;
+    if (!props.errorMessage) {
+      isCreateDialogOpen.value = false;
+      createDatasetError.value = null;
+    }
+  },
+);
+
+watch(
+  () => props.errorMessage,
+  (message) => {
+    if (!isCreateSubmitting.value || !message) return;
+
+    isCreateSubmitting.value = false;
+    createDatasetError.value = message;
+  },
+);
 </script>
 
 <template>
@@ -105,7 +305,12 @@ function toggleSortOrder() {
           <button type="button" class="icon-button" disabled aria-label="스키마 보기">
             <span class="material-symbols-outlined">schema</span>
           </button>
-          <button type="button" class="toolbar-button toolbar-button--primary" disabled>
+          <button
+            type="button"
+            class="toolbar-button toolbar-button--primary"
+            :disabled="isBusy"
+            @click="openCreateDatasetDialog"
+          >
             <span class="material-symbols-outlined">add</span>
             데이터셋 만들기
           </button>
@@ -166,80 +371,136 @@ function toggleSortOrder() {
             </tr>
           </thead>
           <tbody>
-            <tr
+            <template
               v-for="dataset in filteredDatasets"
               :key="dataset.id"
-              class="dataset-row"
-              :class="{
-                'dataset-row--selected': dataset.id === selectedDatasetId,
-                'dataset-row--linked': isLinkedToActiveSession(dataset),
-              }"
-              @click="emit('selectDataset', dataset.id)"
             >
-              <td>
-                <div class="dataset-name-cell">
-                  <strong>{{ dataset.filename }}</strong>
-                  <span>{{ dataset.storagePath ?? "저장 경로 미지정" }}</span>
-                </div>
-              </td>
-              <td data-label="등록일">{{ formatDate(dataset.createdAt) }}</td>
-              <td data-label="규모">
-                {{ formatNumber(dataset.rowCount) }}행 ·
-                {{ formatNumber(dataset.columnCount) }}열
-              </td>
-              <td data-label="상태">
-                <span
-                  class="status-badge"
-                  :class="
-                    isLinkedToActiveSession(dataset)
-                      ? 'status-badge--linked'
-                      : 'status-badge--idle'
-                  "
-                >
-                  {{
-                    isLinkedToActiveSession(dataset)
-                      ? "활성 세션 연결됨"
-                      : "미연결"
-                  }}
-                </span>
-              </td>
-              <td data-label="연결 세션">{{ dataset.linkedSessionCount }}개</td>
-              <td class="dataset-table__actions">
-                <div class="row-actions">
-                  <button
-                    v-if="!isLinkedToActiveSession(dataset)"
-                    type="button"
-                    class="action-button action-button--primary"
-                    :disabled="isBusy || !activeSessionId"
-                    @click.stop="emit('attachDataset', dataset.id)"
+              <tr
+                class="dataset-row"
+                :class="{
+                  'dataset-row--selected': dataset.id === selectedDatasetId,
+                  'dataset-row--linked': isLinkedToActiveSession(dataset),
+                }"
+                @click="toggleDatasetRow(dataset.id)"
+              >
+                <td>
+                  <div class="dataset-name-cell">
+                    <strong>{{ dataset.filename }}</strong>
+                    <span>{{ dataset.storagePath ?? "원천 데이터 연결" }}</span>
+                  </div>
+                </td>
+                <td data-label="등록일">{{ formatDate(dataset.createdAt) }}</td>
+                <td data-label="규모">
+                  {{ formatNumber(dataset.rowCount) }}행 ·
+                  {{ formatNumber(dataset.columnCount) }}열
+                </td>
+                <td data-label="상태">
+                  <span
+                    class="status-badge"
+                    :class="
+                      isLinkedToActiveSession(dataset)
+                        ? 'status-badge--linked'
+                        : 'status-badge--idle'
+                    "
                   >
-                    <span class="material-symbols-outlined">link</span>
-                    연결
-                  </button>
-                  <button
-                    v-else
-                    type="button"
-                    class="action-button"
-                    :disabled="isBusy || !activeSessionId"
-                    @click.stop="emit('detachDataset', dataset.id)"
-                  >
-                    <span class="material-symbols-outlined">link_off</span>
-                    해제
-                  </button>
-                  <button
-                    type="button"
-                    class="action-button action-button--danger"
-                    :disabled="isBusy"
-                    @click.stop="emit('deleteDataset', dataset.id)"
-                  >
-                    <span class="material-symbols-outlined">delete</span>
-                    삭제
-                  </button>
-                </div>
-              </td>
-            </tr>
+                    {{
+                      isLinkedToActiveSession(dataset)
+                        ? "활성 세션 연결됨"
+                        : "미연결"
+                    }}
+                  </span>
+                </td>
+                <td data-label="연결 세션">{{ dataset.linkedSessionCount }}개</td>
+                <td class="dataset-table__actions">
+                  <div class="row-actions">
+                    <button
+                      v-if="!isLinkedToActiveSession(dataset)"
+                      type="button"
+                      class="action-button action-button--primary"
+                      :disabled="isBusy || !activeSessionId"
+                      @click.stop="emit('attachDataset', dataset.id)"
+                    >
+                      <span class="material-symbols-outlined">link</span>
+                      연결
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="action-button"
+                      :disabled="isBusy || !activeSessionId"
+                      @click.stop="emit('detachDataset', dataset.id)"
+                    >
+                      <span class="material-symbols-outlined">link_off</span>
+                      해제
+                    </button>
+                    <button
+                      type="button"
+                      class="action-button action-button--danger"
+                      :disabled="isBusy"
+                      @click.stop="emit('deleteDataset', dataset.id)"
+                    >
+                      <span class="material-symbols-outlined">delete</span>
+                      삭제
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr
+                v-if="dataset.id === selectedDatasetId"
+                class="dataset-source-detail-row"
+              >
+                <td colspan="6">
+                  <section class="dataset-source-detail">
+                    <header>
+                      <div>
+                        <strong>연결된 원천 데이터</strong>
+                        <span>
+                          {{ formatNumber(dataset.sourceTree?.length ? selectedDatasetSourceRows.filter((item) => item.itemType === "file").length : 0) }}개 파일
+                        </span>
+                      </div>
+                      <small>{{ dataset.description || "설명 없음" }}</small>
+                    </header>
+
+                    <div
+                      v-if="selectedDatasetSourceRows.length > 0"
+                      class="dataset-linked-source-tree"
+                    >
+                      <div
+                        v-for="sourceItem in selectedDatasetSourceRows"
+                        :key="sourceItem.id"
+                        class="dataset-linked-source-row"
+                        :class="{
+                          'dataset-linked-source-row--folder': sourceItem.itemType === 'folder',
+                        }"
+                        :style="{ '--source-depth': sourceItem.depth }"
+                      >
+                        <span class="material-symbols-outlined">
+                          {{ sourceItem.itemType === "folder" ? "folder" : "description" }}
+                        </span>
+                        <div>
+                          <strong>{{ sourceItem.name }}</strong>
+                          <small>{{ sourceItem.relativePath }}</small>
+                        </div>
+                        <em v-if="sourceItem.itemType === 'folder'">
+                          {{ formatNumber(sourceItem.fileCount) }}개 파일
+                        </em>
+                        <em v-else>
+                          {{ formatNumber(sourceItem.rowCount) }}행 ·
+                          {{ formatNumber(sourceItem.columnCount) }}열
+                        </em>
+                      </div>
+                    </div>
+
+                    <div v-else class="dataset-source-detail__empty">
+                      <span class="material-symbols-outlined">account_tree</span>
+                      연결된 원천 데이터 정보를 불러오는 중입니다.
+                    </div>
+                  </section>
+                </td>
+              </tr>
+            </template>
             <tr v-if="filteredDatasets.length === 0">
-              <td colspan="5" class="empty-row">
+              <td colspan="6" class="empty-row">
                 <span class="material-symbols-outlined">database_off</span>
                 검색 조건에 맞는 데이터 소스가 없어요.
               </td>
@@ -248,6 +509,165 @@ function toggleSortOrder() {
         </table>
       </div>
     </section>
+
+    <div
+      v-if="isCreateDialogOpen"
+      class="dataset-create-backdrop"
+      role="presentation"
+      @click.self="closeCreateDatasetDialog"
+    >
+      <section
+        class="dataset-create-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dataset-create-title"
+      >
+        <header class="dataset-create-header">
+          <div>
+            <p>데이터셋 만들기</p>
+            <h3 id="dataset-create-title">원천 데이터에서 데이터셋 구성</h3>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            :disabled="isCreatePending"
+            aria-label="닫기"
+            @click="closeCreateDatasetDialog"
+          >
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </header>
+
+        <div
+          v-if="isCreatePending"
+          class="dataset-create-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <div>
+            <span class="material-symbols-outlined">progress_activity</span>
+            <strong>데이터셋을 만들고 있습니다</strong>
+            <small>선택한 파일의 미리보기와 프로파일을 저장하는 중입니다.</small>
+          </div>
+          <span class="dataset-create-progress__bar" aria-hidden="true"></span>
+        </div>
+
+        <div class="dataset-create-body">
+          <section class="dataset-create-form">
+            <label class="dataset-field">
+              <span>데이터셋 명</span>
+              <input
+                v-model="datasetNameInput"
+                type="text"
+                placeholder="예: 2026년 주문 데이터셋"
+                :disabled="isCreatePending"
+              />
+            </label>
+            <label class="dataset-field">
+              <span>데이터셋 설명</span>
+              <textarea
+                v-model="datasetDescriptionInput"
+                rows="4"
+                placeholder="포함 범위, 사용 목적, 주의할 점을 적어두세요."
+                :disabled="isCreatePending"
+              ></textarea>
+            </label>
+
+            <div class="source-mode-switch" aria-label="데이터셋 소스 유형">
+              <button type="button" class="source-mode-switch__button source-mode-switch__button--active">
+                <span class="material-symbols-outlined">folder_open</span>
+                원천 데이터
+              </button>
+              <button type="button" class="source-mode-switch__button" disabled>
+                <span class="material-symbols-outlined">database</span>
+                DB 연결
+              </button>
+            </div>
+          </section>
+
+          <section class="dataset-source-picker">
+            <div class="dataset-source-toolbar">
+              <label class="library-search dataset-source-search">
+                <span class="material-symbols-outlined">search</span>
+                <input
+                  v-model="sourceSearchQuery"
+                  type="search"
+                  placeholder="원천 데이터 파일 또는 폴더 검색"
+                  :disabled="isCreatePending"
+                />
+              </label>
+              <strong>{{ selectedSourceFileCount }}개 파일 선택</strong>
+            </div>
+
+            <div class="dataset-source-tree">
+              <button
+                v-for="sourceItem in visibleSourceItems"
+                :key="sourceItem.id"
+                type="button"
+                class="dataset-source-row"
+                :class="{
+                  'dataset-source-row--folder': sourceItem.itemType === 'folder',
+                  'dataset-source-row--selected': selectedSourceIds.has(sourceItem.id),
+                }"
+                :style="{ '--source-depth': sourceItem.depth }"
+                :disabled="isCreatePending"
+                @click="toggleSourceSelection(sourceItem)"
+              >
+                <span
+                  v-if="sourceItem.itemType === 'folder'"
+                  class="material-symbols-outlined source-caret"
+                  @click.stop="toggleSourceFolder(sourceItem)"
+                >
+                  {{ collapsedSourceFolderIds.has(sourceItem.id) ? "chevron_right" : "expand_more" }}
+                </span>
+                <span v-else class="source-caret"></span>
+                <span class="source-check material-symbols-outlined">
+                  {{ selectedSourceIds.has(sourceItem.id) ? "check_box" : "check_box_outline_blank" }}
+                </span>
+                <span class="source-kind material-symbols-outlined">
+                  {{ sourceItem.itemType === "folder" ? "folder" : "description" }}
+                </span>
+                <span class="source-name">
+                  <strong>{{ sourceItem.name }}</strong>
+                  <small>{{ sourceItem.relativePath }}</small>
+                </span>
+              </button>
+
+              <div v-if="visibleSourceItems.length === 0" class="source-empty-state">
+                <span class="material-symbols-outlined">folder_off</span>
+                원천 데이터가 없거나 검색 결과가 없습니다.
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <p v-if="createDatasetError" class="library-error dataset-create-error">
+          {{ createDatasetError }}
+        </p>
+
+        <footer class="dataset-create-actions">
+          <button
+            type="button"
+            class="toolbar-button"
+            :disabled="isCreatePending"
+            @click="closeCreateDatasetDialog"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            class="toolbar-button toolbar-button--primary"
+            :disabled="isCreatePending"
+            @click="submitCreateDataset"
+          >
+            <span class="material-symbols-outlined">
+              {{ isCreatePending ? "progress_activity" : "add" }}
+            </span>
+            {{ isCreatePending ? "생성 중" : "생성" }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -598,6 +1018,112 @@ function toggleSortOrder() {
   white-space: nowrap;
 }
 
+.dataset-source-detail-row > td {
+  padding: 0;
+  background: #f8fbff;
+}
+
+.dataset-source-detail {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 18px 18px;
+  border-top: 1px solid rgba(24, 74, 140, 0.16);
+  border-bottom: 1px solid rgba(24, 74, 140, 0.16);
+}
+
+.dataset-source-detail header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dataset-source-detail header > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dataset-source-detail header strong {
+  color: var(--color-primary-strong);
+  font-size: 0.92rem;
+}
+
+.dataset-source-detail header span,
+.dataset-source-detail header small {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.dataset-linked-source-tree {
+  max-height: 260px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(24, 74, 140, 0.12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dataset-linked-source-row {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px 7px calc(10px + (var(--source-depth, 0) * 18px));
+  border-radius: 7px;
+  color: var(--color-text);
+}
+
+.dataset-linked-source-row--folder {
+  background: rgba(24, 74, 140, 0.05);
+}
+
+.dataset-linked-source-row .material-symbols-outlined {
+  color: var(--color-primary);
+  font-size: 1.15rem;
+}
+
+.dataset-linked-source-row div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.dataset-linked-source-row strong,
+.dataset-linked-source-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataset-linked-source-row strong {
+  font-size: 0.86rem;
+}
+
+.dataset-linked-source-row small,
+.dataset-linked-source-row em {
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.dataset-source-detail__empty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(24, 74, 140, 0.2);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  background: #fff;
+  text-align: center;
+}
+
 .empty-row {
   padding: 44px 22px;
   color: var(--color-text-muted);
@@ -607,6 +1133,352 @@ function toggleSortOrder() {
 .empty-row .material-symbols-outlined {
   margin-right: 6px;
   vertical-align: middle;
+}
+
+.dataset-create-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.dataset-create-dialog {
+  width: min(1040px, 100%);
+  max-height: min(760px, calc(100vh - 56px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.dataset-create-header,
+.dataset-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dataset-create-header p {
+  margin: 0 0 4px;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dataset-create-header h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.08rem;
+}
+
+.dataset-create-progress {
+  display: grid;
+  gap: 12px;
+  padding: 14px 20px 16px;
+  border-bottom: 1px solid rgba(24, 74, 140, 0.16);
+  background: #f7fbff;
+}
+
+.dataset-create-progress > div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.dataset-create-progress .material-symbols-outlined {
+  color: var(--color-primary);
+  animation: dataset-create-spin 1s linear infinite;
+}
+
+.dataset-create-progress strong {
+  color: var(--color-primary-strong);
+  font-size: 0.9rem;
+}
+
+.dataset-create-progress small {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.dataset-create-progress__bar {
+  position: relative;
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(24, 74, 140, 0.14);
+}
+
+.dataset-create-progress__bar::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  animation: dataset-create-progress 1.15s ease-in-out infinite;
+  content: "";
+}
+
+.dataset-create-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+}
+
+.dataset-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-right: 1px solid var(--color-border);
+  background: #fbfcfe;
+}
+
+.dataset-field {
+  display: grid;
+  gap: 8px;
+}
+
+.dataset-field > span {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.dataset-field input,
+.dataset-field textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.dataset-field input {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.dataset-field textarea {
+  resize: vertical;
+  min-height: 104px;
+  padding: 12px;
+  line-height: 1.5;
+}
+
+.dataset-field input:focus,
+.dataset-field textarea:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(24, 74, 140, 0.12);
+}
+
+.dataset-field input:disabled,
+.dataset-field textarea:disabled,
+.library-search input:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.source-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+}
+
+.source-mode-switch__button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.source-mode-switch__button--active {
+  color: var(--color-primary);
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.source-mode-switch__button:disabled {
+  opacity: 0.55;
+}
+
+.dataset-source-picker {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dataset-source-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dataset-source-toolbar strong {
+  flex: 0 0 auto;
+  color: var(--color-primary-strong);
+  font-size: 0.84rem;
+}
+
+.dataset-source-search {
+  min-width: 0;
+}
+
+.dataset-source-tree {
+  min-height: 320px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.dataset-source-row {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 24px 24px 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 7px calc(10px + (var(--source-depth, 0) * 18px));
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.dataset-source-row:hover,
+.dataset-source-row:focus-visible {
+  border-color: var(--color-border);
+  background: #f8fbff;
+  outline: none;
+}
+
+.dataset-source-row--selected {
+  border-color: rgba(24, 74, 140, 0.26);
+  background: rgba(24, 74, 140, 0.07);
+}
+
+.dataset-source-row:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.source-caret,
+.source-check,
+.source-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.source-caret {
+  color: var(--color-text-muted);
+}
+
+.source-check {
+  color: var(--color-primary);
+}
+
+.source-kind {
+  color: var(--color-primary-strong);
+}
+
+.source-name {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.source-name strong,
+.source-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-name strong {
+  font-size: 0.9rem;
+}
+
+.source-name small {
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+}
+
+.source-empty-state {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.source-empty-state .material-symbols-outlined {
+  color: var(--color-primary);
+  font-size: 2rem;
+}
+
+.dataset-create-error {
+  border-top: 1px solid rgba(155, 59, 59, 0.18);
+}
+
+.dataset-create-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 0;
+}
+
+@keyframes dataset-create-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  50% {
+    transform: translateX(70%);
+  }
+
+  100% {
+    transform: translateX(245%);
+  }
+}
+
+@keyframes dataset-create-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 900px) {
@@ -627,6 +1499,15 @@ function toggleSortOrder() {
   .dataset-list-header {
     align-items: flex-start;
     display: grid;
+  }
+
+  .dataset-create-body {
+    grid-template-columns: 1fr;
+  }
+
+  .dataset-create-form {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
   }
 }
 
@@ -715,6 +1596,30 @@ function toggleSortOrder() {
 
   .row-actions .action-button--danger {
     grid-column: 1 / -1;
+  }
+
+  .dataset-create-backdrop {
+    align-items: stretch;
+    padding: 12px;
+  }
+
+  .dataset-create-dialog {
+    max-height: calc(100vh - 24px);
+  }
+
+  .dataset-create-header,
+  .dataset-create-actions,
+  .dataset-create-form,
+  .dataset-source-toolbar {
+    padding: 14px;
+  }
+
+  .dataset-source-toolbar {
+    display: grid;
+  }
+
+  .source-mode-switch {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 
 from api.deps import get_dataset_service, get_session_service
 from domain.datasets.schemas import (
+    CreateDatasetFromSourcesRequest,
     DatasetDeleteResponse,
     DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,
+    DatasetSourcesResponse,
     DatasetSummary,
 )
 from application.datasets.service import DatasetApplicationService
@@ -43,6 +45,20 @@ async def upload_dataset(
         title=dataset.filename,
     )
     return dataset
+
+
+@router.post("", response_model=DatasetInfo, status_code=status.HTTP_201_CREATED)
+def create_dataset_from_sources(
+    request: CreateDatasetFromSourcesRequest,
+    service: DatasetApplicationService = Depends(get_dataset_service),
+) -> DatasetInfo:
+    try:
+        return service.create_from_sources(request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/{dataset_id}", response_model=DatasetInfo)
@@ -88,6 +104,20 @@ def get_dataset_preview(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+
+
+@router.get("/{dataset_id}/sources", response_model=DatasetSourcesResponse)
+def get_dataset_sources(
+    dataset_id: str,
+    service: DatasetApplicationService = Depends(get_dataset_service),
+) -> DatasetSourcesResponse:
+    try:
+        return service.get_sources(dataset_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset '{dataset_id}' was not found.",
         ) from exc
 
 

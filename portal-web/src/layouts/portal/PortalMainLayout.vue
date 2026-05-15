@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
 import type { DataSourceUploadProgress, UploadPickerMode, UploadPickerTarget } from '@/features/data-source/types'
+import type { CreateDatasetFromSourcesPayload } from '@/features/data-analysis/api/analysisApi'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -56,10 +57,11 @@ const emit = defineEmits<{
   toggleSidebarPanel: []
   toggleAnalyticsPanel: []
   datasetLibrarySearchChange: [value: string]
-  selectDataset: [datasetId: string]
+  selectDataset: [datasetId: string | null]
   attachDataset: [datasetId: string]
   detachDataset: [datasetId: string]
   deleteDataset: [datasetId: string]
+  createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload]
   datasetFileChange: [event: Event, target: UploadPickerTarget]
   send: [message: string]
   analyticsResizeStart: [event: PointerEvent]
@@ -152,10 +154,11 @@ defineExpose({
           :data-source-upload-progress="dataSourceUploadProgress"
           @upload-dataset="(mode?: UploadPickerMode) => openDatasetPicker(mode, currentScreen === 'datasets' ? 'data-source' : 'dataset')"
           @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
-          @select-dataset="(datasetId: string) => emit('selectDataset', datasetId)"
+          @select-dataset="(datasetId: string | null) => emit('selectDataset', datasetId)"
           @attach-dataset="(datasetId: string) => emit('attachDataset', datasetId)"
           @detach-dataset="(datasetId: string) => emit('detachDataset', datasetId)"
           @delete-dataset="(datasetId: string) => emit('deleteDataset', datasetId)"
+          @create-dataset-from-sources="(payload: CreateDatasetFromSourcesPayload) => emit('createDatasetFromSources', payload)"
           @dataset-file-change="(event: Event) => emit('datasetFileChange', event, uploadPickerTarget)"
           @send="(message: string) => emit('send', message)"
           @analytics-resize-start="(event: PointerEvent) => emit('analyticsResizeStart', event)"

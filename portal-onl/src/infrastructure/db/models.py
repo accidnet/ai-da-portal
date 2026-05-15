@@ -49,18 +49,70 @@ class SessionOrm(Base):
 
 
 class DatasetOrm(Base):
-    """업로드 데이터셋의 파일 메타데이터를 저장하는 ORM 모델입니다."""
+    """데이터셋의 논리적 정의와 표시 메타데이터를 저장하는 ORM 모델입니다."""
 
     __tablename__ = "datasets"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    sources: Mapped[list["DatasetSourceOrm"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        order_by="DatasetSourceOrm.created_at",
+    )
+
+
+class DatasetSourceOrm(Base):
+    """데이터셋이 참조하는 원천 데이터 업로드 row를 저장합니다."""
+
+    __tablename__ = "dataset_sources"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("datasets.id", ondelete="CASCADE"), index=True
+    )
+    source_ref_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    dataset: Mapped[DatasetOrm] = relationship(back_populates="sources")
+    profile: Mapped["DatasetSourceProfileOrm | None"] = relationship(
+        back_populates="dataset_source",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class DatasetSourceProfileOrm(Base):
+    """데이터셋 등록 시점에 계산한 원천 파일별 preview/profile 스냅샷입니다."""
+
+    __tablename__ = "dataset_source_profiles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dataset_source_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("dataset_sources.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    column_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     preview: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     profile: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
+
+    dataset_source: Mapped[DatasetSourceOrm] = relationship(back_populates="profile")
 
 
 class UserMessageOrm(Base):

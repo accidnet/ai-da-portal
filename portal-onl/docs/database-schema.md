@@ -16,16 +16,44 @@
 
 ### `datasets`
 
-업로드 데이터셋의 파일 메타데이터와 미리 계산한 preview/profile입니다.
+데이터셋의 논리적 정의와 표시 메타데이터입니다. 실제 원천 연결과 파일별 preview/profile은 하위 테이블로 분리합니다.
 
-| column         | type     | nullable | description            |
-| -------------- | -------- | -------- | ---------------------- |
-| `id`           | string   | no       | 데이터셋 ID            |
-| `filename`     | string   | no       | 업로드 파일명          |
-| `storage_path` | text     | no       | 저장 경로              |
-| `preview`      | json     | yes      | 데이터 preview payload |
-| `profile`      | json     | yes      | 데이터 profile payload |
-| `created_at`   | datetime | no       | 생성 시각              |
+| column        | type     | nullable | description                              |
+| ------------- | -------- | -------- | ---------------------------------------- |
+| `id`          | string   | no       | 데이터셋 ID                              |
+| `name`        | string   | yes      | 사용자가 지정한 데이터셋 명              |
+| `description` | text     | yes      | 데이터셋 설명                            |
+| `created_at`  | datetime | no       | 생성 시각                                |
+| `updated_at`  | datetime | no       | 마지막 갱신 시각                         |
+
+### `dataset_sources`
+
+데이터셋에 연결된 원천 파일 또는 향후 DB 테이블/컬럼을 추적하는 lineage 테이블입니다. 폴더를 선택해도 서버에서 하위 파일을 확장해 파일 단위 row를 저장합니다.
+
+| column          | type     | nullable | description                                                        |
+| --------------- | -------- | -------- | ------------------------------------------------------------------ |
+| `id`            | string   | no       | 데이터셋 원천 연결 ID                                              |
+| `dataset_id`    | string   | no       | `datasets.id` FK                                                   |
+| `source_ref_id` | string   | yes      | `data_source_items.id`. 레거시 직접 업로드는 null 가능             |
+| `created_at`    | datetime | no       | 생성 시각                                                          |
+
+원천 데이터 선택 기반 데이터셋은 하위 파일 전체를 `dataset_sources`에 연결합니다. 실제 파일 경로, 크기, MIME type 등은 `data_source_items`를 그대로 참조합니다.
+
+### `dataset_source_profiles`
+
+데이터셋 등록 API 호출 중 계산한 원천 파일별 preview/profile 스냅샷입니다. 조회 API는 이 값을 우선 사용하고, 스냅샷이 없는 레거시 row만 원천 파일을 다시 읽어 계산합니다.
+
+| column              | type     | nullable | description                                  |
+| ------------------- | -------- | -------- | -------------------------------------------- |
+| `id`                | string   | no       | 프로파일 스냅샷 ID                           |
+| `dataset_source_id` | string   | no       | `dataset_sources.id` FK. 파일 연결 단위      |
+| `row_count`         | integer  | no       | 등록 시점 원천 파일 행 수                    |
+| `column_count`      | integer  | no       | 등록 시점 원천 파일 컬럼 수                  |
+| `preview`           | json     | yes      | 등록 시점 preview payload                    |
+| `profile`           | json     | yes      | 등록 시점 profile payload                    |
+| `created_at`        | datetime | no       | 생성 시각                                    |
+
+`dataset_source_id`는 unique입니다. 즉 하나의 `dataset_sources` row는 하나의 파일별 스냅샷만 가집니다.
 
 ### `data_source_items`
 

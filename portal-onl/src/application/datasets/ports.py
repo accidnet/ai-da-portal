@@ -6,7 +6,7 @@ class DatasetMetadataRecord(Protocol):
 
     # ORM 구현 세부사항 대신 usecase가 실제로 읽는 필드만 노출합니다.
     id: str
-    storage_path: str
+    storage_path: str | None
     preview: dict[str, object] | None
     profile: dict[str, object] | None
 

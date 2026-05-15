@@ -48,6 +48,32 @@ class DataSourceRepository:
             items = list(db.scalars(statement).all())
             return [self._to_item_domain(item) for item in items]
 
+    def list_items_by_ids(self, item_ids: list[str]) -> list[DataSourceItem]:
+        """선택된 원천 데이터 노드를 id 목록 기준으로 조회합니다."""
+        if not item_ids:
+            return []
+
+        statement = select(DataSourceItemOrm).where(DataSourceItemOrm.id.in_(item_ids))
+        with SessionLocal() as db:
+            items = list(db.scalars(statement).all())
+            return [self._to_item_domain(item) for item in items]
+
+    def list_descendants(self, relative_path: str) -> list[DataSourceItem]:
+        """폴더 relative path 아래의 모든 하위 원천 데이터 노드를 조회합니다."""
+        normalized_path = relative_path.rstrip("/")
+        statement = (
+            select(DataSourceItemOrm)
+            .where(DataSourceItemOrm.relative_path.like(f"{normalized_path}/%"))
+            .order_by(
+                DataSourceItemOrm.depth,
+                DataSourceItemOrm.sort_order,
+                DataSourceItemOrm.name,
+            )
+        )
+        with SessionLocal() as db:
+            items = list(db.scalars(statement).all())
+            return [self._to_item_domain(item) for item in items]
+
     def list_relative_paths(self) -> set[str]:
         """저장된 원천 데이터 노드의 상대 경로 집합을 조회합니다."""
         with SessionLocal() as db:

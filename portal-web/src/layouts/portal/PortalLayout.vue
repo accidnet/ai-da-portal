@@ -126,6 +126,7 @@ const {
   handleAttachDataset,
   handleDetachDataset,
   handleDeleteDataset,
+  handleCreateDatasetFromSources,
   removeSessionLinks: removeDatasetSessionLinks,
 } = useDatasetLibrary({
   activeSessionId,
@@ -487,6 +488,7 @@ onBeforeUnmount(() => {
       @attach-dataset="handleAttachDataset"
       @detach-dataset="handleDetachDataset"
       @delete-dataset="handleDeleteDataset"
+      @create-dataset-from-sources="handleCreateDatasetFromSources"
       @dataset-file-change="handleUploadFileChange"
       @send="handleWorkspaceSend"
       @analytics-resize-start="startAnalyticsPaneResize"

@@ -18,9 +18,26 @@ export interface DatasetPreview {
   rows: Record<string, string | number | null>[]
 }
 
+export interface DatasetSourceTreeItem {
+  id: string
+  sourceRefId: string | null
+  itemType: 'file' | 'folder'
+  name: string
+  relativePath: string
+  depth: number
+  contentType: string | null
+  sizeBytes: number | null
+  rowCount: number
+  columnCount: number
+  fileCount: number
+  children: DatasetSourceTreeItem[]
+}
+
 export interface DatasetLibraryItem {
   id: string
   filename: string
+  name?: string | null
+  description?: string | null
   storagePath: string | null
   createdAt: string
   rowCount: number
@@ -30,11 +47,14 @@ export interface DatasetLibraryItem {
   latestUsedAt: string | null
   preview?: DatasetPreview | null
   profile?: DatasetProfile | null
+  sourceTree?: DatasetSourceTreeItem[] | null
 }
 
 export interface DatasetAsset {
   id: string
   filename: string
+  name?: string | null
+  description?: string | null
   createdAt: string
   preview?: DatasetPreview | null
   profile?: DatasetProfile | null

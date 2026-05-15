@@ -41,6 +41,8 @@ export function mapDatasetAsset(payload: SessionSnapshotDatasetResponse): Datase
   return {
     id: payload.detail.id,
     filename: payload.detail.filename,
+    name: payload.detail.name,
+    description: payload.detail.description,
     createdAt: payload.detail.created_at,
     preview: {
       columns: payload.preview.columns,
@@ -58,6 +60,8 @@ export function mapDatasetInfoToAsset(payload: {
   return {
     id: payload.detail.id,
     filename: payload.detail.filename,
+    name: payload.detail.name,
+    description: payload.detail.description,
     createdAt: payload.detail.created_at,
     preview: payload.preview
       ? {
