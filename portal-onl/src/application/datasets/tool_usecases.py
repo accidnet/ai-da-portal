@@ -1,8 +1,7 @@
-from pathlib import Path
-
 import pandas as pd
 
 from application.datasets.dto import (
+    DatasetColumnProfile,
     DatasetPreviewPayload,
     DatasetProfilePayload,
 )
@@ -11,12 +10,12 @@ from application.datasets.inspection import (
     build_profile_from_dataframe,
 )
 from application.datasets.ports import DatasetMetadataReader, DatasetMetadataRecord
+from application.datasets.source_loading import load_dataset_dataframe
 from tools.dto import (
     DatasetInspectionPayload,
     DatasetToolPreviewPayload,
     DatasetToolProfilePayload,
 )
-from tools.datasets.dataframe_loader import load_dataframe
 
 
 class InspectDatasetContextUseCase:
@@ -55,7 +54,7 @@ class InspectDatasetContextUseCase:
         self, dataset: DatasetMetadataRecord
     ) -> pd.DataFrame:
         """저장 경로의 원본 파일을 DataFrame으로 로드하고 날짜 컬럼을 보정합니다."""
-        return self._infer_datetime_columns(load_dataframe(Path(dataset.storage_path)))
+        return self._infer_datetime_columns(load_dataset_dataframe(dataset))
 
     def _infer_datetime_columns(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """object 컬럼 중 날짜로 해석 가능한 컬럼을 datetime 타입으로 변환합니다."""
@@ -74,7 +73,7 @@ class InspectDatasetContextUseCase:
     ) -> DatasetPreviewPayload | None:
         """DB에 저장된 미리보기 payload를 DTO로 복원합니다."""
         if dataset.preview is None:
-            return None
+            return self._build_preview_from_source_snapshots(dataset)
         return DatasetPreviewPayload.model_validate(dataset.preview)
 
     def _get_stored_profile(
@@ -82,5 +81,52 @@ class InspectDatasetContextUseCase:
     ) -> DatasetProfilePayload | None:
         """DB에 저장된 프로파일 payload를 DTO로 복원합니다."""
         if dataset.profile is None:
-            return None
+            return self._build_profile_from_source_snapshots(dataset)
         return DatasetProfilePayload.model_validate(dataset.profile)
+
+    def _build_preview_from_source_snapshots(
+        self, dataset: DatasetMetadataRecord
+    ) -> DatasetPreviewPayload | None:
+        """원천 파일별 저장 preview snapshot을 도구 응답용 preview로 합칩니다."""
+        columns: list[str] = []
+        rows: list[dict[str, str | int | float | None]] = []
+        seen_columns: set[str] = set()
+        has_snapshot = False
+        for source in dataset.sources:
+            if source.preview is None:
+                continue
+            has_snapshot = True
+            preview = DatasetPreviewPayload.model_validate(source.preview)
+            for column in preview.columns:
+                if column not in seen_columns:
+                    seen_columns.add(column)
+                    columns.append(column)
+            rows.extend(preview.rows[:5])
+            if len(rows) >= 20:
+                break
+        if not has_snapshot:
+            return None
+        return DatasetPreviewPayload(columns=columns, rows=rows[:20])
+
+    def _build_profile_from_source_snapshots(
+        self, dataset: DatasetMetadataRecord
+    ) -> DatasetProfilePayload | None:
+        """원천 파일별 저장 profile snapshot을 도구 응답용 profile로 합칩니다."""
+        row_count = 0
+        columns: dict[str, DatasetColumnProfile] = {}
+        has_snapshot = False
+        for source in dataset.sources:
+            if source.profile is None:
+                continue
+            has_snapshot = True
+            profile = DatasetProfilePayload.model_validate(source.profile)
+            row_count += profile.row_count
+            for column in profile.columns:
+                columns.setdefault(column.name, column)
+        if not has_snapshot:
+            return None
+        return DatasetProfilePayload(
+            row_count=row_count,
+            column_count=len(columns),
+            columns=list(columns.values()),
+        )

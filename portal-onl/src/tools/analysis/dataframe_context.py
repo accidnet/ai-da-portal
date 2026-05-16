@@ -1,10 +1,9 @@
 from functools import lru_cache
-from pathlib import Path
 
 import pandas as pd
 
+from application.datasets.source_loading import load_dataset_dataframe as load_record_dataframe
 from infrastructure.db.repositories import DatasetRepository
-from tools.datasets.dataframe_loader import load_dataframe
 
 
 @lru_cache
@@ -17,7 +16,7 @@ def get_dataset_repository() -> DatasetRepository:
 def load_dataset_dataframe(dataset_id: str) -> pd.DataFrame:
     """dataset_id에 해당하는 저장 파일을 DataFrame으로 로드합니다."""
     dataset = get_dataset_repository().get_or_raise(dataset_id)
-    return _infer_datetime_columns(load_dataframe(Path(dataset.storage_path)))
+    return _infer_datetime_columns(load_record_dataframe(dataset))
 
 
 def _infer_datetime_columns(dataframe: pd.DataFrame) -> pd.DataFrame:

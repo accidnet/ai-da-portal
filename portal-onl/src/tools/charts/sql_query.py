@@ -3,6 +3,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from application.datasets.source_loading import resolve_dataset_source_paths
 from core.utils import read_string
 from infrastructure.db.repositories import DatasetRepository
 
@@ -11,9 +12,15 @@ def load_dataset_path(dataset_id: str) -> Path:
     """dataset_id로 저장 파일 경로만 조회합니다."""
     dataset = DatasetRepository().get_or_raise(dataset_id)
     storage_path = read_string(dataset.storage_path)
-    if storage_path is None:
+    if storage_path is not None:
+        return Path(storage_path)
+
+    source_paths = resolve_dataset_source_paths(dataset)
+    if not source_paths:
         raise ValueError("Dataset storage path is missing.")
-    return Path(storage_path)
+    if len(source_paths) > 1:
+        raise ValueError("SQL charts currently support a single source file dataset.")
+    return source_paths[0][1]
 
 
 def read_required_string(arguments: dict[str, object], key: str) -> str:
