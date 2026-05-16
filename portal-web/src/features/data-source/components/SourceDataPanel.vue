@@ -10,16 +10,21 @@ import type {
 const props = defineProps<{
   items: DataSourceItem[];
   uploadProgress: DataSourceUploadProgress;
+  isMutating?: boolean;
+  errorMessage?: string | null;
 }>();
 
 const emit = defineEmits<{
   uploadFile: [mode: UploadPickerMode];
+  deleteItem: [itemId: string];
 }>();
 
 type SourceDetail = "upload" | "db";
 
 const activeDetail = ref<SourceDetail>("upload");
 const collapsedFolderIds = ref<Set<string>>(new Set());
+const actionMenuItemId = ref<string | null>(null);
+const actionMenuPosition = ref({ top: 0, left: 0 });
 
 /** 원천 데이터 파일 목록을 폴더 접힘 상태를 반영해 정리합니다. */
 const uploadedItems = computed(() => {
@@ -76,6 +81,42 @@ function toggleFolder(item: DataSourceItem) {
 /** 파일 브라우저 행 클릭을 처리합니다. */
 function handleItemClick(item: DataSourceItem) {
   toggleFolder(item);
+}
+
+/** 행 우측 더보기 메뉴를 화면 최상단 fixed 레이어에 열거나 닫습니다. */
+function toggleActionMenu(itemId: string, event: MouseEvent) {
+  if (actionMenuItemId.value === itemId) {
+    actionMenuItemId.value = null;
+    return;
+  }
+
+  const trigger = event.currentTarget as HTMLElement | null;
+  const rect = trigger?.getBoundingClientRect();
+  if (rect) {
+    const menuWidth = 118;
+    const menuHeight = 46;
+    const top =
+      rect.bottom + menuHeight + 8 > window.innerHeight
+        ? Math.max(8, rect.top - menuHeight - 6)
+        : rect.bottom + 6;
+    const left = Math.min(
+      Math.max(8, rect.right - menuWidth),
+      window.innerWidth - menuWidth - 8,
+    );
+    actionMenuPosition.value = { top, left };
+  }
+  actionMenuItemId.value = itemId;
+}
+
+/** 플로팅 메뉴를 닫습니다. */
+function closeActionMenu() {
+  actionMenuItemId.value = null;
+}
+
+/** 선택한 원천 데이터 삭제를 상위 컴포넌트로 요청합니다. */
+function deleteItem(itemId: string) {
+  actionMenuItemId.value = null;
+  emit("deleteItem", itemId);
 }
 
 /** 등록일을 파일 목록 표시용 날짜로 변환합니다. */
@@ -209,6 +250,8 @@ function setActiveDetail(detail: SourceDetail) {
         </button>
       </div>
 
+      <p v-if="errorMessage" class="source-error-message">{{ errorMessage }}</p>
+
       <div class="source-file-browser">
         <div class="source-file-browser__head">
           <span>이름</span>
@@ -222,19 +265,21 @@ function setActiveDetail(detail: SourceDetail) {
             아직 업로드된 원천 데이터가 없습니다.
           </div>
           <template v-else>
-            <button
+            <div
               v-for="dataset in uploadedItems"
               :key="dataset.id"
-              type="button"
               class="source-file-row"
               :class="{ 'source-file-row--folder': dataset.itemType === 'folder' }"
               :style="{ '--file-depth': dataset.depth }"
+              role="button"
+              tabindex="0"
               :aria-expanded="
                 dataset.itemType === 'folder'
                   ? !collapsedFolderIds.has(dataset.id)
                   : undefined
               "
               @click="handleItemClick(dataset)"
+              @keydown.enter="handleItemClick(dataset)"
             >
               <span class="source-file-name">
                 <span
@@ -255,9 +300,17 @@ function setActiveDetail(detail: SourceDetail) {
               <span>{{ formatDate(dataset.createdAt) }}</span>
               <span class="source-file-status">{{ formatStatus(dataset) }}</span>
               <span class="source-file-controls">
-                <span class="material-symbols-outlined">more_horiz</span>
+                <button
+                  type="button"
+                  class="source-file-more-button"
+                  :disabled="isMutating"
+                  aria-label="원천 데이터 작업"
+                  @click.stop="toggleActionMenu(dataset.id, $event)"
+                >
+                  <span class="material-symbols-outlined">more_horiz</span>
+                </button>
               </span>
-            </button>
+            </div>
           </template>
         </div>
       </div>
@@ -273,6 +326,29 @@ function setActiveDetail(detail: SourceDetail) {
         <span>연결 정보 등록, 테이블 선택, 스키마 미리보기 화면이 이 영역에 배치될 예정입니다.</span>
       </div>
     </section>
+
+    <Teleport to="body">
+      <div
+        v-if="actionMenuItemId"
+        class="source-file-menu-layer"
+        role="presentation"
+        @click="closeActionMenu"
+      >
+        <div
+          class="source-file-menu"
+          :style="{
+            top: `${actionMenuPosition.top}px`,
+            left: `${actionMenuPosition.left}px`,
+          }"
+          @click.stop
+        >
+          <button type="button" :disabled="isMutating" @click="deleteItem(actionMenuItemId)">
+            <span class="material-symbols-outlined">delete</span>
+            삭제
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -540,6 +616,16 @@ function setActiveDetail(detail: SourceDetail) {
   opacity: 0.55;
 }
 
+.source-error-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(189, 73, 73, 0.22);
+  border-radius: 10px;
+  color: #9b3b3b;
+  background: #fff7f7;
+  font-size: 0.84rem;
+}
+
 .source-file-browser {
   min-height: 0;
   display: grid;
@@ -634,6 +720,71 @@ function setActiveDetail(detail: SourceDetail) {
 .source-file-controls {
   justify-self: end;
   color: var(--color-text-muted);
+}
+
+.source-file-more-button {
+  width: 34px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.source-file-more-button:hover:not(:disabled),
+.source-file-more-button:focus-visible:not(:disabled) {
+  border-color: var(--color-border);
+  background: var(--color-surface-muted);
+  outline: none;
+}
+
+.source-file-more-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.source-file-menu-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.source-file-menu {
+  position: fixed;
+  z-index: 1001;
+  min-width: 108px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.source-file-menu button {
+  width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  color: #a13b3b;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.source-file-menu button:hover:not(:disabled),
+.source-file-menu button:focus-visible:not(:disabled) {
+  background: #fff0f0;
+  outline: none;
 }
 
 .source-file-empty {

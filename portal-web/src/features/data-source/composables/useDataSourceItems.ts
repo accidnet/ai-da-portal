@@ -2,6 +2,7 @@ import { ref } from 'vue'
 
 import type { DataSourceItem, DataSourceUploadProgress } from '@/features/data-source/types'
 import {
+  deleteDataSourceItem,
   fetchDataSourceTree,
   uploadDataSources,
   type DataSourceItemResponse,
@@ -44,6 +45,7 @@ export function useDataSourceItems() {
   const dataSourceItems = ref<DataSourceItem[]>([])
   const dataSourceError = ref<string | null>(null)
   const isDataSourceUploading = ref(false)
+  const isDataSourceMutating = ref(false)
   const dataSourceUploadProgress = ref<DataSourceUploadProgress>(createUploadProgress())
 
   /** 원천 데이터 트리를 서버에서 조회합니다. */
@@ -121,12 +123,28 @@ export function useDataSourceItems() {
     }
   }
 
+  /** 원천 데이터 파일 또는 폴더를 삭제하고 트리를 갱신합니다. */
+  async function handleDeleteDataSourceItem(itemId: string) {
+    try {
+      isDataSourceMutating.value = true
+      await deleteDataSourceItem(itemId)
+      await loadDataSourceTree()
+      dataSourceError.value = null
+    } catch (error) {
+      dataSourceError.value = error instanceof Error ? error.message : '원천 데이터를 삭제하지 못했어요.'
+    } finally {
+      isDataSourceMutating.value = false
+    }
+  }
+
   return {
     dataSourceItems,
     dataSourceError,
     isDataSourceUploading,
+    isDataSourceMutating,
     dataSourceUploadProgress,
     loadDataSourceTree,
     handleDataSourceFileChange,
+    handleDeleteDataSourceItem,
   }
 }

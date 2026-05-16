@@ -1,10 +1,10 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 import {
-  attachDatasetToSession,
+  attachDatasetToWorkspace,
   createDatasetFromSources,
   deleteDataset,
-  detachDatasetFromSession,
+  detachDatasetFromWorkspace,
   fetchDatasetPreview,
   fetchDatasetProfile,
   fetchDatasetSources,
@@ -19,7 +19,9 @@ import { mapDatasetInfoToAsset, type SessionRuntimeState } from '../utils/sessio
 
 export function useDatasetLibrary(options: {
   activeSessionId: Ref<string | null>
+  activeWorkspaceId: Ref<string | null>
   activeSessionSummary: ComputedRef<SessionItem | null>
+  sessionSummaries: Ref<SessionItem[]>
   sessionStates: Ref<Record<string, SessionRuntimeState>>
   ensureActiveSession: () => Promise<string>
   ensureSessionState: (sessionId: string, title: string) => SessionRuntimeState
@@ -27,7 +29,9 @@ export function useDatasetLibrary(options: {
 }) {
   const {
     activeSessionId,
+    activeWorkspaceId,
     activeSessionSummary,
+    sessionSummaries,
     sessionStates,
     ensureActiveSession,
     ensureSessionState,
@@ -193,14 +197,23 @@ export function useDatasetLibrary(options: {
     await ensureDatasetLibraryDetails(datasetId)
   }
 
-  async function handleAttachDataset(datasetId: string) {
-    const sessionId = await ensureActiveSession()
+  async function handleAttachDataset(datasetId: string, targetWorkspaceId?: string) {
+    const workspaceId = targetWorkspaceId ?? activeWorkspaceId.value
+    if (!workspaceId) {
+      datasetLibraryError.value = '활성 워크스페이스가 없어 데이터셋을 연결할 수 없어요.'
+      return
+    }
+    const sessionId = activeSessionId.value ?? await ensureActiveSession()
     try {
       isDatasetMutating.value = true
-      const linked = await attachDatasetToSession(sessionId, datasetId)
+      const linked = await attachDatasetToWorkspace(workspaceId, datasetId)
       const details = await ensureDatasetLibraryDetails(datasetId)
-      if (details) {
-        const state = ensureSessionState(sessionId, activeSessionSummary.value?.title ?? DEFAULT_SESSION_TITLE)
+      if (details && workspaceId === activeWorkspaceId.value) {
+        const sessionTitle =
+          sessionId === activeSessionId.value
+            ? activeSessionSummary.value?.title
+            : sessionSummaries.value.find((session) => session.id === sessionId)?.title
+        const state = ensureSessionState(sessionId, sessionTitle ?? DEFAULT_SESSION_TITLE)
         const asset = mapDatasetInfoToAsset({
           detail: {
             id: details.id,
@@ -252,13 +265,14 @@ export function useDatasetLibrary(options: {
 
   async function handleDetachDataset(datasetId: string) {
     const sessionId = activeSessionId.value
-    if (!sessionId) {
-      datasetLibraryError.value = '활성 세션이 없어 연결 해제를 진행할 수 없어요.'
+    const workspaceId = activeWorkspaceId.value
+    if (!sessionId || !workspaceId) {
+      datasetLibraryError.value = '활성 워크스페이스가 없어 연결 해제를 진행할 수 없어요.'
       return
     }
     try {
       isDatasetMutating.value = true
-      const linked = await detachDatasetFromSession(sessionId, datasetId)
+      const linked = await detachDatasetFromWorkspace(workspaceId, datasetId)
       const state = ensureSessionState(sessionId, activeSessionSummary.value?.title ?? DEFAULT_SESSION_TITLE)
       state.datasets = state.datasets.filter((dataset) => linked.dataset_ids.includes(dataset.id))
       syncSessionSummaryWithState(sessionId)

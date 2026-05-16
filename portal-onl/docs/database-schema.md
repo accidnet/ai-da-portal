@@ -39,6 +39,18 @@
 
 원천 데이터 선택 기반 데이터셋은 하위 파일 전체를 `dataset_sources`에 연결합니다. 실제 파일 경로, 크기, MIME type 등은 `data_source_items`를 그대로 참조합니다.
 
+### `workspace_dataset_links`
+
+워크스페이스에 사용자가 명시적으로 연결한 데이터셋 목록입니다. 워크스페이스 안의 세션은 이 연결 목록을 공유합니다.
+
+| 컬럼         | 타입     | nullable | 설명                     |
+| ------------ | -------- | -------- | ------------------------ |
+| `workspace_id` | string | no       | `workspaces.id` FK       |
+| `dataset_id` | string   | no       | `datasets.id` FK         |
+| `linked_at`  | datetime | no       | 연결 시각                |
+
+Primary key는 `workspace_id`, `dataset_id` 조합입니다. 워크스페이스 또는 데이터셋 삭제 시 연결 row도 함께 삭제됩니다.
+
 ### `dataset_source_profiles`
 
 데이터셋 등록 API 호출 중 계산한 원천 파일별 preview/profile 스냅샷입니다. 조회 API는 이 값을 우선 사용하고, 스냅샷이 없는 레거시 row만 원천 파일을 다시 읽어 계산합니다.
@@ -104,7 +116,7 @@
 
 ### `user_message_dataset_links`
 
-사용자 메시지 시점에 참조된 데이터셋 연결입니다. 세션 단위 dataset link는 사용하지 않습니다.
+사용자 메시지 시점에 참조된 데이터셋 연결입니다. 워크스페이스에 고정 연결된 데이터셋은 `workspace_dataset_links`에 저장합니다.
 
 | column            | type     | nullable | description           |
 | ----------------- | -------- | -------- | --------------------- |

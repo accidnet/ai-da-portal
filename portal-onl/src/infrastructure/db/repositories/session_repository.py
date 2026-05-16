@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
-from infrastructure.db.models import SessionOrm, UserMessageDatasetLinkOrm, UserMessageOrm
+from infrastructure.db.models import SessionOrm, WorkspaceDatasetLinkOrm
 from infrastructure.db.session import SessionLocal
 
 
@@ -86,27 +86,80 @@ class SessionRepository:
             db.delete(session)
             db.commit()
 
-    def list_linked_sessions(self, dataset_id: str) -> list[tuple[str, datetime]]:
-        """사용자 메시지 dataset link 기준으로 연결 세션을 최신순 조회합니다."""
+    def attach_dataset(self, *, session_id: str, dataset_id: str) -> list[str]:
+        """세션이 속한 워크스페이스와 데이터셋 연결 row를 생성합니다."""
+        now = datetime.now(UTC)
         with SessionLocal() as db:
-            rows = db.execute(
-                select(UserMessageOrm.session_id, UserMessageDatasetLinkOrm.linked_at)
-                .join(
-                    UserMessageDatasetLinkOrm,
-                    UserMessageDatasetLinkOrm.user_message_id == UserMessageOrm.id,
+            session = self._get_session_or_raise(db, session_id)
+            if session.workspace_id is None:
+                raise ValueError("Session is not associated with a workspace.")
+            link = db.scalar(
+                select(WorkspaceDatasetLinkOrm).where(
+                    WorkspaceDatasetLinkOrm.workspace_id == session.workspace_id,
+                    WorkspaceDatasetLinkOrm.dataset_id == dataset_id,
                 )
-                .where(UserMessageDatasetLinkOrm.dataset_id == dataset_id)
-                .order_by(UserMessageDatasetLinkOrm.linked_at.desc())
-            ).all()
+            )
+            if link is None:
+                db.add(
+                    WorkspaceDatasetLinkOrm(
+                        workspace_id=session.workspace_id,
+                        dataset_id=dataset_id,
+                        linked_at=now,
+                    )
+                )
+            else:
+                link.linked_at = now
+            session.updated_at = now
+            db.commit()
+        return self.list_session_dataset_ids(session_id)
 
-        linked_sessions: list[tuple[str, datetime]] = []
-        seen_session_ids: set[str] = set()
-        for session_id, linked_at in rows:
-            if session_id in seen_session_ids:
-                continue
-            seen_session_ids.add(session_id)
-            linked_sessions.append((session_id, linked_at))
-        return linked_sessions
+    def detach_dataset(self, *, session_id: str, dataset_id: str) -> list[str]:
+        """세션이 속한 워크스페이스와 데이터셋 연결 row를 제거합니다."""
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            if session.workspace_id is None:
+                raise ValueError("Session is not associated with a workspace.")
+            db.execute(
+                delete(WorkspaceDatasetLinkOrm).where(
+                    WorkspaceDatasetLinkOrm.workspace_id == session.workspace_id,
+                    WorkspaceDatasetLinkOrm.dataset_id == dataset_id,
+                )
+            )
+            session.updated_at = datetime.now(UTC)
+            db.commit()
+        return self.list_session_dataset_ids(session_id)
+
+    def list_session_dataset_ids(self, session_id: str) -> list[str]:
+        """세션이 속한 워크스페이스에 연결된 데이터셋 ID를 조회합니다."""
+        with SessionLocal() as db:
+            session = self._get_session_or_raise(db, session_id)
+            if session.workspace_id is None:
+                return []
+            return list(
+                db.scalars(
+                    select(WorkspaceDatasetLinkOrm.dataset_id)
+                    .where(WorkspaceDatasetLinkOrm.workspace_id == session.workspace_id)
+                    .order_by(WorkspaceDatasetLinkOrm.linked_at.desc())
+                ).all()
+            )
+
+    def list_linked_sessions(self, dataset_id: str) -> list[tuple[str, datetime]]:
+        """워크스페이스 연결 기준으로 해당 워크스페이스의 세션을 최신순 조회합니다."""
+        with SessionLocal() as db:
+            return list(
+                db.execute(
+                    select(
+                        SessionOrm.id,
+                        WorkspaceDatasetLinkOrm.linked_at,
+                    )
+                    .join(
+                        WorkspaceDatasetLinkOrm,
+                        WorkspaceDatasetLinkOrm.workspace_id == SessionOrm.workspace_id,
+                    )
+                    .where(WorkspaceDatasetLinkOrm.dataset_id == dataset_id)
+                    .order_by(WorkspaceDatasetLinkOrm.linked_at.desc())
+                ).all()
+            )
 
     def _get_session_or_raise(self, db, session_id: str) -> SessionOrm:
         session = db.scalar(select(SessionOrm).where(SessionOrm.id == session_id))

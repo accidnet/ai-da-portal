@@ -29,3 +29,16 @@ class WorkspaceDeleteResponse(BaseModel):
 
     id: str
     deleted: bool
+
+
+class WorkspaceDatasetLinkRequest(BaseModel):
+    """워크스페이스 데이터셋 연결 요청 payload입니다."""
+
+    dataset_id: str = Field(min_length=1)
+
+
+class WorkspaceDatasetLinkResponse(BaseModel):
+    """워크스페이스 데이터셋 연결 응답입니다."""
+
+    workspace_id: str
+    dataset_ids: list[str]

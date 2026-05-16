@@ -25,6 +25,7 @@ defineProps<{
   shellAnalytics: AnalyticsData
   currentScreen: AnalysisScreen
   activeSessionId: string | null
+  activeWorkspaceId: string | null
   authError: string | null
   exportMessage: string | null
   conversation: ConversationData
@@ -44,6 +45,8 @@ defineProps<{
   datasetsLibrary: DatasetLibraryItem[]
   dataSourceItems: DataSourceItem[]
   dataSourceUploadProgress: DataSourceUploadProgress
+  dataSourceError: string | null
+  isDataSourceMutating: boolean
   selectedDatasetId: string | null
   datasetLibrarySearchQuery: string
   datasetLibraryError: string | null
@@ -57,8 +60,9 @@ const emit = defineEmits<{
   toggleSidebarPanel: []
   toggleAnalyticsPanel: []
   datasetLibrarySearchChange: [value: string]
+  deleteDataSourceItem: [itemId: string]
   selectDataset: [datasetId: string | null]
-  attachDataset: [datasetId: string]
+  attachDataset: [datasetId: string, workspaceId?: string]
   detachDataset: [datasetId: string]
   deleteDataset: [datasetId: string]
   createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload]
@@ -131,6 +135,7 @@ defineExpose({
           :shell-analytics="shellAnalytics"
           :current-screen="currentScreen"
           :active-session-id="activeSessionId"
+          :active-workspace-id="activeWorkspaceId"
           :conversation="conversation"
           :composer="composer"
           :analytics-payload="analyticsPayload"
@@ -152,10 +157,13 @@ defineExpose({
           :is-dataset-mutating="isDatasetMutating"
           :data-source-items="dataSourceItems"
           :data-source-upload-progress="dataSourceUploadProgress"
+          :data-source-error="dataSourceError"
+          :is-data-source-mutating="isDataSourceMutating"
           @upload-dataset="(mode?: UploadPickerMode) => openDatasetPicker(mode, currentScreen === 'datasets' ? 'data-source' : 'dataset')"
           @dataset-library-search-change="(value: string) => emit('datasetLibrarySearchChange', value)"
+          @delete-data-source-item="(itemId: string) => emit('deleteDataSourceItem', itemId)"
           @select-dataset="(datasetId: string | null) => emit('selectDataset', datasetId)"
-          @attach-dataset="(datasetId: string) => emit('attachDataset', datasetId)"
+          @attach-dataset="(datasetId: string, workspaceId?: string) => emit('attachDataset', datasetId, workspaceId)"
           @detach-dataset="(datasetId: string) => emit('detachDataset', datasetId)"
           @delete-dataset="(datasetId: string) => emit('deleteDataset', datasetId)"
           @create-dataset-from-sources="(payload: CreateDatasetFromSourcesPayload) => emit('createDatasetFromSources', payload)"

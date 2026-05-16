@@ -13,9 +13,12 @@ import type { CreateDatasetFromSourcesPayload } from '@/features/data-analysis/a
 
 defineProps<{
   activeSessionId: string | null
+  activeWorkspaceId: string | null
   datasetsLibrary: DatasetLibraryItem[]
   dataSourceItems: DataSourceItem[]
   dataSourceUploadProgress: DataSourceUploadProgress
+  dataSourceError: string | null
+  isDataSourceMutating: boolean
   selectedDatasetId: string | null
   datasetLibrarySearchQuery: string
   datasetLibraryError: string | null
@@ -25,8 +28,9 @@ defineProps<{
 const emit = defineEmits<{
   datasetLibrarySearchChange: [value: string]
   uploadDataset: [mode?: UploadPickerMode]
+  deleteDataSourceItem: [itemId: string]
   selectDataset: [datasetId: string | null]
-  attachDataset: [datasetId: string]
+  attachDataset: [datasetId: string, workspaceId?: string]
   detachDataset: [datasetId: string]
   deleteDataset: [datasetId: string]
   createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload]
@@ -34,11 +38,28 @@ const emit = defineEmits<{
 
 type LibraryView = 'source' | 'catalog'
 
-const activeView = ref<LibraryView>('source')
+const DATA_SOURCE_VIEW_STORAGE_KEY = 'portal:data-source-view'
+
+const activeView = ref<LibraryView>(readStoredLibraryView())
+
+/** 새로고침 후에도 데이터 소스 화면의 마지막 탭을 복원합니다. */
+function readStoredLibraryView(): LibraryView {
+  if (typeof window === 'undefined') return 'source'
+
+  const storedView = window.localStorage.getItem(DATA_SOURCE_VIEW_STORAGE_KEY)
+  return storedView === 'catalog' ? 'catalog' : 'source'
+}
+
+/** 사용자가 선택한 데이터 소스 탭을 브라우저 저장소에 저장합니다. */
+function writeStoredLibraryView(view: LibraryView) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(DATA_SOURCE_VIEW_STORAGE_KEY, view)
+}
 
 /** 데이터 소스 페이지의 활성 라이브러리 화면을 변경합니다. */
 function setActiveView(view: LibraryView) {
   activeView.value = view
+  writeStoredLibraryView(view)
 }
 </script>
 
@@ -89,20 +110,24 @@ function setActiveView(view: LibraryView) {
       v-if="activeView === 'source'"
       :items="dataSourceItems"
       :upload-progress="dataSourceUploadProgress"
+      :is-mutating="isDataSourceMutating"
+      :error-message="dataSourceError"
       @upload-file="(mode) => emit('uploadDataset', mode)"
+      @delete-item="(itemId) => emit('deleteDataSourceItem', itemId)"
     />
     <DatasetCatalogPanel
       v-else
       :datasets="datasetsLibrary"
       :selected-dataset-id="selectedDatasetId"
       :active-session-id="activeSessionId"
+      :active-workspace-id="activeWorkspaceId"
       :data-source-items="dataSourceItems"
       :search-query="datasetLibrarySearchQuery"
       :is-busy="isDatasetMutating"
       :error-message="datasetLibraryError"
       @search-change="(value) => emit('datasetLibrarySearchChange', value)"
       @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
-      @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
+      @attach-dataset="(datasetId, workspaceId) => emit('attachDataset', datasetId, workspaceId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
       @delete-dataset="(datasetId) => emit('deleteDataset', datasetId)"
       @create-dataset-from-sources="(payload) => emit('createDatasetFromSources', payload)"

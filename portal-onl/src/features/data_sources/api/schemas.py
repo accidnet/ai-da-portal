@@ -31,3 +31,11 @@ class DataSourceTreeResponse(BaseModel):
     """원천 데이터 트리 조회 응답입니다."""
 
     items: list[DataSourceItemResponse]
+
+
+class DataSourceDeleteResponse(BaseModel):
+    """원천 데이터 삭제 응답입니다."""
+
+    id: str
+    deleted: bool
+    deleted_count: int

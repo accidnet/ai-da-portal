@@ -39,11 +39,17 @@ async def upload_dataset(
         )
 
     dataset = await service.upload(file)
-    session_service.attach_dataset(
-        session_id.strip(),
-        dataset.id,
-        title=dataset.filename,
-    )
+    try:
+        session_service.attach_dataset(
+            session_id.strip(),
+            dataset.id,
+            title=dataset.filename,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return dataset
 
 

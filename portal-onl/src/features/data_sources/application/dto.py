@@ -42,3 +42,12 @@ class DataSourceUploadResult:
     """원천 데이터 직접 업로드 결과 DTO입니다."""
 
     items: list[DataSourceItemResult]
+
+
+@dataclass(frozen=True, slots=True)
+class DataSourceDeleteResult:
+    """원천 데이터 파일/폴더 삭제 결과 DTO입니다."""
+
+    id: str
+    deleted: bool
+    deleted_count: int

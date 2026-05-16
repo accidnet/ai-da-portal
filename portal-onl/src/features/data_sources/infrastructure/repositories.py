@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from features.data_sources.domain.models import DataSourceItem
 from features.data_sources.infrastructure.orm import DataSourceItemOrm
+from infrastructure.db.models import DatasetSourceOrm
 from infrastructure.db.session import SessionLocal
 
 
@@ -79,6 +80,44 @@ class DataSourceRepository:
         with SessionLocal() as db:
             rows = db.execute(select(DataSourceItemOrm.relative_path)).all()
             return {relative_path for (relative_path,) in rows}
+
+    def delete_item_tree(self, item_id: str) -> list[str]:
+        """원천 데이터 노드와 하위 노드를 삭제하고 삭제 대상 저장 경로를 반환합니다."""
+        with SessionLocal() as db:
+            item = db.scalar(select(DataSourceItemOrm).where(DataSourceItemOrm.id == item_id))
+            if item is None:
+                raise KeyError(item_id)
+
+            target_items = [item]
+            if item.item_type == "folder":
+                descendants = list(
+                    db.scalars(
+                        select(DataSourceItemOrm)
+                        .where(DataSourceItemOrm.relative_path.like(f"{item.relative_path.rstrip('/')}/%"))
+                        .order_by(DataSourceItemOrm.depth.desc())
+                    ).all()
+                )
+                target_items = [*descendants, item]
+
+            target_ids = [target.id for target in target_items]
+            referenced_ids = set(
+                db.scalars(
+                    select(DatasetSourceOrm.source_ref_id).where(
+                        DatasetSourceOrm.source_ref_id.in_(target_ids)
+                    )
+                ).all()
+            )
+            if referenced_ids:
+                raise ValueError("Data source is used by one or more datasets.")
+
+            storage_paths = [
+                str(target.storage_path)
+                for target in target_items
+                if target.storage_path is not None
+            ]
+            db.execute(delete(DataSourceItemOrm).where(DataSourceItemOrm.id.in_(target_ids)))
+            db.commit()
+            return storage_paths
 
     def _to_item_domain(self, item: DataSourceItemOrm) -> DataSourceItem:
         """ORM 파일/폴더 노드를 domain 모델로 변환합니다."""

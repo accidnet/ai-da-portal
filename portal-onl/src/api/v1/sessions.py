@@ -130,7 +130,13 @@ def attach_session_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dataset '{payload.dataset_id}' was not found.",
         ) from exc
-    return session_service.attach_dataset(session_id, payload.dataset_id)
+    try:
+        return session_service.attach_dataset(session_id, payload.dataset_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.delete(
@@ -146,6 +152,11 @@ def detach_session_dataset(
     try:
         dataset_service.get(dataset_id)
         return session_service.detach_dataset(session_id, dataset_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except KeyError as exc:
         try:
             session_service.get(session_id)

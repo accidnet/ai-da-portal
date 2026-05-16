@@ -8,6 +8,7 @@ import type {
   AnalyticsData,
   AnalyticsPayload,
   DatasetAsset,
+  DatasetLibraryItem,
   WorkspacePayload,
 } from '@/features/data-analysis/types'
 
@@ -16,6 +17,7 @@ const DEFAULT_PANE_MODE: PaneMode = 'visualization'
 
 defineProps<{
   shellAnalytics: AnalyticsData
+  activeWorkspaceId: string | null
   analyticsPayload: AnalyticsPayload | null
   workspacePayload: WorkspacePayload | null
   isCompactLayout: boolean
@@ -25,6 +27,7 @@ defineProps<{
   analyticsError: string | null
   canExportReport: boolean
   connectedDatasets: DatasetAsset[]
+  datasetsLibrary: DatasetLibraryItem[]
   isDatasetMutating: boolean
 }>()
 
@@ -34,6 +37,7 @@ const emit = defineEmits<{
   shareReport: []
   closeAnalyticsPanel: []
   uploadDataset: []
+  attachDataset: [datasetId: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
 }>()
@@ -123,8 +127,11 @@ watch(activeMode, (mode) => {
     <AnalysisConnectedDataPane
       v-else
       :connected-datasets="connectedDatasets"
+      :active-workspace-id="activeWorkspaceId"
+      :datasets-library="datasetsLibrary"
       :is-dataset-mutating="isDatasetMutating"
       @upload-dataset="emit('uploadDataset')"
+      @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
       @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
     />

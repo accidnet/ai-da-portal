@@ -95,7 +95,8 @@ class SessionService:
         return self._build_session_detail(session, dataset_service=None)
 
     def get_dataset_ids(self, session_id: str) -> list[str]:
-        return self._message_repository.list_session_dataset_ids(session_id)
+        """세션에 사용자가 명시적으로 연결한 데이터셋 ID를 반환합니다."""
+        return self._repository.list_session_dataset_ids(session_id)
 
     def update(self, session_id: str, payload: SessionUpdateRequest) -> SessionDetail:
         updates = payload.model_dump(exclude_unset=True)
@@ -136,24 +137,24 @@ class SessionService:
     def attach_dataset(
         self, session_id: str, dataset_id: str, *, title: str | None = None
     ) -> SessionDatasetLinkResponse:
-        """세션 dataset 직접 연결은 제거하고 세션 생성만 보장합니다."""
+        """세션과 데이터셋의 직접 연결을 저장합니다."""
         session = self._get_session(session_id)
         if session is None:
             self._create_session(session_id, title=title)
-        dataset_ids = self.get_dataset_ids(session_id)
-        if dataset_id not in dataset_ids:
-            dataset_ids = [dataset_id, *dataset_ids]
+        dataset_ids = self._repository.attach_dataset(
+            session_id=session_id,
+            dataset_id=dataset_id,
+        )
         return SessionDatasetLinkResponse(session_id=session_id, dataset_ids=dataset_ids)
 
     def detach_dataset(
         self, session_id: str, dataset_id: str
     ) -> SessionDatasetLinkResponse:
-        """메시지 dataset link는 보존하므로 응답에서만 해당 dataset을 제외합니다."""
-        dataset_ids = [
-            linked_dataset_id
-            for linked_dataset_id in self.get_dataset_ids(session_id)
-            if linked_dataset_id != dataset_id
-        ]
+        """세션과 데이터셋의 직접 연결을 제거합니다."""
+        dataset_ids = self._repository.detach_dataset(
+            session_id=session_id,
+            dataset_id=dataset_id,
+        )
         return SessionDatasetLinkResponse(session_id=session_id, dataset_ids=dataset_ids)
 
     def list_linked_sessions(self, dataset_id: str) -> list[tuple[str, datetime]]:

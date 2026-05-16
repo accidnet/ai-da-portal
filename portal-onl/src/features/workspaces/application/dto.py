@@ -32,3 +32,11 @@ class WorkspaceDeleteResult:
 
     id: str
     deleted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceDatasetLinkResult:
+    """워크스페이스 데이터셋 연결 유스케이스 출력 DTO입니다."""
+
+    workspace_id: str
+    dataset_ids: list[str]

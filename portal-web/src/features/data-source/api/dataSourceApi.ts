@@ -24,6 +24,12 @@ export interface DataSourceTreeResponse {
   items: DataSourceItemResponse[]
 }
 
+export interface DataSourceDeleteResponse {
+  id: string
+  deleted: boolean
+  deleted_count: number
+}
+
 export interface DataSourceUploadProgressEvent {
   loadedBytes: number
   totalBytes: number
@@ -129,4 +135,25 @@ export async function fetchDataSourceTree(signal?: AbortSignal): Promise<DataSou
   }
 
   return (await response.json()) as DataSourceTreeResponse
+}
+
+/** 원천 데이터 파일 또는 폴더 노드를 삭제합니다. */
+export async function deleteDataSourceItem(
+  itemId: string,
+  signal?: AbortSignal,
+): Promise<DataSourceDeleteResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/data-sources/${itemId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    const detail = await readPortalApiErrorDetail(response)
+    throw new Error(detail || `Data source delete failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as DataSourceDeleteResponse
 }

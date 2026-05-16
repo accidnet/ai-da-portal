@@ -68,6 +68,11 @@ export interface SessionDatasetLinkResponse {
   dataset_ids: string[]
 }
 
+export interface WorkspaceDatasetLinkResponse {
+  workspace_id: string
+  dataset_ids: string[]
+}
+
 export interface WorkspaceResponse {
   id: string
   name: string
@@ -1010,6 +1015,64 @@ export async function detachDatasetFromSession(
   }
 
   return (await response.json()) as SessionDatasetLinkResponse
+}
+
+export async function attachDatasetToWorkspace(
+  workspaceId: string,
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceDatasetLinkResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}/datasets`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ dataset_id: datasetId }),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace dataset attach failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceDatasetLinkResponse
+}
+
+export async function detachDatasetFromWorkspace(
+  workspaceId: string,
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceDatasetLinkResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}/datasets/${datasetId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace dataset detach failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceDatasetLinkResponse
 }
 
 export async function deleteDataset(

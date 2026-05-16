@@ -3,11 +3,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from features.data_sources.api.deps import get_data_source_usecase
 from features.data_sources.api.schemas import (
     DataSourceItemResponse,
+    DataSourceDeleteResponse,
     DataSourceTreeResponse,
     DataSourceUploadResponse,
 )
 from features.data_sources.application.dto import (
     DataSourceItemResult,
+    DataSourceDeleteResult,
     DataSourceUploadCommand,
     DataSourceUploadFile,
     DataSourceUploadResult,
@@ -60,9 +62,38 @@ def list_data_source_tree(
     return DataSourceTreeResponse(items=_build_tree_response(usecase.list_items()))
 
 
+@router.delete("/{item_id}", response_model=DataSourceDeleteResponse)
+def delete_data_source_item(
+    item_id: str,
+    usecase: DataSourceUsecase = Depends(get_data_source_usecase),
+) -> DataSourceDeleteResponse:
+    """원천 데이터 파일 또는 폴더 노드를 삭제합니다."""
+    try:
+        return _to_delete_response(usecase.delete(item_id))
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Data source item '{item_id}' was not found.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+
 def _to_upload_response(result: DataSourceUploadResult) -> DataSourceUploadResponse:
     """application 업로드 결과를 API 응답으로 변환합니다."""
     return DataSourceUploadResponse(items=_build_tree_response(result.items))
+
+
+def _to_delete_response(result: DataSourceDeleteResult) -> DataSourceDeleteResponse:
+    """application 삭제 결과를 API 응답으로 변환합니다."""
+    return DataSourceDeleteResponse(
+        id=result.id,
+        deleted=result.deleted,
+        deleted_count=result.deleted_count,
+    )
 
 
 def _to_item_response(item: DataSourceItemResult) -> DataSourceItemResponse:

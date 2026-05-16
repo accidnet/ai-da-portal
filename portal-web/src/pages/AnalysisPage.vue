@@ -6,6 +6,7 @@ import type {
   ComposerData,
   ConversationData,
   DatasetAsset,
+  DatasetLibraryItem,
   WorkspacePayload,
 } from '@/features/data-analysis/types'
 
@@ -16,6 +17,7 @@ defineProps<{
   isCompactLayout: boolean
   isAnalyticsPanelOpen: boolean
   shellAnalytics: AnalyticsData
+  activeWorkspaceId?: string | null
   conversation: ConversationData
   composer: ComposerData
   analyticsPayload: AnalyticsPayload | null
@@ -29,6 +31,7 @@ defineProps<{
   analyticsError: string | null
   canExportReport: boolean
   connectedDatasets: DatasetAsset[]
+  datasetsLibrary: DatasetLibraryItem[]
   isDatasetMutating: boolean
 }>()
 
@@ -40,6 +43,7 @@ const emit = defineEmits<{
   shareReport: []
   closeAnalyticsPanel: []
   uploadDataset: []
+  attachDataset: [datasetId: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
 }>()
@@ -50,6 +54,7 @@ const emit = defineEmits<{
     :conversation="conversation"
     :composer="composer"
     :shell-analytics="shellAnalytics"
+    :active-workspace-id="activeWorkspaceId ?? null"
     :analytics-payload="analyticsPayload"
     :workspace-payload="workspacePayload"
     :is-resizing-analytics-pane="isResizingAnalyticsPane"
@@ -66,6 +71,7 @@ const emit = defineEmits<{
     :is-analytics-panel-open="isAnalyticsPanelOpen"
     :can-export-report="canExportReport"
     :connected-datasets="connectedDatasets"
+    :datasets-library="datasetsLibrary"
     :is-dataset-mutating="isDatasetMutating"
     @send="(message) => emit('send', message)"
     @resize-start="(event) => emit('analyticsResizeStart', event)"
@@ -74,6 +80,7 @@ const emit = defineEmits<{
     @share-report="emit('shareReport')"
     @close-analytics-panel="emit('closeAnalyticsPanel')"
     @upload-dataset="emit('uploadDataset')"
+    @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
     @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
     @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
   />

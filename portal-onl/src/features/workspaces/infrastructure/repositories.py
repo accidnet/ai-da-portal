@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from features.workspaces.domain.models import Workspace
 from features.workspaces.infrastructure.orm import WorkspaceOrm
+from infrastructure.db.models import WorkspaceDatasetLinkOrm
 from infrastructure.db.session import SessionLocal
 
 
@@ -51,6 +52,57 @@ class WorkspaceRepository:
             workspace = self._get_workspace_or_raise(db, workspace_id)
             db.delete(workspace)
             db.commit()
+
+    def attach_dataset(self, *, workspace_id: str, dataset_id: str) -> list[str]:
+        """워크스페이스에 데이터셋 연결 row를 저장합니다."""
+        now = datetime.now(UTC)
+        with SessionLocal() as db:
+            workspace = self._get_workspace_or_raise(db, workspace_id)
+            link = db.scalar(
+                select(WorkspaceDatasetLinkOrm).where(
+                    WorkspaceDatasetLinkOrm.workspace_id == workspace_id,
+                    WorkspaceDatasetLinkOrm.dataset_id == dataset_id,
+                )
+            )
+            if link is None:
+                db.add(
+                    WorkspaceDatasetLinkOrm(
+                        workspace_id=workspace_id,
+                        dataset_id=dataset_id,
+                        linked_at=now,
+                    )
+                )
+            else:
+                link.linked_at = now
+            workspace.updated_at = now
+            db.commit()
+        return self.list_dataset_ids(workspace_id)
+
+    def detach_dataset(self, *, workspace_id: str, dataset_id: str) -> list[str]:
+        """워크스페이스의 데이터셋 연결 row를 제거합니다."""
+        with SessionLocal() as db:
+            workspace = self._get_workspace_or_raise(db, workspace_id)
+            db.execute(
+                delete(WorkspaceDatasetLinkOrm).where(
+                    WorkspaceDatasetLinkOrm.workspace_id == workspace_id,
+                    WorkspaceDatasetLinkOrm.dataset_id == dataset_id,
+                )
+            )
+            workspace.updated_at = datetime.now(UTC)
+            db.commit()
+        return self.list_dataset_ids(workspace_id)
+
+    def list_dataset_ids(self, workspace_id: str) -> list[str]:
+        """워크스페이스에 연결된 데이터셋 ID를 최신 연결 순서로 반환합니다."""
+        with SessionLocal() as db:
+            self._get_workspace_or_raise(db, workspace_id)
+            return list(
+                db.scalars(
+                    select(WorkspaceDatasetLinkOrm.dataset_id)
+                    .where(WorkspaceDatasetLinkOrm.workspace_id == workspace_id)
+                    .order_by(WorkspaceDatasetLinkOrm.linked_at.desc())
+                ).all()
+            )
 
     def _get_workspace_or_raise(self, db, workspace_id: str) -> WorkspaceOrm:
         """워크스페이스를 조회하고 없으면 KeyError를 발생시킵니다."""

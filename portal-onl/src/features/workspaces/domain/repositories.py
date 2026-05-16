@@ -21,3 +21,15 @@ class WorkspaceRepository(Protocol):
     def delete(self, workspace_id: str) -> None:
         """워크스페이스를 삭제합니다."""
         ...
+
+    def attach_dataset(self, *, workspace_id: str, dataset_id: str) -> list[str]:
+        """워크스페이스에 데이터셋을 연결하고 연결된 데이터셋 ID를 반환합니다."""
+        ...
+
+    def detach_dataset(self, *, workspace_id: str, dataset_id: str) -> list[str]:
+        """워크스페이스에서 데이터셋 연결을 해제하고 남은 데이터셋 ID를 반환합니다."""
+        ...
+
+    def list_dataset_ids(self, workspace_id: str) -> list[str]:
+        """워크스페이스에 연결된 데이터셋 ID를 반환합니다."""
+        ...

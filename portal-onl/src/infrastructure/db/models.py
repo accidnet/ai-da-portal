@@ -68,6 +68,31 @@ class DatasetOrm(Base):
         cascade="all, delete-orphan",
         order_by="DatasetSourceOrm.created_at",
     )
+    workspace_links: Mapped[list["WorkspaceDatasetLinkOrm"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        order_by=lambda: WorkspaceDatasetLinkOrm.linked_at.desc(),
+    )
+
+
+class WorkspaceDatasetLinkOrm(Base):
+    """워크스페이스에서 사용자가 명시적으로 연결한 데이터셋입니다."""
+
+    __tablename__ = "workspace_dataset_links"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    dataset_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("datasets.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    dataset: Mapped[DatasetOrm] = relationship(back_populates="workspace_links")
 
 
 class DatasetSourceOrm(Base):

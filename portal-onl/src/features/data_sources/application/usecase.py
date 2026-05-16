@@ -1,9 +1,11 @@
 from pathlib import PurePosixPath
+from pathlib import Path
 from uuid import uuid4
 
 from core.paths import DATA_SOURCE_STORAGE_DIR
 from features.data_sources.application.dto import (
     DataSourceItemResult,
+    DataSourceDeleteResult,
     DataSourceUploadCommand,
     DataSourceUploadResult,
 )
@@ -35,6 +37,20 @@ class DataSourceUsecase:
     def list_items(self) -> list[DataSourceItemResult]:
         """저장된 원천 데이터 파일/폴더 노드를 조회합니다."""
         return [self._to_item_result(item) for item in self._repository.list_items()]
+
+    def delete(self, item_id: str) -> DataSourceDeleteResult:
+        """원천 데이터 파일/폴더 노드와 실제 저장 파일을 삭제합니다."""
+        storage_paths = self._repository.delete_item_tree(item_id)
+        for storage_path in storage_paths:
+            try:
+                Path(storage_path).unlink(missing_ok=True)
+            except OSError:
+                continue
+        return DataSourceDeleteResult(
+            id=item_id,
+            deleted=True,
+            deleted_count=len(storage_paths),
+        )
 
     def _build_item_rows(
         self,

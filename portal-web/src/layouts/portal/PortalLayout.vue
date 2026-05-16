@@ -26,11 +26,12 @@ import { fetchHealthcheck } from '@/shared/api/portalApi'
 
 const connectionStatus = ref<BackendConnectionStatus>('checking')
 const LAST_PORTAL_ROUTE_STORAGE_KEY = 'portal:last-route-name'
+const ACTIVE_WORKSPACE_STORAGE_KEY = 'portal:active-workspace-id'
 const route = useRoute()
 const router = useRouter()
 const currentScreen = ref<AnalysisScreen>(screenFromRouteName(route.name))
 const searchQuery = ref('')
-const activeWorkspaceId = ref<string | null>(null)
+const activeWorkspaceId = ref<string | null>(readStoredActiveWorkspaceId())
 const datasetLibrarySearchQuery = ref('')
 const isHelpDialogOpen = ref(false)
 const sharedAnalysis = ref<SharedAnalysisSnapshot | null>(null)
@@ -77,6 +78,26 @@ function routeNameFromScreen(screen: AnalysisScreen): 'analysis' | 'data-sources
 function writeLastPortalRouteName(screen: AnalysisScreen) {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(LAST_PORTAL_ROUTE_STORAGE_KEY, routeNameFromScreen(screen))
+}
+
+/** 새로고침 후에도 마지막으로 선택한 워크스페이스를 유지합니다. */
+function readStoredActiveWorkspaceId(): string | null {
+  if (typeof window === 'undefined') return null
+
+  const workspaceId = window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY)
+  return workspaceId?.trim() || null
+}
+
+/** 사용자가 선택한 워크스페이스 ID를 브라우저 저장소에 반영합니다. */
+function writeStoredActiveWorkspaceId(workspaceId: string | null) {
+  if (typeof window === 'undefined') return
+
+  if (!workspaceId) {
+    window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY)
+    return
+  }
+
+  window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, workspaceId)
 }
 
 const {
@@ -130,7 +151,9 @@ const {
   removeSessionLinks: removeDatasetSessionLinks,
 } = useDatasetLibrary({
   activeSessionId,
+  activeWorkspaceId,
   activeSessionSummary,
+  sessionSummaries,
   sessionStates,
   ensureActiveSession,
   ensureSessionState,
@@ -141,9 +164,12 @@ removeSessionLinks = removeDatasetSessionLinks
 
 const {
   dataSourceItems,
+  dataSourceError,
+  isDataSourceMutating,
   dataSourceUploadProgress,
   loadDataSourceTree,
   handleDataSourceFileChange,
+  handleDeleteDataSourceItem,
 } = useDataSourceItems()
 
 const analyticsPayload = computed(() => activeSessionState.value?.analyticsPayload ?? null)
@@ -335,6 +361,10 @@ watch(activeSessionId, () => {
   exportMessage.value = null
 })
 
+watch(activeWorkspaceId, (workspaceId) => {
+  writeStoredActiveWorkspaceId(workspaceId)
+})
+
 watch(currentScreen, async (screen) => {
   writeLastPortalRouteName(screen)
 
@@ -458,6 +488,7 @@ onBeforeUnmount(() => {
       :shell-analytics="shellAnalytics"
       :current-screen="currentScreen"
       :active-session-id="activeSessionId"
+      :active-workspace-id="activeWorkspaceId"
       :auth-error="authError"
       :export-message="exportMessage"
       :conversation="conversation"
@@ -477,6 +508,8 @@ onBeforeUnmount(() => {
       :datasets-library="datasetsLibrary"
       :data-source-items="dataSourceItems"
       :data-source-upload-progress="dataSourceUploadProgress"
+      :data-source-error="dataSourceError"
+      :is-data-source-mutating="isDataSourceMutating"
       :selected-dataset-id="selectedDatasetId"
       :dataset-library-search-query="datasetLibrarySearchQuery"
       :dataset-library-error="datasetLibraryError"
@@ -484,8 +517,9 @@ onBeforeUnmount(() => {
       @toggle-sidebar-panel="toggleSidebarPanel"
       @toggle-analytics-panel="toggleAnalyticsPanel"
       @dataset-library-search-change="handleDatasetLibrarySearchChange"
+      @delete-data-source-item="handleDeleteDataSourceItem"
       @select-dataset="handleSelectDataset"
-      @attach-dataset="handleAttachDataset"
+      @attach-dataset="(datasetId, workspaceId) => handleAttachDataset(datasetId, workspaceId)"
       @detach-dataset="handleDetachDataset"
       @delete-dataset="handleDeleteDataset"
       @create-dataset-from-sources="handleCreateDatasetFromSources"

@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from features.workspaces.application.dto import (
     WorkspaceCreateCommand,
+    WorkspaceDatasetLinkResult,
     WorkspaceDeleteResult,
     WorkspaceResult,
     WorkspaceUpdateCommand,
@@ -54,6 +55,32 @@ class WorkspaceUsecase:
         """워크스페이스를 삭제합니다."""
         self._repository.delete(workspace_id)
         return WorkspaceDeleteResult(id=workspace_id, deleted=True)
+
+    def attach_dataset(
+        self, *, workspace_id: str, dataset_id: str
+    ) -> WorkspaceDatasetLinkResult:
+        """워크스페이스와 데이터셋 연결을 저장합니다."""
+        dataset_ids = self._repository.attach_dataset(
+            workspace_id=workspace_id,
+            dataset_id=dataset_id,
+        )
+        return WorkspaceDatasetLinkResult(
+            workspace_id=workspace_id,
+            dataset_ids=dataset_ids,
+        )
+
+    def detach_dataset(
+        self, *, workspace_id: str, dataset_id: str
+    ) -> WorkspaceDatasetLinkResult:
+        """워크스페이스와 데이터셋 연결을 해제합니다."""
+        dataset_ids = self._repository.detach_dataset(
+            workspace_id=workspace_id,
+            dataset_id=dataset_id,
+        )
+        return WorkspaceDatasetLinkResult(
+            workspace_id=workspace_id,
+            dataset_ids=dataset_ids,
+        )
 
     def _normalize_name(self, name: str | None) -> str | None:
         """공백을 정리하고 저장 가능한 워크스페이스 이름으로 변환합니다."""

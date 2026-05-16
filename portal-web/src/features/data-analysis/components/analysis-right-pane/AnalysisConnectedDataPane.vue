@@ -1,24 +1,48 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import type { DatasetAsset } from '@/features/data-analysis/types'
+import type { DatasetAsset, DatasetLibraryItem } from '@/features/data-analysis/types'
 
 const props = defineProps<{
   connectedDatasets: DatasetAsset[]
+  activeWorkspaceId: string | null
+  datasetsLibrary: DatasetLibraryItem[]
   isDatasetMutating: boolean
 }>()
 
 const emit = defineEmits<{
   uploadDataset: []
+  attachDataset: [datasetId: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
 }>()
 
 const expandedDatasetId = ref<string | null>(null)
+const isDatasetLinkDialogOpen = ref(false)
 const hiddenDatasetIds = ref<Set<string>>(new Set())
 const hiddenColumnKeys = ref<Set<string>>(new Set())
 
 const selectedDeleteLabel = computed(() => `선택한 데이터 모두 삭제 (0/${props.connectedDatasets.length})`)
+const connectedDatasetIdSet = computed(() => new Set(props.connectedDatasets.map((dataset) => dataset.id)))
+const connectableDatasets = computed(() => props.datasetsLibrary.filter((dataset) => !connectedDatasetIdSet.value.has(dataset.id)))
+
+/** 기존 데이터셋 목록에서 현재 세션에 연결할 항목을 고르는 다이얼로그를 엽니다. */
+function openDatasetLinkDialog() {
+  if (!props.activeWorkspaceId) return
+  isDatasetLinkDialogOpen.value = true
+}
+
+/** 데이터셋 연결 다이얼로그를 닫습니다. */
+function closeDatasetLinkDialog() {
+  if (props.isDatasetMutating) return
+  isDatasetLinkDialogOpen.value = false
+}
+
+/** 선택한 데이터셋을 현재 세션과 연결하고 다이얼로그를 닫습니다. */
+function attachDataset(datasetId: string) {
+  emit('attachDataset', datasetId)
+  isDatasetLinkDialogOpen.value = false
+}
 
 /** 연결 데이터의 파일 트리를 열거나 닫습니다. */
 function toggleDatasetOpen(datasetId: string) {
@@ -63,6 +87,10 @@ function formatDatasetMeta(dataset: DatasetAsset): string {
   return `${rowCount.toLocaleString()}행 · ${columnCount.toLocaleString()}열`
 }
 
+function formatLibraryDatasetMeta(dataset: DatasetLibraryItem): string {
+  return `${dataset.rowCount.toLocaleString()}행 · ${dataset.columnCount.toLocaleString()}열`
+}
+
 function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }> {
   const columns = dataset.profile?.columns.map((column) => column.name) ?? dataset.preview?.columns ?? []
   return columns.slice(0, 6).map((name, index) => ({
@@ -76,7 +104,7 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   <section class="connected-data-pane">
     <div class="connected-data-pane__header">
       <h2>세션과 연결된 데이터</h2>
-      <button type="button" class="pane-add-button" aria-label="데이터 추가" @click="emit('uploadDataset')">
+      <button type="button" class="pane-add-button" aria-label="데이터 추가" @click="openDatasetLinkDialog">
         <span class="material-symbols-outlined">add</span>
       </button>
     </div>
@@ -176,9 +204,41 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 
     <section v-else class="empty-data-state">
       <span class="material-symbols-outlined">database</span>
-      <strong>연결된 데이터가 없습니다</strong>
-      <p>상단의 추가 버튼으로 파일을 업로드하면 현재 세션에 바로 연결됩니다.</p>
+          <strong>연결된 데이터가 없습니다</strong>
+      <p>상단의 추가 버튼으로 등록된 데이터셋을 현재 워크스페이스에 연결합니다.</p>
     </section>
+
+    <div v-if="isDatasetLinkDialogOpen" class="link-dialog-backdrop" role="presentation" @click.self="closeDatasetLinkDialog">
+      <section class="link-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-link-dialog-title">
+        <header class="link-dialog__header">
+          <div>
+            <p>데이터셋 연결</p>
+            <h3 id="dataset-link-dialog-title">세션에 연결할 데이터셋 선택</h3>
+          </div>
+          <button type="button" class="dialog-icon-button" :disabled="isDatasetMutating" aria-label="닫기" @click="closeDatasetLinkDialog">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </header>
+
+        <div class="link-dialog__list">
+          <article v-for="dataset in connectableDatasets" :key="dataset.id" class="link-dialog__item">
+            <div>
+              <strong>{{ dataset.filename }}</strong>
+              <span>{{ formatLibraryDatasetMeta(dataset) }}</span>
+            </div>
+            <button type="button" class="link-dialog__action" :disabled="isDatasetMutating" @click="attachDataset(dataset.id)">
+              <span class="material-symbols-outlined">link</span>
+              연결
+            </button>
+          </article>
+
+          <div v-if="connectableDatasets.length === 0" class="link-dialog__empty">
+            <span class="material-symbols-outlined">dataset_linked</span>
+            연결 가능한 데이터셋이 없습니다.
+          </div>
+        </div>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -531,5 +591,131 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 .empty-data-state .material-symbols-outlined {
   color: var(--color-primary);
   font-size: 32px;
+}
+
+.link-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.link-dialog {
+  width: min(560px, 100%);
+  max-height: min(680px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.24);
+}
+
+.link-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.link-dialog__header p,
+.link-dialog__header h3 {
+  margin: 0;
+}
+
+.link-dialog__header p {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.link-dialog__header h3 {
+  margin-top: 4px;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.dialog-icon-button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.link-dialog__list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+}
+
+.link-dialog__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.link-dialog__item div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.link-dialog__item strong,
+.link-dialog__item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-dialog__item span {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.link-dialog__action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  color: #fff;
+  background: var(--color-primary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.link-dialog__action .material-symbols-outlined {
+  font-size: 1rem;
+}
+
+.link-dialog__empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 </style>

@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
-import type { CreateDatasetFromSourcesPayload } from "@/features/data-analysis/api/analysisApi";
+import {
+  fetchWorkspaces,
+  type CreateDatasetFromSourcesPayload,
+} from "@/features/data-analysis/api/analysisApi";
 import type {
   DataSourceItem,
   DatasetLibraryItem,
@@ -13,6 +16,7 @@ const props = defineProps<{
   dataSourceItems: DataSourceItem[];
   selectedDatasetId?: string | null;
   activeSessionId?: string | null;
+  activeWorkspaceId?: string | null;
   searchQuery: string;
   isBusy?: boolean;
   errorMessage?: string | null;
@@ -21,7 +25,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   searchChange: [value: string];
   selectDataset: [datasetId: string | null];
-  attachDataset: [datasetId: string];
+  attachDataset: [datasetId: string, workspaceId?: string];
   detachDataset: [datasetId: string];
   deleteDataset: [datasetId: string];
   createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload];
@@ -36,6 +40,10 @@ const selectedSourceIds = ref<Set<string>>(new Set());
 const collapsedSourceFolderIds = ref<Set<string>>(new Set());
 const createDatasetError = ref<string | null>(null);
 const isCreateSubmitting = ref(false);
+const sessionLinkDatasetId = ref<string | null>(null);
+const workspaceItems = ref<Array<{ id: string; name: string; updatedAt: string }>>([]);
+const isWorkspaceListLoading = ref(false);
+const workspaceListError = ref<string | null>(null);
 
 /** 데이터셋 생성 요청 중 모달 입력과 닫기 동작을 잠급니다. */
 const isCreatePending = computed(() => isCreateSubmitting.value || props.isBusy);
@@ -100,6 +108,19 @@ const filteredDatasets = computed(() => {
   });
 });
 
+/** 데이터셋 연결 다이얼로그에 보여줄 워크스페이스 목록입니다. */
+const linkableWorkspaces = computed(() => {
+  return [...workspaceItems.value].sort((left, right) => {
+    if (left.id === props.activeWorkspaceId) return -1;
+    if (right.id === props.activeWorkspaceId) return 1;
+    return left.name.localeCompare(right.name);
+  });
+});
+
+const sessionLinkDataset = computed(() => {
+  return props.datasets.find((dataset) => dataset.id === sessionLinkDatasetId.value) ?? null;
+});
+
 /** 현재 활성 세션과 데이터셋 연결 여부를 확인합니다. */
 function isLinkedToActiveSession(dataset: DatasetLibraryItem): boolean {
   return Boolean(
@@ -161,6 +182,43 @@ function flattenDatasetSourceTree(
 /** 이미 선택된 데이터셋 row를 다시 누르면 선택을 해제합니다. */
 function toggleDatasetRow(datasetId: string) {
   emit("selectDataset", datasetId === props.selectedDatasetId ? null : datasetId);
+}
+
+/** 데이터셋 row의 연결 버튼에서 세션 선택 다이얼로그를 엽니다. */
+async function openSessionLinkDialog(datasetId: string) {
+  sessionLinkDatasetId.value = datasetId;
+  await loadWorkspacesForLinkDialog();
+}
+
+/** 세션 선택 다이얼로그를 닫습니다. */
+function closeSessionLinkDialog() {
+  if (props.isBusy) return;
+  sessionLinkDatasetId.value = null;
+}
+
+/** 선택한 워크스페이스와 데이터셋 연결을 요청합니다. */
+function attachDatasetToWorkspace(workspaceId: string) {
+  if (!sessionLinkDatasetId.value) return;
+  emit("attachDataset", sessionLinkDatasetId.value, workspaceId);
+  sessionLinkDatasetId.value = null;
+}
+
+/** DB에 등록된 워크스페이스 목록을 연결 다이얼로그용으로 조회합니다. */
+async function loadWorkspacesForLinkDialog() {
+  try {
+    isWorkspaceListLoading.value = true;
+    workspaceListError.value = null;
+    const workspaces = await fetchWorkspaces();
+    workspaceItems.value = workspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      updatedAt: workspace.updated_at,
+    }));
+  } catch {
+    workspaceListError.value = "워크스페이스 목록을 불러오지 못했어요.";
+  } finally {
+    isWorkspaceListLoading.value = false;
+  }
 }
 
 /** 폴더 선택 시 하위 전체 선택/해제를 함께 적용합니다. */
@@ -284,6 +342,10 @@ watch(
     createDatasetError.value = message;
   },
 );
+
+onMounted(() => {
+  void loadWorkspacesForLinkDialog();
+});
 </script>
 
 <template>
@@ -417,8 +479,8 @@ watch(
                       v-if="!isLinkedToActiveSession(dataset)"
                       type="button"
                       class="action-button action-button--primary"
-                      :disabled="isBusy || !activeSessionId"
-                      @click.stop="emit('attachDataset', dataset.id)"
+                      :disabled="isBusy"
+                      @click.stop="openSessionLinkDialog(dataset.id)"
                     >
                       <span class="material-symbols-outlined">link</span>
                       연결
@@ -666,6 +728,72 @@ watch(
             {{ isCreatePending ? "생성 중" : "생성" }}
           </button>
         </footer>
+      </section>
+    </div>
+
+    <div
+      v-if="sessionLinkDatasetId"
+      class="dataset-create-backdrop"
+      role="presentation"
+      @click.self="closeSessionLinkDialog"
+    >
+      <section
+        class="session-link-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-link-title"
+      >
+        <header class="dataset-create-header">
+          <div>
+            <p>워크스페이스 연결</p>
+            <h3 id="session-link-title">데이터셋을 연결할 워크스페이스 선택</h3>
+            <small>{{ sessionLinkDataset?.filename ?? "선택한 데이터셋" }}</small>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            :disabled="isBusy"
+            aria-label="닫기"
+            @click="closeSessionLinkDialog"
+          >
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </header>
+
+        <div class="session-link-list">
+          <p v-if="workspaceListError" class="library-error">{{ workspaceListError }}</p>
+
+          <div v-if="isWorkspaceListLoading" class="session-link-empty">
+            <span class="material-symbols-outlined">progress_activity</span>
+            워크스페이스 목록을 불러오는 중입니다.
+          </div>
+
+          <template v-else>
+            <article v-for="workspace in linkableWorkspaces" :key="workspace.id" class="session-link-item">
+              <div>
+                <strong>
+                  {{ workspace.name }}
+                  <em v-if="workspace.id === activeWorkspaceId">현재</em>
+                </strong>
+                <span>최근 수정 {{ formatDate(workspace.updatedAt) }}</span>
+              </div>
+              <button
+                type="button"
+                class="action-button action-button--primary"
+                :disabled="isBusy || isWorkspaceListLoading"
+                @click="attachDatasetToWorkspace(workspace.id)"
+              >
+                <span class="material-symbols-outlined">link</span>
+                연결
+              </button>
+            </article>
+          </template>
+
+          <div v-if="!isWorkspaceListLoading && linkableWorkspaces.length === 0" class="session-link-empty">
+            <span class="material-symbols-outlined">chat_error</span>
+            연결할 워크스페이스가 없습니다.
+          </div>
+        </div>
       </section>
     </div>
   </section>
@@ -1479,6 +1607,83 @@ watch(
   to {
     transform: rotate(360deg);
   }
+}
+
+.session-link-dialog {
+  width: min(560px, 100%);
+  max-height: min(640px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.24);
+}
+
+.dataset-create-header small {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-text-muted);
+}
+
+.session-link-list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+}
+
+.session-link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.session-link-item div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.session-link-item strong,
+.session-link-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-link-item strong em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.session-link-item span {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.session-link-empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 @media (max-width: 900px) {
