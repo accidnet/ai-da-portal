@@ -5,64 +5,24 @@ export type {
   DatasetPreview,
   DatasetProfile,
 } from '@/features/data-source/types'
+export type {
+  BackendConnectionStatus,
+  LinkedDatasetSummary,
+  OpenAiAuthState,
+  OpenAiAuthStatus,
+  PortalNavItem,
+  PortalScreen,
+  PortalSidebarData,
+  SessionItem,
+  WorkspaceItem,
+} from '@/layouts/portal/types'
 
-export interface NavItem {
-  label: string
-  icon: string
-  active?: boolean
-  screen?: AnalysisScreen
-  action?: 'create-session'
-}
-
-export type AnalysisScreen = 'dashboard' | 'datasets'
-
-export interface LinkedDatasetSummary {
-  id: string
-  filename: string
-}
-
-export interface WorkspaceItem {
-  id: string
-  name: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface SessionItem {
-  id?: string
-  workspaceId?: string | null
-  title: string
-  createdAt?: string
-  updatedAt?: string
-  messageCount?: number
-  datasetCount?: number
-  lastDataset?: LinkedDatasetSummary | null
-  preferredDatasetId?: string | null
-}
-
-export interface SidebarData {
-  productName: string
-  productTagline: string
-  primaryNav: NavItem[]
-  recentSessions: SessionItem[]
-}
-
+export type NavItem = import('@/layouts/portal/types').PortalNavItem
+export type AnalysisScreen = import('@/layouts/portal/types').PortalScreen
+export type SidebarData = import('@/layouts/portal/types').PortalSidebarData
 export interface HeaderData {
   searchPlaceholder: string
   actions: string[]
-}
-
-export type BackendConnectionStatus = 'checking' | 'connected' | 'offline'
-export type OpenAiAuthState = 'disconnected' | 'pending' | 'connected'
-
-export interface OpenAiAuthStatus {
-  state: OpenAiAuthState
-  connected: boolean
-  pending: boolean
-  accountEmail: string | null
-  accountId: string | null
-  expiresAt: string | null
-  scopes: string[]
 }
 
 export interface MessageCodeBlock {

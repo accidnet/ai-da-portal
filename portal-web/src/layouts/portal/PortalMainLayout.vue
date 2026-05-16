@@ -2,12 +2,12 @@
 import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
+import type { PortalScreen } from './types'
 import type { DataSourceUploadProgress, UploadPickerMode, UploadPickerTarget } from '@/features/data-source/types'
 import type { CreateDatasetFromSourcesPayload } from '@/features/data-analysis/api/analysisApi'
 import type {
   AnalyticsData,
   AnalyticsPayload,
-  AnalysisScreen,
   ComposerData,
   ConversationData,
   DatasetAsset,
@@ -23,7 +23,7 @@ defineProps<{
   isCompactLayout: boolean
   isAnalyticsPanelOpen: boolean
   shellAnalytics: AnalyticsData
-  currentScreen: AnalysisScreen
+  currentScreen: PortalScreen
   activeSessionId: string | null
   activeWorkspaceId: string | null
   authError: string | null

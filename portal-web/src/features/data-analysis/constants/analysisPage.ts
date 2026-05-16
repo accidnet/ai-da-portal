@@ -1,4 +1,5 @@
-import type { AnalyticsData, SidebarData } from '../types'
+import type { PortalSidebarData } from '@/layouts/portal/types'
+import type { AnalyticsData } from '../types'
 
 export const OPENAI_AUTH_POPUP_SOURCE = 'portal-openai-auth'
 // 기존 브라우저 저장값과 공유 링크를 유지하기 위해 storage key는 변경하지 않습니다.
@@ -11,7 +12,7 @@ export const DEFAULT_SESSION_TITLE = 'ChatGPT 분석 세션'
 export const LOCAL_SESSION_ID = 'local-session'
 export const DRAFT_SESSION_ID = 'draft-analysis-session'
 
-export const shellSidebar: SidebarData = {
+export const shellSidebar: PortalSidebarData = {
   productName: 'AI 데이터 분석',
   productTagline: 'AI 데이터 분석 포탈',
   primaryNav: [

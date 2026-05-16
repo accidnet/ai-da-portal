@@ -11,18 +11,18 @@ import {
 import type {
   BackendConnectionStatus,
   OpenAiAuthStatus,
-  AnalysisScreen,
-  SidebarData,
+  PortalScreen,
+  PortalSidebarData,
   SessionItem,
   WorkspaceItem,
-} from '@/features/data-analysis/types'
+} from '../../types'
 
 const props = defineProps<{
-  sidebar: SidebarData
+  sidebar: PortalSidebarData
   workspaceSessions: Record<string, SessionItem[]>
   activeSessionId?: string | null
   activeWorkspaceId?: string | null
-  activeScreen: AnalysisScreen
+  activeScreen: PortalScreen
   connectionStatus: BackendConnectionStatus
   authStatus: OpenAiAuthStatus
   isConnecting?: boolean
@@ -31,7 +31,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectSession: [sessionId: string]
-  primaryAction: [screen: AnalysisScreen]
+  primaryAction: [screen: PortalScreen]
   selectWorkspace: [workspaceId: string]
   createSession: []
   deleteSession: [sessionId: string]

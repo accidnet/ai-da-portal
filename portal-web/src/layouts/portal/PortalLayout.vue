@@ -11,12 +11,10 @@ import { useDataSourceItems } from '@/features/data-source/composables/useDataSo
 import { useOpenAiAuth } from '@/features/data-analysis/composables/useOpenAiAuth'
 import { useAnalysisInteractions } from '@/features/data-analysis/composables/useAnalysisInteractions'
 import { shellAnalytics, shellSidebar } from '@/features/data-analysis/constants/analysisPage'
+import type { BackendConnectionStatus, PortalScreen, SessionItem } from './types'
 import type {
-  AnalysisScreen,
-  BackendConnectionStatus,
   ComposerData,
   ConversationData,
-  SessionItem,
   SharedAnalysisSnapshot,
 } from '@/features/data-analysis/types'
 import type { UploadPickerTarget } from '@/features/data-source/types'
@@ -29,7 +27,7 @@ const LAST_PORTAL_ROUTE_STORAGE_KEY = 'portal:last-route-name'
 const ACTIVE_WORKSPACE_STORAGE_KEY = 'portal:active-workspace-id'
 const route = useRoute()
 const router = useRouter()
-const currentScreen = ref<AnalysisScreen>(screenFromRouteName(route.name))
+const currentScreen = ref<PortalScreen>(screenFromRouteName(route.name))
 const searchQuery = ref('')
 const activeWorkspaceId = ref<string | null>(readStoredActiveWorkspaceId())
 const datasetLibrarySearchQuery = ref('')
@@ -66,16 +64,16 @@ const {
 
 let removeSessionLinks: ((sessionId: string) => void) | null = null
 
-function screenFromRouteName(routeName: unknown): AnalysisScreen {
+function screenFromRouteName(routeName: unknown): PortalScreen {
   return routeName === 'data-sources' ? 'datasets' : 'dashboard'
 }
 
-function routeNameFromScreen(screen: AnalysisScreen): 'analysis' | 'data-sources' {
+function routeNameFromScreen(screen: PortalScreen): 'analysis' | 'data-sources' {
   return screen === 'datasets' ? 'data-sources' : 'analysis'
 }
 
 /** 사용자가 마지막으로 머문 주요 페이지를 새로고침 이후 복원할 수 있게 저장합니다. */
-function writeLastPortalRouteName(screen: AnalysisScreen) {
+function writeLastPortalRouteName(screen: PortalScreen) {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(LAST_PORTAL_ROUTE_STORAGE_KEY, routeNameFromScreen(screen))
 }
@@ -251,7 +249,7 @@ function resetWorkspaceFeedback() {
   uploadError.value = null
 }
 
-async function handleScreenChange(screen: AnalysisScreen) {
+async function handleScreenChange(screen: PortalScreen) {
   currentScreen.value = screen
   await router.push({ name: routeNameFromScreen(screen) })
   if (screen === 'datasets') {

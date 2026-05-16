@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import AnalysisSidebar from '@/features/data-analysis/components/sidebar/AnalysisSidebar.vue'
+import PortalSidebar from './components/sidebar/PortalSidebar.vue'
 import type {
-  AnalysisScreen,
   BackendConnectionStatus,
   OpenAiAuthStatus,
+  PortalScreen,
+  PortalSidebarData,
   SessionItem,
-  SidebarData,
-} from '@/features/data-analysis/types'
+} from './types'
 
 defineProps<{
   isCompactLayout: boolean
   isSidebarOpen: boolean
-  shellSidebar: SidebarData
+  shellSidebar: PortalSidebarData
   recentSessions: SessionItem[]
   workspaceSessions: Record<string, SessionItem[]>
-  currentScreen: AnalysisScreen
+  currentScreen: PortalScreen
   activeSessionId: string | null
   activeWorkspaceId: string | null
   connectionStatus: BackendConnectionStatus
@@ -24,7 +24,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  primaryAction: [screen: AnalysisScreen]
+  primaryAction: [screen: PortalScreen]
   createSession: []
   connectOpenAi: []
   disconnectOpenAi: []
@@ -51,7 +51,7 @@ const emit = defineEmits<{
       </button>
     </div>
 
-    <AnalysisSidebar
+    <PortalSidebar
       :sidebar="{ ...shellSidebar, recentSessions }"
       :workspace-sessions="workspaceSessions"
       :active-screen="currentScreen"
