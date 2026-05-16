@@ -7,6 +7,7 @@ export interface PortalNavItem {
 }
 
 export type PortalScreen = 'dashboard' | 'datasets'
+export type PortalAnalysisViewMode = 'default' | 'workspace'
 
 export interface LinkedDatasetSummary {
   id: string

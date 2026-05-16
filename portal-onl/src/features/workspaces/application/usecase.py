@@ -69,6 +69,13 @@ class WorkspaceUsecase:
             dataset_ids=dataset_ids,
         )
 
+    def list_dataset_ids(self, workspace_id: str) -> WorkspaceDatasetLinkResult:
+        """워크스페이스에 연결된 데이터셋 ID 목록을 조회합니다."""
+        return WorkspaceDatasetLinkResult(
+            workspace_id=workspace_id,
+            dataset_ids=self._repository.list_dataset_ids(workspace_id),
+        )
+
     def detach_dataset(
         self, *, workspace_id: str, dataset_id: str
     ) -> WorkspaceDatasetLinkResult:

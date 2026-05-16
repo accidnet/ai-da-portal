@@ -11,7 +11,7 @@ import { useDataSourceItems } from '@/features/data-source/composables/useDataSo
 import { useOpenAiAuth } from '@/features/data-analysis/composables/useOpenAiAuth'
 import { useAnalysisInteractions } from '@/features/data-analysis/composables/useAnalysisInteractions'
 import { shellAnalytics, shellSidebar } from '@/features/data-analysis/constants/analysisPage'
-import type { BackendConnectionStatus, PortalScreen, SessionItem } from './types'
+import type { BackendConnectionStatus, PortalAnalysisViewMode, PortalScreen, SessionItem } from './types'
 import type {
   ComposerData,
   ConversationData,
@@ -28,6 +28,7 @@ const ACTIVE_WORKSPACE_STORAGE_KEY = 'portal:active-workspace-id'
 const route = useRoute()
 const router = useRouter()
 const currentScreen = ref<PortalScreen>(screenFromRouteName(route.name))
+const analysisViewMode = ref<PortalAnalysisViewMode>('default')
 const searchQuery = ref('')
 const activeWorkspaceId = ref<string | null>(readStoredActiveWorkspaceId())
 const datasetLibrarySearchQuery = ref('')
@@ -143,6 +144,7 @@ const {
   handleDatasetFileChange,
   handleSelectDataset,
   handleAttachDataset,
+  hydrateWorkspaceDatasets,
   handleDetachDataset,
   handleDeleteDataset,
   handleCreateDatasetFromSources,
@@ -273,6 +275,8 @@ function handleDatasetLibrarySearchChange(value: string) {
 
 async function handleCreateSession() {
   resetWorkspaceFeedback()
+  activeWorkspaceId.value = null
+  analysisViewMode.value = 'default'
   await createAndSelectSession()
   searchQuery.value = ''
   currentScreen.value = 'dashboard'
@@ -281,14 +285,18 @@ async function handleCreateSession() {
 
 async function handleSelectWorkspace(workspaceId: string) {
   activeWorkspaceId.value = workspaceId
+  analysisViewMode.value = 'workspace'
   resetWorkspaceFeedback()
   await createAndSelectSession()
+  await hydrateWorkspaceDatasets(workspaceId, activeSessionId.value)
   currentScreen.value = 'dashboard'
   await router.push({ name: 'analysis' })
 }
 
 async function handleSelectSidebarSession(sessionId: string) {
   closeSidebarPanel()
+  const selectedSummary = sessionSummaries.value.find((session) => session.id === sessionId)
+  analysisViewMode.value = selectedSummary?.workspaceId ? 'workspace' : 'default'
   await selectSession(sessionId, 'dashboard')
   await router.push({ name: 'analysis' })
 }
@@ -449,6 +457,7 @@ onBeforeUnmount(() => {
       :recent-sessions="recentSessions"
       :workspace-sessions="workspaceSessions"
       :current-screen="currentScreen"
+      :analysis-view-mode="analysisViewMode"
       :active-session-id="activeSessionId"
       :active-workspace-id="activeWorkspaceId"
       :connection-status="connectionStatus"
@@ -485,6 +494,7 @@ onBeforeUnmount(() => {
       :is-analytics-panel-open="isAnalyticsPanelOpen"
       :shell-analytics="shellAnalytics"
       :current-screen="currentScreen"
+      :analysis-view-mode="analysisViewMode"
       :active-session-id="activeSessionId"
       :active-workspace-id="activeWorkspaceId"
       :auth-error="authError"

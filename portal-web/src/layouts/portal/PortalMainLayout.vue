@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { RouterView } from 'vue-router'
 
-import type { PortalScreen } from './types'
+import type { PortalAnalysisViewMode, PortalScreen } from './types'
 import type { DataSourceUploadProgress, UploadPickerMode, UploadPickerTarget } from '@/features/data-source/types'
 import type { CreateDatasetFromSourcesPayload } from '@/features/data-analysis/api/analysisApi'
 import type {
@@ -24,6 +24,7 @@ defineProps<{
   isAnalyticsPanelOpen: boolean
   shellAnalytics: AnalyticsData
   currentScreen: PortalScreen
+  analysisViewMode: PortalAnalysisViewMode
   activeSessionId: string | null
   activeWorkspaceId: string | null
   authError: string | null
@@ -134,6 +135,7 @@ defineExpose({
           :is-analytics-panel-open="isAnalyticsPanelOpen"
           :shell-analytics="shellAnalytics"
           :current-screen="currentScreen"
+          :analysis-view-mode="analysisViewMode"
           :active-session-id="activeSessionId"
           :active-workspace-id="activeWorkspaceId"
           :conversation="conversation"

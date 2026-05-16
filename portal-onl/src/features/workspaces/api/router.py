@@ -112,6 +112,26 @@ def attach_workspace_dataset(
         ) from exc
 
 
+@router.get(
+    "/{workspace_id}/datasets",
+    response_model=WorkspaceDatasetLinkResponse,
+)
+def list_workspace_datasets(
+    workspace_id: str,
+    usecase: WorkspaceUsecase = Depends(get_workspace_usecase),
+) -> WorkspaceDatasetLinkResponse:
+    """워크스페이스에 연결된 데이터셋 ID 목록을 반환합니다."""
+    try:
+        return _to_workspace_dataset_link_response(
+            usecase.list_dataset_ids(workspace_id)
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workspace '{workspace_id}' was not found.",
+        ) from exc
+
+
 @router.delete(
     "/{workspace_id}/datasets/{dataset_id}",
     response_model=WorkspaceDatasetLinkResponse,

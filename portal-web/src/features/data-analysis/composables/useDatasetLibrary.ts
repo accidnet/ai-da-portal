@@ -9,6 +9,7 @@ import {
   fetchDatasetProfile,
   fetchDatasetSources,
   fetchDatasets,
+  fetchWorkspaceDatasetLinks,
   uploadDataset,
 } from '@/features/data-analysis/api/analysisApi'
 import type { DatasetLibraryItem, SessionItem } from '../types'
@@ -263,6 +264,67 @@ export function useDatasetLibrary(options: {
     }
   }
 
+  /** 워크스페이스에 연결된 데이터셋을 현재 화면 세션 상태에 반영합니다. */
+  async function hydrateWorkspaceDatasets(workspaceId: string, targetSessionId?: string | null) {
+    const sessionId = targetSessionId ?? activeSessionId.value
+    if (!sessionId) return
+
+    try {
+      if (datasetsLibrary.value.length === 0) {
+        await loadDatasets()
+      }
+
+      const linked = await fetchWorkspaceDatasetLinks(workspaceId)
+      const linkedAssets = await Promise.all(
+        linked.dataset_ids.map(async (datasetId) => {
+          const details = await ensureDatasetLibraryDetails(datasetId)
+          if (!details) return null
+          return mapDatasetInfoToAsset({
+            detail: {
+              id: details.id,
+              filename: details.filename,
+              name: details.name,
+              description: details.description,
+              storage_path: details.storagePath,
+              created_at: details.createdAt,
+            },
+            preview: details.preview
+              ? {
+                  dataset_id: details.id,
+                  columns: details.preview.columns,
+                  rows: details.preview.rows,
+                }
+              : null,
+            profile: details.profile
+              ? {
+                  dataset_id: details.id,
+                  profile: {
+                    row_count: details.profile.rowCount,
+                    column_count: details.profile.columnCount,
+                    columns: details.profile.columns.map((column) => ({
+                      name: column.name,
+                      dtype: column.dtype,
+                      null_ratio: column.nullRatio,
+                      min_value: column.minValue,
+                      max_value: column.maxValue,
+                      sample_values: column.sampleValues,
+                    })),
+                  },
+                }
+              : null,
+          })
+        }),
+      )
+
+      const state = ensureSessionState(sessionId, activeSessionSummary.value?.title ?? DEFAULT_SESSION_TITLE)
+      state.datasets = linkedAssets.filter((dataset): dataset is NonNullable<typeof dataset> => Boolean(dataset))
+      syncSessionSummaryWithState(sessionId)
+      datasetLibraryError.value = null
+    } catch (error) {
+      datasetLibraryError.value = error instanceof Error ? error.message : '워크스페이스 연결 데이터를 불러오지 못했어요.'
+    }
+  }
+
   async function handleDetachDataset(datasetId: string) {
     const sessionId = activeSessionId.value
     const workspaceId = activeWorkspaceId.value
@@ -335,6 +397,7 @@ export function useDatasetLibrary(options: {
     handleCreateDatasetFromSources,
     handleSelectDataset,
     handleAttachDataset,
+    hydrateWorkspaceDatasets,
     handleDetachDataset,
     handleDeleteDataset,
     removeSessionLinks,

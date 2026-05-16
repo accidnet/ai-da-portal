@@ -1047,6 +1047,33 @@ export async function attachDatasetToWorkspace(
   return (await response.json()) as WorkspaceDatasetLinkResponse
 }
 
+export async function fetchWorkspaceDatasetLinks(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceDatasetLinkResponse> {
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}/datasets`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace dataset list failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceDatasetLinkResponse
+}
+
 export async function detachDatasetFromWorkspace(
   workspaceId: string,
   datasetId: string,

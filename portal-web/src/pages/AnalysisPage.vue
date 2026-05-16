@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import AnalysisWorkspaceView from '@/features/data-analysis/components/AnalysisWorkspaceView.vue'
+import AnalysisWorkspaceView from '@/features/data-analysis/components/analysis-workspace-view/AnalysisWorkspaceView.vue'
+import DefaultAnalysisView from '@/features/data-analysis/components/default-analysis-view/DefaultAnalysisView.vue'
 import type {
   AnalyticsData,
   AnalyticsPayload,
@@ -9,6 +10,7 @@ import type {
   DatasetLibraryItem,
   WorkspacePayload,
 } from '@/features/data-analysis/types'
+import type { PortalAnalysisViewMode } from '@/layouts/portal/types'
 
 defineProps<{
   analyticsPaneWidth: number
@@ -17,6 +19,7 @@ defineProps<{
   isCompactLayout: boolean
   isAnalyticsPanelOpen: boolean
   shellAnalytics: AnalyticsData
+  analysisViewMode?: PortalAnalysisViewMode
   activeWorkspaceId?: string | null
   conversation: ConversationData
   composer: ComposerData
@@ -50,7 +53,43 @@ const emit = defineEmits<{
 </script>
 
 <template>
+  <DefaultAnalysisView
+    v-if="(analysisViewMode ?? 'default') === 'default'"
+    :conversation="conversation"
+    :composer="composer"
+    :shell-analytics="shellAnalytics"
+    :active-workspace-id="null"
+    :analytics-payload="analyticsPayload"
+    :workspace-payload="workspacePayload"
+    :is-resizing-analytics-pane="isResizingAnalyticsPane"
+    :is-analytics-fullscreen="isAnalyticsFullscreen"
+    :analytics-pane-width="analyticsPaneWidth"
+    :is-sending="isSending"
+    :is-uploading="isUploading"
+    :is-running-analysis="isRunningAnalysis"
+    :is-sending-interaction="isSendingInteraction"
+    :chat-error="chatError"
+    :upload-error="uploadError"
+    :analytics-error="analyticsError"
+    :is-compact-layout="isCompactLayout"
+    :is-analytics-panel-open="isAnalyticsPanelOpen"
+    :can-export-report="canExportReport"
+    :connected-datasets="connectedDatasets"
+    :datasets-library="datasetsLibrary"
+    :is-dataset-mutating="isDatasetMutating"
+    @send="(message) => emit('send', message)"
+    @resize-start="(event) => emit('analyticsResizeStart', event)"
+    @toggle-fullscreen="emit('toggleFullscreen')"
+    @export-report="emit('exportReport')"
+    @share-report="emit('shareReport')"
+    @close-analytics-panel="emit('closeAnalyticsPanel')"
+    @upload-dataset="emit('uploadDataset')"
+    @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
+    @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
+    @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
+  />
   <AnalysisWorkspaceView
+    v-else
     :conversation="conversation"
     :composer="composer"
     :shell-analytics="shellAnalytics"
