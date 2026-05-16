@@ -7,6 +7,7 @@ from features.data_sources.application.dto import (
     DataSourceItemResult,
     DataSourceDeleteResult,
     DataSourceUploadCommand,
+    DataSourceUploadFile,
     DataSourceUploadResult,
 )
 from features.data_sources.domain.models import DataSourceItem
@@ -98,7 +99,7 @@ class DataSourceUsecase:
             storage_path = self._store_flat_file(
                 item_id=file_id,
                 filename=parts[-1],
-                content=file.content,
+                file=file,
             )
             items.append(
                 {
@@ -110,18 +111,23 @@ class DataSourceUsecase:
                     "depth": len(parts) - 1,
                     "sort_order": index,
                     "content_type": file.content_type,
-                    "size_bytes": len(file.content),
+                    "size_bytes": file.size_bytes,
                     "storage_path": str(storage_path),
                 }
             )
 
         return items
 
-    def _store_flat_file(self, *, item_id: str, filename: str, content: bytes):
+    def _store_flat_file(
+        self, *, item_id: str, filename: str, file: DataSourceUploadFile
+    ):
         """트리 경로와 무관하게 item id 기반의 단일 디렉토리에 파일을 저장합니다."""
         safe_name = PurePosixPath(filename).name or "uploaded-file"
         stored_path = DATA_SOURCE_STORAGE_DIR / f"{item_id}__{safe_name}"
-        stored_path.write_bytes(content)
+        if file.temp_path is not None:
+            file.temp_path.replace(stored_path)
+            return stored_path
+        stored_path.write_bytes(file.content or b"")
         return stored_path
 
     def _normalize_upload_paths(

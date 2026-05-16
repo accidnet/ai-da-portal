@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -7,8 +8,10 @@ class DataSourceUploadFile:
     """원천 데이터 직접 업로드 대상 파일입니다."""
 
     filename: str
-    content: bytes
+    content: bytes | None = None
     content_type: str | None = None
+    temp_path: Path | None = None
+    size_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)

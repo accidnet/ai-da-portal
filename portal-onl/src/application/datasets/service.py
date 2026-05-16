@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,6 +13,10 @@ from application.datasets.dto import (
 from application.datasets.inspection import (
     build_preview_from_dataframe,
     build_profile_from_dataframe,
+)
+from application.datasets.profiling import (
+    build_profile_snapshot_from_path,
+    infer_datetime_columns,
 )
 from core.paths import UPLOADED_DATASET_DIR
 from domain.datasets.schemas import (
@@ -54,20 +57,12 @@ class DatasetApplicationService:
         # filename 추출
         filename = file.filename or "dataset.csv"
 
-        # suffix 추출
-        suffix = Path(filename).suffix
-
-        # file 읽기
-        content = await file.read()
-
-        # file 저장
-        storage_path = self._store_uploaded_file(dataset_id, filename, content)
+        # 업로드 파일은 청크로 저장해 대용량 파일이 메모리에 한 번에 올라오지 않게 합니다.
+        storage_path = await self._store_uploaded_file(dataset_id, filename, file)
 
         # 표 형태로 읽을 수 없는 파일도 원천 데이터로 보관하기 위해 빈 프로파일을 사용합니다.
         try:
-            dataframe = self._load_dataframe(content, suffix=suffix)
-            preview = build_preview_from_dataframe(dataframe)
-            profile = build_profile_from_dataframe(dataframe)
+            preview, profile = build_profile_snapshot_from_path(storage_path)
         except Exception:
             preview = DatasetPreviewPayload()
             profile = DatasetProfilePayload(row_count=0, column_count=0)
@@ -246,13 +241,16 @@ class DatasetApplicationService:
             return []
         return self._session_service.list_linked_sessions(dataset_id)
 
-    def _store_uploaded_file(
-        self, dataset_id: str, filename: str, content: bytes
+    async def _store_uploaded_file(
+        self, dataset_id: str, filename: str, file: UploadFile
     ) -> Path:
+        """업로드 파일을 메모리 적재 없이 디스크에 청크 단위로 저장합니다."""
         UPLOADED_DATASET_DIR.mkdir(parents=True, exist_ok=True)
         safe_name = Path(filename).name or "dataset.csv"
         stored_path = UPLOADED_DATASET_DIR / f"{dataset_id}__{safe_name}"
-        stored_path.write_bytes(content)
+        with stored_path.open("wb") as target:
+            while chunk := await file.read(1024 * 1024):
+                target.write(chunk)
         return stored_path
 
     def _expand_selected_source_files(
@@ -277,35 +275,9 @@ class DatasetApplicationService:
 
         return sorted(file_map.values(), key=lambda item: item.relative_path)
 
-    def _load_dataframe(self, content: bytes, suffix: str) -> pd.DataFrame:
-        normalized_suffix = suffix.lower()
-        buffer = BytesIO(content)
-        if normalized_suffix in {".csv", ".txt"}:
-            dataframe = pd.read_csv(buffer)
-        if normalized_suffix in {".tsv"}:
-            buffer.seek(0)
-            dataframe = pd.read_csv(buffer, sep="\t")
-        if normalized_suffix in {".xlsx", ".xls"}:
-            buffer.seek(0)
-            dataframe = pd.read_excel(buffer)
-        if normalized_suffix in {".json"}:
-            buffer.seek(0)
-            dataframe = pd.read_json(buffer)
-        if normalized_suffix not in {".csv", ".txt", ".tsv", ".xlsx", ".xls", ".json"}:
-            buffer.seek(0)
-            dataframe = pd.read_csv(buffer)
-        return self._infer_datetime_columns(dataframe)
-
     def _infer_datetime_columns(self, dataframe: pd.DataFrame) -> pd.DataFrame:
-        inferred = dataframe.copy()
-        for column in inferred.columns:
-            series = inferred[column]
-            if not pd.api.types.is_object_dtype(series):
-                continue
-            converted = pd.to_datetime(series, errors="coerce", format="mixed")
-            if converted.notna().mean() >= 0.8 and converted.notna().any():
-                inferred[column] = converted
-        return inferred
+        """DataFrame의 날짜형 문자열 컬럼을 공통 추론 로직으로 변환합니다."""
+        return infer_datetime_columns(dataframe)
 
     def _load_dataframe_from_dataset(self, dataset: DatasetRecord) -> pd.DataFrame:
         dataframes = self._load_source_dataframes(dataset)
@@ -345,7 +317,9 @@ class DatasetApplicationService:
             if source.source_ref_id is not None
         ]
         if source_ref_ids and self._data_source_repository is not None:
-            source_items = self._data_source_repository.list_items_by_ids(source_ref_ids)
+            source_items = self._data_source_repository.list_items_by_ids(
+                source_ref_ids
+            )
             for item in source_items:
                 if item.storage_path is None:
                     continue
@@ -374,15 +348,12 @@ class DatasetApplicationService:
             if item.storage_path is None:
                 continue
             try:
-                dataframe = self._infer_datetime_columns(
-                    load_dataframe(Path(item.storage_path))
+                preview, profile = build_profile_snapshot_from_path(
+                    Path(item.storage_path)
                 )
             except Exception:
                 preview = DatasetPreviewPayload()
                 profile = DatasetProfilePayload(row_count=0, column_count=0)
-            else:
-                preview = build_preview_from_dataframe(dataframe)
-                profile = build_profile_from_dataframe(dataframe)
 
             source_profiles.append(
                 {
@@ -543,7 +514,9 @@ class DatasetApplicationService:
                         "content_type": item.content_type if is_file else None,
                         "size_bytes": item.size_bytes if is_file else None,
                         "row_count": source.row_count if source is not None else 0,
-                        "column_count": source.column_count if source is not None else 0,
+                        "column_count": source.column_count
+                        if source is not None
+                        else 0,
                         "file_count": 1 if is_file else 0,
                         "children": {},
                     }
