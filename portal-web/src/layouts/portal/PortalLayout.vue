@@ -220,12 +220,12 @@ const workspaceSessions = computed<Record<string, SessionItem[]>>(() => {
 const conversation = computed<ConversationData>(() => ({
   messages: activeSessionState.value?.messages ?? createWelcomeMessages(),
   thinkingLabel: isSending.value
-    ? '데이터를 분석하고 있어요...'
+    ? 'Thinking...'
     : isUploading.value
-      ? '데이터셋을 업로드하고 있어요...'
+      ? 'Thinking...'
       : isRunningAnalysis.value
-        ? '분석을 실행하고 있어요...'
-        : '다음 분석 요청을 입력해 주세요',
+        ? 'Thinking...'
+        : '내용을 입력해 주세요',
   isThinking: isSending.value || isUploading.value || isRunningAnalysis.value,
 }))
 
