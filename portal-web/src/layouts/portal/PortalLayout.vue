@@ -219,14 +219,8 @@ const workspaceSessions = computed<Record<string, SessionItem[]>>(() => {
 
 const conversation = computed<ConversationData>(() => ({
   messages: activeSessionState.value?.messages ?? createWelcomeMessages(),
-  thinkingLabel: isSending.value
-    ? 'Thinking...'
-    : isUploading.value
-      ? 'Thinking...'
-      : isRunningAnalysis.value
-        ? 'Thinking...'
-        : '내용을 입력해 주세요',
-  isThinking: isSending.value || isUploading.value || isRunningAnalysis.value,
+  thinkingLabel: 'THINKING...',
+  isThinking: isSending.value,
 }))
 
 const composer = computed<ComposerData>(() => {

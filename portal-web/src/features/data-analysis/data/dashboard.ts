@@ -41,7 +41,7 @@ export const analysisDashboard: AnalysisDashboardData = {
         ],
       },
     ],
-    thinkingLabel: 'Processing visualization...',
+    thinkingLabel: 'THINKING...',
   },
   composer: {
     chips: [

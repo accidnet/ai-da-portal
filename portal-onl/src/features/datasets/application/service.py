@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -36,6 +37,9 @@ from features.datasets.application.profiling import (
 from infrastructure.db.repositories import DatasetRecord, DatasetRepository
 
 
+logger = logging.getLogger(__name__)
+
+
 class DatasetApplicationService:
     """업로드된 원천 데이터의 저장, 조회, 프로파일 생성을 담당합니다."""
 
@@ -61,9 +65,29 @@ class DatasetApplicationService:
         storage_path = await self._store_uploaded_file(dataset_id, filename, file)
 
         # 표 형태로 읽을 수 없는 파일도 원천 데이터로 보관하기 위해 빈 프로파일을 사용합니다.
+        logger.debug(
+            "Building dataset source profile snapshot 1/1: dataset_id=%s filename=%s path=%s",
+            dataset_id,
+            filename,
+            storage_path,
+        )
         try:
             preview, profile = build_profile_snapshot_from_path(storage_path)
-        except Exception:
+            logger.debug(
+                "Built dataset source profile snapshot 1/1: dataset_id=%s filename=%s rows=%s columns=%s",
+                dataset_id,
+                filename,
+                profile.row_count,
+                profile.column_count,
+            )
+        except Exception as exc:
+            logger.debug(
+                "Failed to build dataset source profile snapshot 1/1: dataset_id=%s filename=%s error=%s",
+                dataset_id,
+                filename,
+                exc,
+                exc_info=True,
+            )
             preview = DatasetPreviewPayload()
             profile = DatasetProfilePayload(row_count=0, column_count=0)
 
@@ -357,14 +381,50 @@ class DatasetApplicationService:
     ) -> list[dict[str, object]]:
         """데이터셋 등록 시점에 원천 파일별 preview/profile 스냅샷을 생성합니다."""
         source_profiles: list[dict[str, object]] = []
-        for item in selected_files:
+        total_count = len(selected_files)
+        logger.debug(
+            "Building dataset source profile snapshots: total=%s",
+            total_count,
+        )
+        for index, item in enumerate(selected_files, start=1):
             if item.storage_path is None:
+                logger.debug(
+                    "Skipping dataset source profile snapshot %s/%s: source_id=%s path missing",
+                    index,
+                    total_count,
+                    item.id,
+                )
                 continue
+            logger.debug(
+                "Building dataset source profile snapshot %s/%s: source_id=%s name=%s relative_path=%s path=%s",
+                index,
+                total_count,
+                item.id,
+                item.name,
+                item.relative_path,
+                item.storage_path,
+            )
             try:
                 preview, profile = build_profile_snapshot_from_path(
                     Path(item.storage_path)
                 )
-            except Exception:
+                logger.debug(
+                    "Built dataset source profile snapshot %s/%s: source_id=%s rows=%s columns=%s",
+                    index,
+                    total_count,
+                    item.id,
+                    profile.row_count,
+                    profile.column_count,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Failed to build dataset source profile snapshot %s/%s: source_id=%s error=%s",
+                    index,
+                    total_count,
+                    item.id,
+                    exc,
+                    exc_info=True,
+                )
                 preview = DatasetPreviewPayload()
                 profile = DatasetProfilePayload(row_count=0, column_count=0)
 
