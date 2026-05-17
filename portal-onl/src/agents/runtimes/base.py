@@ -10,7 +10,14 @@ from agents.state import (
     PlanStep,
 )
 from application.datasets.service import DatasetApplicationService
+from features.data_sources.domain.models import DataSourceItem
+from features.data_sources.infrastructure.repositories import DataSourceRepository
 from infrastructure.ai.client import AiClient, AiClientError
+from infrastructure.db.repositories.dataset_repository import (
+    DatasetRecord,
+    DatasetRepository,
+    DatasetSourceRecord,
+)
 from shared.integrations.ai.contracts import (
     Message,
     FunctionCall,
@@ -63,11 +70,111 @@ class BaseAgent:
 
     def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
         """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 활용합니다."""
-        payload = {"dataset_ids": dataset_ids}
+        payload = self._build_dataset_context_payload(dataset_ids)
         return Message(
             role="developer",
-            content=(ResponseInputText(text=f"다음의 정보를 활용하세요.\n{payload}"),),
+            content=(
+                ResponseInputText(
+                    text=(
+                        "다음의 데이터셋 및 원천 데이터 정보를 활용하세요.\n"
+                        f"{json.dumps(payload, ensure_ascii=False)}"
+                    )
+                ),
+            ),
         )
+
+    def _build_dataset_context_payload(
+        self,
+        dataset_ids: list[str],
+    ) -> dict[str, object]:
+        """dataset_id 목록을 DB 기준 dataset/source 메타데이터로 확장합니다."""
+        datasets: list[DatasetRecord] = []
+        missing_dataset_ids: list[str] = []
+        dataset_repository = DatasetRepository()
+
+        for dataset_id in dict.fromkeys(dataset_ids):
+            try:
+                datasets.append(dataset_repository.get_or_raise(dataset_id))
+            except KeyError:
+                missing_dataset_ids.append(dataset_id)
+
+        source_items = self._load_source_items_by_id(datasets)
+        return {
+            "datasets": [
+                self._build_dataset_context(dataset, source_items)
+                for dataset in datasets
+            ],
+            "missing_dataset_ids": missing_dataset_ids,
+            "usage_note": ("데이터셋은 여러 원천 데이터 파일을 포함할 수 있습니다. "),
+        }
+
+    def _load_source_items_by_id(
+        self,
+        datasets: list[DatasetRecord],
+    ) -> dict[str, DataSourceItem]:
+        """dataset source_ref_id에 해당하는 원천 데이터 노드를 일괄 조회합니다."""
+        source_ref_ids = [
+            source.source_ref_id
+            for dataset in datasets
+            for source in dataset.sources
+            if source.source_ref_id is not None
+        ]
+        unique_source_ref_ids = list(dict.fromkeys(source_ref_ids))
+        if not unique_source_ref_ids:
+            return {}
+
+        source_items = DataSourceRepository().list_items_by_ids(unique_source_ref_ids)
+        return {item.id: item for item in source_items}
+
+    def _build_dataset_context(
+        self,
+        dataset: DatasetRecord,
+        source_items: dict[str, DataSourceItem],
+    ) -> dict[str, object]:
+        """단일 dataset의 기본 정보와 원천 source 목록을 모델 입력용으로 변환합니다."""
+        return {
+            "dataset_id": dataset.id,
+            "name": dataset.name,
+            "description": dataset.description,
+            "created_at": dataset.created_at.isoformat(),
+            "updated_at": dataset.updated_at.isoformat(),
+            "sources": [
+                self._build_source_context(source, source_items)
+                for source in dataset.sources
+            ],
+        }
+
+    def _build_source_context(
+        self,
+        source: DatasetSourceRecord,
+        source_items: dict[str, DataSourceItem],
+    ) -> dict[str, object]:
+        """dataset source row와 원천 데이터 노드 정보를 하나의 payload로 합칩니다."""
+        source_item = (
+            source_items.get(source.source_ref_id)
+            if source.source_ref_id is not None
+            else None
+        )
+        payload: dict[str, object] = {
+            "dataset_source_id": source.id,
+            "source_id": source.source_ref_id,
+            "row_count": source.row_count,
+            "column_count": source.column_count,
+        }
+        if source_item is None:
+            payload["source_type"] = "direct_upload"
+            return payload
+
+        payload.update(
+            {
+                "source_type": source_item.item_type,
+                "name": source_item.name,
+                "relative_path": source_item.relative_path,
+                "content_type": source_item.content_type,
+                "size_bytes": source_item.size_bytes,
+            }
+        )
+        return payload
 
     def _build_initial_inputs(
         self, *, message: str, dataset_ids: list[str]

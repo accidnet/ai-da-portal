@@ -24,7 +24,7 @@ class ToolModule(Protocol):
 
 _TOOL_MODULES: tuple[ToolModule, ...] = (
     update_plan,
-    inspect_dataset_context,
+    # inspect_dataset_context,
     run_source_file_duckdb_sql,
     correlation,
     anomaly_detection,

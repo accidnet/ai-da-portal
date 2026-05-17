@@ -1,110 +1,134 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref } from "vue";
 
-import type { DatasetAsset, DatasetLibraryItem } from '@/features/data-analysis/types'
+import type {
+  DatasetAsset,
+  DatasetLibraryItem,
+} from "@/features/data-analysis/types";
 
 const props = defineProps<{
-  connectedDatasets: DatasetAsset[]
-  activeWorkspaceId: string | null
-  datasetsLibrary: DatasetLibraryItem[]
-  isDatasetMutating: boolean
-}>()
+  connectedDatasets: DatasetAsset[];
+  activeWorkspaceId: string | null;
+  datasetsLibrary: DatasetLibraryItem[];
+  isDatasetMutating: boolean;
+}>();
 
 const emit = defineEmits<{
-  uploadDataset: []
-  attachDataset: [datasetId: string]
-  selectDataset: [datasetId: string]
-  detachDataset: [datasetId: string]
-}>()
+  uploadDataset: [];
+  attachDataset: [datasetId: string];
+  selectDataset: [datasetId: string];
+  detachDataset: [datasetId: string];
+}>();
 
-const expandedDatasetId = ref<string | null>(null)
-const isDatasetLinkDialogOpen = ref(false)
-const hiddenDatasetIds = ref<Set<string>>(new Set())
-const hiddenColumnKeys = ref<Set<string>>(new Set())
+const expandedDatasetId = ref<string | null>(null);
+const isDatasetLinkDialogOpen = ref(false);
+const hiddenDatasetIds = ref<Set<string>>(new Set());
+const hiddenColumnKeys = ref<Set<string>>(new Set());
 
-const selectedDeleteLabel = computed(() => `선택한 데이터 모두 삭제 (0/${props.connectedDatasets.length})`)
-const connectedDatasetIdSet = computed(() => new Set(props.connectedDatasets.map((dataset) => dataset.id)))
-const connectableDatasets = computed(() => props.datasetsLibrary.filter((dataset) => !connectedDatasetIdSet.value.has(dataset.id)))
+const selectedDeleteLabel = computed(
+  () => `선택한 데이터 모두 삭제 (0/${props.connectedDatasets.length})`,
+);
+const connectedDatasetIdSet = computed(
+  () => new Set(props.connectedDatasets.map((dataset) => dataset.id)),
+);
+const connectableDatasets = computed(() =>
+  props.datasetsLibrary.filter(
+    (dataset) => !connectedDatasetIdSet.value.has(dataset.id),
+  ),
+);
 
 /** 기존 데이터셋 목록에서 현재 세션에 연결할 항목을 고르는 다이얼로그를 엽니다. */
 function openDatasetLinkDialog() {
-  if (!props.activeWorkspaceId) return
-  isDatasetLinkDialogOpen.value = true
+  if (!props.activeWorkspaceId) return;
+  isDatasetLinkDialogOpen.value = true;
 }
 
 /** 데이터셋 연결 다이얼로그를 닫습니다. */
 function closeDatasetLinkDialog() {
-  if (props.isDatasetMutating) return
-  isDatasetLinkDialogOpen.value = false
+  if (props.isDatasetMutating) return;
+  isDatasetLinkDialogOpen.value = false;
 }
 
 /** 선택한 데이터셋을 현재 세션과 연결하고 다이얼로그를 닫습니다. */
 function attachDataset(datasetId: string) {
-  emit('attachDataset', datasetId)
-  isDatasetLinkDialogOpen.value = false
+  emit("attachDataset", datasetId);
+  isDatasetLinkDialogOpen.value = false;
 }
 
 /** 연결 데이터의 파일 트리를 열거나 닫습니다. */
 function toggleDatasetOpen(datasetId: string) {
-  expandedDatasetId.value = expandedDatasetId.value === datasetId ? null : datasetId
-  emit('selectDataset', datasetId)
+  expandedDatasetId.value =
+    expandedDatasetId.value === datasetId ? null : datasetId;
+  emit("selectDataset", datasetId);
 }
 
 /** 데이터 카드의 표시/숨김 상태를 로컬 UI 상태로 전환합니다. */
 function toggleDatasetVisibility(datasetId: string) {
-  const next = new Set(hiddenDatasetIds.value)
+  const next = new Set(hiddenDatasetIds.value);
   if (next.has(datasetId)) {
-    next.delete(datasetId)
+    next.delete(datasetId);
   } else {
-    next.add(datasetId)
+    next.add(datasetId);
   }
-  hiddenDatasetIds.value = next
+  hiddenDatasetIds.value = next;
 }
 
 /** 컬럼 행의 표시/숨김 상태를 로컬 UI 상태로 전환합니다. */
 function toggleColumnVisibility(datasetId: string, columnName: string) {
-  const key = `${datasetId}:${columnName}`
-  const next = new Set(hiddenColumnKeys.value)
+  const key = `${datasetId}:${columnName}`;
+  const next = new Set(hiddenColumnKeys.value);
   if (next.has(key)) {
-    next.delete(key)
+    next.delete(key);
   } else {
-    next.add(key)
+    next.add(key);
   }
-  hiddenColumnKeys.value = next
+  hiddenColumnKeys.value = next;
 }
 
 function isDatasetVisible(datasetId: string): boolean {
-  return !hiddenDatasetIds.value.has(datasetId)
+  return !hiddenDatasetIds.value.has(datasetId);
 }
 
 function isColumnVisible(datasetId: string, columnName: string): boolean {
-  return !hiddenColumnKeys.value.has(`${datasetId}:${columnName}`)
+  return !hiddenColumnKeys.value.has(`${datasetId}:${columnName}`);
 }
 
 function formatDatasetMeta(dataset: DatasetAsset): string {
-  const rowCount = dataset.profile?.rowCount ?? dataset.preview?.rows.length ?? 0
-  const columnCount = dataset.profile?.columnCount ?? dataset.preview?.columns.length ?? 0
-  return `${rowCount.toLocaleString()}행 · ${columnCount.toLocaleString()}열`
+  const rowCount =
+    dataset.profile?.rowCount ?? dataset.preview?.rows.length ?? 0;
+  const columnCount =
+    dataset.profile?.columnCount ?? dataset.preview?.columns.length ?? 0;
+  return `${rowCount.toLocaleString()}행 · ${columnCount.toLocaleString()}열`;
 }
 
 function formatLibraryDatasetMeta(dataset: DatasetLibraryItem): string {
-  return `${dataset.rowCount.toLocaleString()}행 · ${dataset.columnCount.toLocaleString()}열`
+  return `${dataset.rowCount.toLocaleString()}행 · ${dataset.columnCount.toLocaleString()}열`;
 }
 
-function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }> {
-  const columns = dataset.profile?.columns.map((column) => column.name) ?? dataset.preview?.columns ?? []
+function fileRows(
+  dataset: DatasetAsset,
+): Array<{ name: string; depth: number }> {
+  const columns =
+    dataset.profile?.columns.map((column) => column.name) ??
+    dataset.preview?.columns ??
+    [];
   return columns.slice(0, 6).map((name, index) => ({
     name,
     depth: index === 0 ? 1 : 2,
-  }))
+  }));
 }
 </script>
 
 <template>
   <section class="connected-data-pane">
     <div class="connected-data-pane__header">
-      <h2>세션과 연결된 데이터</h2>
-      <button type="button" class="pane-add-button" aria-label="데이터 추가" @click="openDatasetLinkDialog">
+      <h2>워크스페이스와 연결된 데이터</h2>
+      <button
+        type="button"
+        class="pane-add-button"
+        aria-label="데이터 추가"
+        @click="openDatasetLinkDialog"
+      >
         <span class="material-symbols-outlined">add</span>
       </button>
     </div>
@@ -134,7 +158,12 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
             </label>
 
             <div class="dataset-card__actions">
-              <button type="button" class="soft-button" :disabled="isDatasetMutating" @click="emit('selectDataset', dataset.id)">
+              <button
+                type="button"
+                class="soft-button"
+                :disabled="isDatasetMutating"
+                @click="emit('selectDataset', dataset.id)"
+              >
                 변경
               </button>
               <button
@@ -146,7 +175,12 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
               >
                 열기
               </button>
-              <button type="button" class="primary-button" :disabled="isDatasetMutating" @click="emit('detachDataset', dataset.id)">
+              <button
+                type="button"
+                class="primary-button"
+                :disabled="isDatasetMutating"
+                @click="emit('detachDataset', dataset.id)"
+              >
                 삭제
               </button>
             </div>
@@ -162,10 +196,14 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
             <button
               type="button"
               class="visibility-button"
-              :aria-label="isDatasetVisible(dataset.id) ? '데이터 보이기' : '데이터 숨김'"
+              :aria-label="
+                isDatasetVisible(dataset.id) ? '데이터 보이기' : '데이터 숨김'
+              "
               @click="toggleDatasetVisibility(dataset.id)"
             >
-              <span class="material-symbols-outlined">{{ isDatasetVisible(dataset.id) ? 'visibility' : 'visibility_off' }}</span>
+              <span class="material-symbols-outlined">{{
+                isDatasetVisible(dataset.id) ? "visibility" : "visibility_off"
+              }}</span>
             </button>
           </div>
         </div>
@@ -173,10 +211,18 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
         <div v-if="expandedDatasetId === dataset.id" class="file-tree">
           <div class="file-tree__rows">
             <div class="file-row file-row--root">
-              <span class="material-symbols-outlined file-row__icon">description</span>
+              <span class="material-symbols-outlined file-row__icon"
+                >description</span
+              >
               <span class="file-row__name">{{ dataset.filename }}</span>
-              <button type="button" class="visibility-button" @click="toggleDatasetVisibility(dataset.id)">
-                <span class="material-symbols-outlined">{{ isDatasetVisible(dataset.id) ? 'visibility' : 'visibility_off' }}</span>
+              <button
+                type="button"
+                class="visibility-button"
+                @click="toggleDatasetVisibility(dataset.id)"
+              >
+                <span class="material-symbols-outlined">{{
+                  isDatasetVisible(dataset.id) ? "visibility" : "visibility_off"
+                }}</span>
               </button>
             </div>
 
@@ -184,19 +230,37 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
               v-for="row in fileRows(dataset)"
               :key="`${dataset.id}-${row.name}`"
               class="file-row"
-              :class="{ 'file-row--hidden': !isColumnVisible(dataset.id, row.name) }"
+              :class="{
+                'file-row--hidden': !isColumnVisible(dataset.id, row.name),
+              }"
               :style="{ '--file-depth': row.depth }"
             >
               <span class="file-row__branch">ㄴ</span>
-              <span class="material-symbols-outlined file-row__icon">description</span>
+              <span class="material-symbols-outlined file-row__icon"
+                >description</span
+              >
               <span class="file-row__name">{{ row.name }}</span>
-              <button type="button" class="visibility-button" @click="toggleColumnVisibility(dataset.id, row.name)">
-                <span class="material-symbols-outlined">{{ isColumnVisible(dataset.id, row.name) ? 'visibility' : 'visibility_off' }}</span>
+              <button
+                type="button"
+                class="visibility-button"
+                @click="toggleColumnVisibility(dataset.id, row.name)"
+              >
+                <span class="material-symbols-outlined">{{
+                  isColumnVisible(dataset.id, row.name)
+                    ? "visibility"
+                    : "visibility_off"
+                }}</span>
               </button>
             </div>
           </div>
 
-          <button type="button" class="tree-close-button" @click="expandedDatasetId = null">닫기</button>
+          <button
+            type="button"
+            class="tree-close-button"
+            @click="expandedDatasetId = null"
+          >
+            닫기
+          </button>
           <div class="file-tree__fade"></div>
         </div>
       </article>
@@ -204,35 +268,65 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 
     <section v-else class="empty-data-state">
       <span class="material-symbols-outlined">database</span>
-          <strong>연결된 데이터가 없습니다</strong>
-      <p>상단의 추가 버튼으로 등록된 데이터셋을 현재 워크스페이스에 연결합니다.</p>
+      <strong>연결된 데이터가 없습니다</strong>
+      <p>
+        상단의 추가 버튼으로 등록된 데이터셋을 현재 워크스페이스에 연결합니다.
+      </p>
     </section>
 
-    <div v-if="isDatasetLinkDialogOpen" class="link-dialog-backdrop" role="presentation" @click.self="closeDatasetLinkDialog">
-      <section class="link-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-link-dialog-title">
+    <div
+      v-if="isDatasetLinkDialogOpen"
+      class="link-dialog-backdrop"
+      role="presentation"
+      @click.self="closeDatasetLinkDialog"
+    >
+      <section
+        class="link-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dataset-link-dialog-title"
+      >
         <header class="link-dialog__header">
           <div>
             <p>데이터셋 연결</p>
             <h3 id="dataset-link-dialog-title">세션에 연결할 데이터셋 선택</h3>
           </div>
-          <button type="button" class="dialog-icon-button" :disabled="isDatasetMutating" aria-label="닫기" @click="closeDatasetLinkDialog">
+          <button
+            type="button"
+            class="dialog-icon-button"
+            :disabled="isDatasetMutating"
+            aria-label="닫기"
+            @click="closeDatasetLinkDialog"
+          >
             <span class="material-symbols-outlined">close</span>
           </button>
         </header>
 
         <div class="link-dialog__list">
-          <article v-for="dataset in connectableDatasets" :key="dataset.id" class="link-dialog__item">
+          <article
+            v-for="dataset in connectableDatasets"
+            :key="dataset.id"
+            class="link-dialog__item"
+          >
             <div>
               <strong>{{ dataset.filename }}</strong>
               <span>{{ formatLibraryDatasetMeta(dataset) }}</span>
             </div>
-            <button type="button" class="link-dialog__action" :disabled="isDatasetMutating" @click="attachDataset(dataset.id)">
+            <button
+              type="button"
+              class="link-dialog__action"
+              :disabled="isDatasetMutating"
+              @click="attachDataset(dataset.id)"
+            >
               <span class="material-symbols-outlined">link</span>
               연결
             </button>
           </article>
 
-          <div v-if="connectableDatasets.length === 0" class="link-dialog__empty">
+          <div
+            v-if="connectableDatasets.length === 0"
+            class="link-dialog__empty"
+          >
             <span class="material-symbols-outlined">dataset_linked</span>
             연결 가능한 데이터셋이 없습니다.
           </div>
@@ -276,7 +370,11 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   color: var(--color-primary);
   background: #fff;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 
 .pane-add-button:hover,
@@ -377,7 +475,10 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
-  transition: background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 
 .soft-button {
@@ -468,7 +569,9 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   color: #000;
   background: #d9d9d9;
   cursor: pointer;
-  transition: background-color 150ms ease, transform 150ms ease;
+  transition:
+    background-color 150ms ease,
+    transform 150ms ease;
 }
 
 .visibility-button:hover,
