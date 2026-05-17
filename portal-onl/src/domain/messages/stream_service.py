@@ -123,11 +123,22 @@ class MessageStreamService:
                 if user_message_id is not None
                 else None
             )
+            input_items = (
+                self._message_repository.list_session_conversation_input_items(
+                    session_id
+                )
+            )
+            logger.debug(
+                "Loaded session conversation input items session_id=%s count=%s",
+                session_id,
+                len(input_items),
+            )
             agent_events = agent_runtime.invoke(
                 {
                     "session_id": session_id,
                     "message": message,
                     "dataset_ids": dataset_ids,
+                    "input_items": input_items,
                 }
             )
 

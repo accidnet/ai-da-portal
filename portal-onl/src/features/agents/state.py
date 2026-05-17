@@ -12,6 +12,7 @@ class AgentInvokeInput(TypedDict, total=False):
     session_id: str
     message: str
     dataset_ids: list[str]
+    input_items: list[dict[str, object]]
 
 
 class AgentInvokeOutput(TypedDict, total=False):

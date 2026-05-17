@@ -177,14 +177,21 @@ class BaseAgent:
         return payload
 
     def _build_initial_inputs(
-        self, *, message: str, dataset_ids: list[str]
+        self,
+        *,
+        message: str,
+        dataset_ids: list[str],
+        input_items: list[dict[str, object]] | None = None,
     ) -> list[dict[str, object]]:
         """초기 LLM 요청 input 목록을 구성합니다."""
         inputs = []
         if dataset_ids:
             inputs.append(self._build_developer_input(dataset_ids=dataset_ids))
 
-        inputs.append(Message(role="user", content=(ResponseInputText(text=message),)))
+        if input_items:
+            inputs.extend(input_items)
+        else:
+            inputs.append(Message(role="user", content=(ResponseInputText(text=message),)))
 
         return InputItemList(items=inputs).to_payload()
 

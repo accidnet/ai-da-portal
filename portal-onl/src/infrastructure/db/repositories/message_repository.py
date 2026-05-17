@@ -27,7 +27,7 @@ class MessageRepository:
         user_message: str,
         dataset_ids: list[str],
     ) -> str | None:
-        """사용자 메시지와 LLM 재사용 가능한 input item을 함께 저장합니다."""
+        """사용자 메시지와 LLM 재사용 가능한 대화 input item을 함께 저장합니다."""
         normalized_message = user_message.strip()
         if not normalized_message:
             return None
@@ -50,6 +50,7 @@ class MessageRepository:
                     )
                 )
             db.flush()
+            # 사용자 메시지도 agent timeline에 저장해 다음 호출의 멀티턴 입력 순서를 보존합니다.
             self._add_timeline_item(
                 db,
                 session_id=session_id,
@@ -196,6 +197,72 @@ class MessageRepository:
         ]
         return sorted(messages, key=self._timeline_sort_key)
 
+    def list_session_conversation_input_items(
+        self, session_id: str
+    ) -> list[dict[str, object]]:
+        """세션의 user message와 agent reusable input item을 대화 순서대로 조회합니다."""
+        with SessionLocal() as db:
+            user_messages = list(
+                db.scalars(
+                    select(UserMessageOrm)
+                    .where(UserMessageOrm.session_id == session_id)
+                    .order_by(UserMessageOrm.created_at, UserMessageOrm.id)
+                ).all()
+            )
+            timeline_items = list(
+                db.scalars(
+                    select(AgentTimelineItemOrm)
+                    .where(
+                        AgentTimelineItemOrm.session_id == session_id,
+                        AgentTimelineItemOrm.is_input_reusable.is_(True),
+                        AgentTimelineItemOrm.input_item.is_not(None),
+                    )
+                    .order_by(AgentTimelineItemOrm.sequence)
+                ).all()
+            )
+
+        grouped_items: dict[str, list[AgentTimelineItemOrm]] = {}
+        orphan_items: list[AgentTimelineItemOrm] = []
+        for item in timeline_items:
+            if item.user_message_id is None:
+                orphan_items.append(item)
+                continue
+            grouped_items.setdefault(item.user_message_id, []).append(item)
+
+        input_items: list[dict[str, object]] = []
+        for user_message in user_messages:
+            items = grouped_items.pop(user_message.id, [])
+            user_items = [
+                item for item in items if self._is_user_input_item(item.input_item)
+            ]
+            if user_items:
+                input_items.extend(
+                    item.input_item
+                    for item in user_items
+                    if isinstance(item.input_item, dict)
+                )
+            else:
+                input_items.append(self._build_user_input_item(user_message.text))
+
+            input_items.extend(
+                item.input_item
+                for item in items
+                if isinstance(item.input_item, dict)
+                and not self._is_user_input_item(item.input_item)
+            )
+
+        remaining_items = [
+            *orphan_items,
+            *[item for items in grouped_items.values() for item in items],
+        ]
+        input_items.extend(
+            item.input_item
+            for item in sorted(remaining_items, key=lambda item: item.sequence)
+            if isinstance(item.input_item, dict)
+        )
+
+        return input_items
+
     def count_session_messages(self, session_id: str) -> int:
         """프론트에 노출되는 세션 메시지 개수를 조회합니다."""
         return len(self.list_session_timeline(session_id))
@@ -287,6 +354,12 @@ class MessageRepository:
         """input item payload에서 timeline event type으로 쓸 type 값을 읽습니다."""
         item_type = input_item.get("type")
         return item_type if isinstance(item_type, str) else None
+
+    def _is_user_input_item(self, input_item: object) -> bool:
+        """Responses API input item이 사용자 메시지인지 확인합니다."""
+        if not isinstance(input_item, dict):
+            return False
+        return input_item.get("role") == "user"
 
     def _touch_session(self, db, session_id: str, now: datetime) -> None:
         session = db.scalar(select(SessionOrm).where(SessionOrm.id == session_id))

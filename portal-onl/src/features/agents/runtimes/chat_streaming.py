@@ -38,6 +38,7 @@ class ChatStreamingAgent(BaseAgent):
         input_items = self._build_initial_inputs(
             message=self._require_string(invoke_input, "message"),
             dataset_ids=invoke_input.get("dataset_ids", []),
+            input_items=invoke_input.get("input_items", []),
         )
 
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
