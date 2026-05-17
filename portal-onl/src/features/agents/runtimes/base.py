@@ -1,9 +1,11 @@
-import json
 import gc
+import json
+import logging
 from collections.abc import Mapping
 from typing import cast
 
 from features.agents.prompt_loader import load_prompt
+from features.agents.runtime_resources import collect_runtime_resource_payload
 from features.agents.state import (
     AgentInvokeOutput,
     AgentState,
@@ -27,6 +29,8 @@ from shared.integrations.ai.contracts import (
     ResponseInputText,
 )
 from features.tools import registry
+
+logger = logging.getLogger(__name__)
 
 
 class BaseAgent:
@@ -248,12 +252,49 @@ class BaseAgent:
         # 외부 LLM API 호출에 필요한 요청 파라미터를 구성합니다.
         return {
             "instructions": load_prompt("base.md"),
-            "input": input_items,
+            "input": self._inject_runtime_resource_input(input_items),
             "tools": registry.get_tool_definitions(),
             "tool_choice": "auto",
             "parallel_tool_calls": False,
             "reasoning": {"effort": "medium"},
         }
+
+    def _inject_runtime_resource_input(
+        self, input_items: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
+        """LLM API 호출 직전 최신 컴퓨팅 리소스 상태를 developer input으로 추가합니다."""
+        resource_input = self._build_runtime_resource_input()
+        logger.debug("Built runtime resource developer input=%s", resource_input)
+        insert_index = 0
+        for item in input_items:
+            if item.get("role") != "developer":
+                break
+            insert_index += 1
+        return [
+            *input_items[:insert_index],
+            resource_input,
+            *input_items[insert_index:],
+        ]
+
+    def _build_runtime_resource_input(self) -> dict[str, object]:
+        """현재 리소스 스냅샷을 모델 입력용 developer message로 변환합니다."""
+        payload = collect_runtime_resource_payload()
+        return InputItemList(
+            items=(
+                Message(
+                    role="developer",
+                    content=(
+                        ResponseInputText(
+                            text=(
+                                "현재 백엔드 컴퓨팅 리소스 상태입니다. "
+                                "데이터 로드, 전처리, 집계, 임시 파일 생성 방식을 결정할 때 참고하세요.\n"
+                                f"{json.dumps(payload, ensure_ascii=False)}"
+                            )
+                        ),
+                    ),
+                ),
+            )
+        ).to_payload()[0]
 
     def _read_string(self, value: object) -> str | None:
         if isinstance(value, str) and value.strip():
