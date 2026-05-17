@@ -1,16 +1,16 @@
 import pandas as pd
 
-from application.datasets.dto import (
+from features.datasets.application.dto import (
     DatasetColumnProfile,
     DatasetPreviewPayload,
     DatasetProfilePayload,
 )
-from application.datasets.inspection import (
+from features.datasets.application.inspection import (
     build_preview_from_dataframe,
     build_profile_from_dataframe,
 )
-from application.datasets.ports import DatasetMetadataReader, DatasetMetadataRecord
-from application.datasets.source_loading import load_dataset_dataframe
+from features.datasets.application.ports import DatasetMetadataReader, DatasetMetadataRecord
+from features.datasets.application.source_loading import load_dataset_dataframe
 from tools.dto import (
     DatasetInspectionPayload,
     DatasetToolPreviewPayload,

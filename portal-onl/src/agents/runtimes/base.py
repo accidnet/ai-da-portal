@@ -9,7 +9,7 @@ from agents.state import (
     AgentStateSnapshot,
     PlanStep,
 )
-from application.datasets.service import DatasetApplicationService
+from features.datasets.application.service import DatasetApplicationService
 from features.data_sources.domain.models import DataSourceItem
 from features.data_sources.infrastructure.repositories import DataSourceRepository
 from infrastructure.ai.client import AiClient, AiClientError

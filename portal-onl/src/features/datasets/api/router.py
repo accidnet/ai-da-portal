@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from api.deps import get_dataset_service, get_session_service
-from domain.datasets.schemas import (
+from domain.sessions.service import SessionService
+from features.datasets.api.schemas import (
     CreateDatasetFromSourcesRequest,
     DatasetDeleteResponse,
     DatasetInfo,
@@ -10,8 +11,7 @@ from domain.datasets.schemas import (
     DatasetSourcesResponse,
     DatasetSummary,
 )
-from application.datasets.service import DatasetApplicationService
-from domain.sessions.service import SessionService
+from features.datasets.application.service import DatasetApplicationService
 
 router = APIRouter()
 
@@ -20,6 +20,7 @@ router = APIRouter()
 def list_datasets(
     service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> list[DatasetSummary]:
+    """등록된 데이터셋 목록을 최신순으로 반환합니다."""
     return service.list_datasets()
 
 
@@ -32,6 +33,7 @@ async def upload_dataset(
     service: DatasetApplicationService = Depends(get_dataset_service),
     session_service: SessionService = Depends(get_session_service),
 ) -> DatasetInfo:
+    """파일 업로드로 데이터셋을 생성하고 세션에 연결합니다."""
     if session_id is None or not session_id.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -58,6 +60,7 @@ def create_dataset_from_sources(
     request: CreateDatasetFromSourcesRequest,
     service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetInfo:
+    """원천 데이터 선택 정보로 데이터셋을 생성합니다."""
     try:
         return service.create_from_sources(request)
     except ValueError as exc:
@@ -71,6 +74,7 @@ def create_dataset_from_sources(
 def get_dataset(
     dataset_id: str, service: DatasetApplicationService = Depends(get_dataset_service)
 ) -> DatasetInfo:
+    """데이터셋 ID로 기본 정보를 조회합니다."""
     try:
         return service.get(dataset_id)
     except KeyError as exc:
@@ -85,6 +89,7 @@ def get_dataset_profile(
     dataset_id: str,
     service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetProfileResponse:
+    """데이터셋 ID로 프로파일 정보를 조회합니다."""
     try:
         return service.get_profile(dataset_id)
     except KeyError as exc:
@@ -99,6 +104,7 @@ def get_dataset_preview(
     dataset_id: str,
     service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetPreviewResponse:
+    """데이터셋 ID로 미리보기 정보를 조회합니다."""
     try:
         return service.get_preview(dataset_id)
     except KeyError as exc:
@@ -118,6 +124,7 @@ def get_dataset_sources(
     dataset_id: str,
     service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetSourcesResponse:
+    """데이터셋 ID로 연결된 원천 파일 트리를 조회합니다."""
     try:
         return service.get_sources(dataset_id)
     except KeyError as exc:
@@ -132,6 +139,7 @@ def delete_dataset(
     dataset_id: str,
     service: DatasetApplicationService = Depends(get_dataset_service),
 ) -> DatasetDeleteResponse:
+    """데이터셋을 삭제합니다."""
     try:
         return service.delete(dataset_id)
     except KeyError as exc:

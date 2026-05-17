@@ -2,7 +2,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from application.datasets.dto import DatasetProfilePayload
+from features.datasets.application.dto import DatasetProfilePayload
 
 ToolData = TypeVar("ToolData")
 

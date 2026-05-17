@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from application.datasets.dto import DatasetProfilePayload
+from features.datasets.application.dto import DatasetProfilePayload
 
 
 ReasoningStatus = Literal[

@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from domain.datasets.schemas import (
+from features.datasets.api.schemas import (
     DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,

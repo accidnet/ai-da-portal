@@ -7,7 +7,7 @@ from agents.runtimes.base import BaseAgent
 from agents.state import AgentInvokeInput, AgentInvokeOutput, PlanStep
 from agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
-from application.datasets.service import DatasetApplicationService
+from features.datasets.application.service import DatasetApplicationService
 from domain.shared import ChartPayload
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 from shared.integrations.ai.contracts import (

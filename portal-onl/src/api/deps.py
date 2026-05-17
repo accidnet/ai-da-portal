@@ -6,7 +6,7 @@ from agents.runtimes import (
 )
 from core.config import Settings, get_settings
 from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
-from application.datasets.service import DatasetApplicationService
+from features.datasets.application.service import DatasetApplicationService
 from domain.messages.stream_service import MessageStreamService
 from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService

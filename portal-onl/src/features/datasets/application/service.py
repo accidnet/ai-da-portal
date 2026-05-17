@@ -5,22 +5,11 @@ from uuid import uuid4
 import pandas as pd
 from fastapi import UploadFile
 
-from application.datasets.dto import (
-    DatasetColumnProfile,
-    DatasetPreviewPayload,
-    DatasetProfilePayload,
-)
-from application.datasets.dataframe_loader import load_dataframe
-from application.datasets.inspection import (
-    build_preview_from_dataframe,
-    build_profile_from_dataframe,
-)
-from application.datasets.profiling import (
-    build_profile_snapshot_from_path,
-    infer_datetime_columns,
-)
 from core.paths import UPLOADED_DATASET_DIR
-from domain.datasets.schemas import (
+from domain.sessions.service import SessionService
+from features.data_sources.domain.models import DataSourceItem
+from features.data_sources.infrastructure.repositories import DataSourceRepository
+from features.datasets.api.schemas import (
     CreateDatasetFromSourcesRequest,
     DatasetDeleteResponse,
     DatasetInfo,
@@ -30,9 +19,20 @@ from domain.datasets.schemas import (
     DatasetSourceTreeNode,
     DatasetSummary,
 )
-from domain.sessions.service import SessionService
-from features.data_sources.domain.models import DataSourceItem
-from features.data_sources.infrastructure.repositories import DataSourceRepository
+from features.datasets.application.dataframe_loader import load_dataframe
+from features.datasets.application.dto import (
+    DatasetColumnProfile,
+    DatasetPreviewPayload,
+    DatasetProfilePayload,
+)
+from features.datasets.application.inspection import (
+    build_preview_from_dataframe,
+    build_profile_from_dataframe,
+)
+from features.datasets.application.profiling import (
+    build_profile_snapshot_from_path,
+    infer_datetime_columns,
+)
 from infrastructure.db.repositories import DatasetRecord, DatasetRepository
 
 
@@ -133,15 +133,18 @@ class DatasetApplicationService:
         return self._to_dataset_info(dataset)
 
     def list_datasets(self) -> list[DatasetSummary]:
+        """등록된 데이터셋 목록을 최신순 요약으로 반환합니다."""
         return [
             self._build_summary(dataset)
             for dataset in self._dataset_repository.list_datasets()
         ]
 
     def get(self, dataset_id: str) -> DatasetInfo:
+        """데이터셋 ID로 기본 정보를 조회합니다."""
         return self._to_dataset_info(self._dataset_repository.get_or_raise(dataset_id))
 
     def get_profile(self, dataset_id: str) -> DatasetProfileResponse:
+        """데이터셋 ID로 프로파일 스냅샷 또는 원천 파일 기반 프로파일을 반환합니다."""
         dataset = self._dataset_repository.get_or_raise(dataset_id)
         return DatasetProfileResponse(
             dataset_id=dataset_id,
@@ -149,6 +152,7 @@ class DatasetApplicationService:
         )
 
     def get_preview(self, dataset_id: str) -> DatasetPreviewResponse:
+        """데이터셋 ID로 미리보기 스냅샷 또는 원천 파일 기반 미리보기를 반환합니다."""
         dataset = self._dataset_repository.get_or_raise(dataset_id)
         preview = self._build_preview_from_dataset_sources(dataset)
         return DatasetPreviewResponse(
@@ -166,14 +170,17 @@ class DatasetApplicationService:
         )
 
     def get_dataframe(self, dataset_id: str) -> pd.DataFrame:
+        """데이터셋 원천 파일들을 하나의 DataFrame으로 로드합니다."""
         dataset = self._dataset_repository.get_or_raise(dataset_id)
         return self._load_dataframe_from_dataset(dataset)
 
     def get_latest_dataset_id(self) -> str | None:
+        """가장 최근 등록된 데이터셋 ID를 반환합니다."""
         dataset = self._dataset_repository.get_latest()
         return dataset.id if dataset is not None else None
 
     def get_uploaded_filenames(self, dataset_ids: list[str]) -> list[str]:
+        """지정한 데이터셋 ID들의 표시 파일명을 중복 없이 반환합니다."""
         filenames: list[str] = []
         for dataset_id in dataset_ids:
             dataset = self._dataset_repository.get(dataset_id)
@@ -185,6 +192,7 @@ class DatasetApplicationService:
         return filenames
 
     def load_uploaded_file_by_filename(self, filename: str) -> dict[str, object]:
+        """레거시 파일명 기반 도구 호출을 위해 최신 업로드 파일을 로드합니다."""
         normalized_filename = Path(filename).name
         dataset = self._dataset_repository.find_latest_by_filename(normalized_filename)
         if dataset is None:
@@ -216,6 +224,7 @@ class DatasetApplicationService:
         }
 
     def delete(self, dataset_id: str) -> DatasetDeleteResponse:
+        """세션에 연결되지 않은 데이터셋을 삭제합니다."""
         linked_sessions = self._linked_sessions(dataset_id)
         if linked_sessions:
             raise ValueError("Dataset is still linked to one or more sessions.")
@@ -223,6 +232,7 @@ class DatasetApplicationService:
         return DatasetDeleteResponse(id=dataset_id, deleted=True)
 
     def _build_summary(self, dataset: DatasetRecord) -> DatasetSummary:
+        """데이터셋 record와 세션 연결 정보를 목록 요약으로 변환합니다."""
         linked_sessions = self._linked_sessions(dataset.id)
         linked_session_ids = [session_id for session_id, _ in linked_sessions]
         latest_used_at = linked_sessions[0][1] if linked_sessions else None
@@ -237,6 +247,7 @@ class DatasetApplicationService:
         )
 
     def _linked_sessions(self, dataset_id: str) -> list[tuple[str, datetime]]:
+        """세션 서비스가 있으면 데이터셋 연결 세션 목록을 조회합니다."""
         if self._session_service is None:
             return []
         return self._session_service.list_linked_sessions(dataset_id)
@@ -280,6 +291,7 @@ class DatasetApplicationService:
         return infer_datetime_columns(dataframe)
 
     def _load_dataframe_from_dataset(self, dataset: DatasetRecord) -> pd.DataFrame:
+        """데이터셋 원천 파일 목록을 병합해 단일 DataFrame을 구성합니다."""
         dataframes = self._load_source_dataframes(dataset)
         if not dataframes:
             raise ValueError("Dataset has no readable source files.")
@@ -297,6 +309,7 @@ class DatasetApplicationService:
         return profile.row_count, profile.column_count
 
     def _to_dataset_info(self, dataset: DatasetRecord) -> DatasetInfo:
+        """저장소 record를 API 기본 정보 응답으로 변환합니다."""
         return DatasetInfo(
             id=dataset.id,
             filename=dataset.filename,

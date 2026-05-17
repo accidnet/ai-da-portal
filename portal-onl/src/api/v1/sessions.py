@@ -6,7 +6,7 @@ from api.deps import (
     get_session_service,
     get_session_title_service,
 )
-from application.datasets.service import DatasetApplicationService
+from features.datasets.application.service import DatasetApplicationService
 from domain.sessions.schemas import (
     SessionCreateRequest,
     SessionDatasetLinkRequest,

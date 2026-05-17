@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from application.datasets.dto import DatasetPreviewPayload, DatasetProfilePayload
-from application.datasets.inspection import (
+from features.datasets.application.dto import DatasetPreviewPayload, DatasetProfilePayload
+from features.datasets.application.inspection import (
     build_preview_from_dataframe,
     build_profile_from_dataframe,
 )

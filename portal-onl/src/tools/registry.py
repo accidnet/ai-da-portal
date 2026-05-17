@@ -6,7 +6,7 @@ from tools.charts import (
     build_correlation_scatter,
     build_trend_chart,
 )
-from tools.datasets import inspect_dataset_context, run_source_file_duckdb_sql
+from tools.datasets import run_source_file_duckdb_sql
 from tools.planning import update_plan
 
 

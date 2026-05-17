@@ -3,7 +3,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from application.datasets.source_loading import resolve_dataset_source_paths
+from features.datasets.application.source_loading import resolve_dataset_source_paths
 from core.utils import read_string
 from infrastructure.db.repositories import DatasetRepository
 

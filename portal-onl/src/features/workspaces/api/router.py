@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_dataset_service, get_workspace_usecase
-from application.datasets.service import DatasetApplicationService
+from features.datasets.application.service import DatasetApplicationService
 from features.workspaces.api.schemas import (
     WorkspaceCreateRequest,
     WorkspaceDatasetLinkRequest,

@@ -3,7 +3,7 @@ import re
 from typing import Protocol
 from uuid import uuid4
 
-from domain.datasets.schemas import (
+from features.datasets.api.schemas import (
     DatasetInfo,
     DatasetPreviewResponse,
     DatasetProfileResponse,

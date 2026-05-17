@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from application.datasets.dataframe_loader import load_dataframe
-from application.datasets.ports import DatasetMetadataRecord
+from features.datasets.application.dataframe_loader import load_dataframe
+from features.datasets.application.ports import DatasetMetadataRecord
 from core.paths import UPLOADED_DATASET_DIR
 from features.data_sources.infrastructure.repositories import DataSourceRepository
 

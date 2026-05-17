@@ -2,7 +2,7 @@ from functools import lru_cache
 
 import pandas as pd
 
-from application.datasets.source_loading import load_dataset_dataframe as load_record_dataframe
+from features.datasets.application.source_loading import load_dataset_dataframe as load_record_dataframe
 from infrastructure.db.repositories import DatasetRepository
 
 

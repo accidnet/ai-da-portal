@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from application.datasets.inspection import build_profile_from_dataframe
+from features.datasets.application.inspection import build_profile_from_dataframe
 from core.utils import read_string
 from domain.shared import (
     AnalyticsPayload,
