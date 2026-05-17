@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 
 import pandas as pd
@@ -57,17 +58,19 @@ def _coerce_preview_value(value: object) -> str | int | float | None:
     """미리보기 셀 값을 JSON 직렬화 가능한 값으로 변환합니다."""
     if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if isinstance(value, (str, int, float)):
         return value
     if hasattr(value, "isoformat"):
         return value.isoformat()
     if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray, str)):
         return ", ".join(str(item) for item in value)
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
     return str(value)
 
 
