@@ -1,4 +1,5 @@
 import json
+import gc
 from collections.abc import Mapping
 from typing import cast
 
@@ -67,6 +68,11 @@ class BaseAgent:
     def snapshot_state(self, state: AgentState) -> AgentStateSnapshot:
         """이전 state 기반 호출부를 출력 스냅샷 정규화로 위임합니다."""
         return self.snapshot_output(cast(AgentInvokeOutput, state))
+
+    def cleanup_runtime_resources(self) -> None:
+        """단일 agent 스트리밍 호출이 끝난 뒤 요청 단위 메모리를 정리합니다."""
+        registry.cleanup_runtime_memory()
+        gc.collect()
 
     def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
         """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 활용합니다."""

@@ -19,6 +19,11 @@ def load_dataset_dataframe(dataset_id: str) -> pd.DataFrame:
     return _infer_datetime_columns(load_record_dataframe(dataset))
 
 
+def clear_runtime_memory() -> None:
+    """분석 tool 실행 중 재사용한 경량 캐시를 정리합니다."""
+    get_dataset_repository.cache_clear()
+
+
 def _infer_datetime_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
     """object 컬럼 중 날짜로 해석 가능한 컬럼을 datetime 타입으로 변환합니다."""
     inferred = dataframe.copy()

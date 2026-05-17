@@ -1,12 +1,13 @@
 import json
 from typing import Protocol
 
+from features.tools.analysis import dataframe_context
 from features.tools.analysis import anomaly_detection, correlation
 from features.tools.charts import (
     build_correlation_scatter,
     build_trend_chart,
 )
-from features.tools.datasets import run_source_file_duckdb_sql
+from features.tools.datasets import inspect_dataset_context, run_source_file_duckdb_sql
 from features.tools.planning import update_plan
 
 
@@ -56,6 +57,12 @@ def execute_tool(
         return {"ok": False, "error": f"Invalid tool arguments for: {name}"}
 
     return tool.execute(parsed_arguments)
+
+
+def cleanup_runtime_memory() -> None:
+    """agent 실행 후 tool 모듈의 요청 단위 캐시를 정리합니다."""
+    dataframe_context.clear_runtime_memory()
+    inspect_dataset_context.clear_runtime_memory()
 
 
 def _parse_tool_arguments(

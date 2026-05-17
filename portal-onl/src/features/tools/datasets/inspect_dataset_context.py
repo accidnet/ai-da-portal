@@ -82,6 +82,11 @@ def _get_usecase() -> InspectDatasetContextUseCase:
     return InspectDatasetContextUseCase(dataset_reader=DatasetRepository())
 
 
+def clear_runtime_memory() -> None:
+    """데이터셋 context tool의 usecase 캐시를 정리합니다."""
+    _get_usecase.cache_clear()
+
+
 def _read_dataset_ids(value: object) -> list[str]:
     """문자열 또는 문자열 배열 형태의 dataset_id argument를 정규화합니다."""
     if isinstance(value, list):

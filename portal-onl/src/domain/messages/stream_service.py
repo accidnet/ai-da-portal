@@ -198,6 +198,13 @@ class MessageStreamService:
                     data={"type": "error", "detail": str(exc)},
                 )
             )
+        finally:
+            # 스트리밍 정상 종료, 오류, 클라이언트 연결 종료 모두 요청 단위 메모리를 정리합니다.
+            agent_runtime.cleanup_runtime_resources()
+            logger.debug(
+                "Cleaned agent runtime resources session_id=%s",
+                session_id,
+            )
 
     def _record_chat_snapshot(
         self,
