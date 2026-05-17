@@ -1,9 +1,13 @@
+import math
 from typing import Any
 
-import pandas as pd
-
 from core.utils import read_string
-from features.tools.analysis.dataframe_context import load_dataset_dataframe
+from features.tools.duckdb_sql import (
+    execute_dataset_sql,
+    list_numeric_columns,
+    load_source_path,
+    quote_identifier,
+)
 from features.tools.dto import ToolExecutionResult
 
 
@@ -13,83 +17,102 @@ def tool_definition() -> dict[str, object]:
         "type": "function",
         "name": "correlation",
         "description": (
-            "선택한 데이터셋의 숫자형 컬럼 간 상관계수 행렬을 계산합니다. "
-            "상관관계 수치가 필요한 질문에 사용합니다."
+            "source_id로 지정한 원천 데이터 파일을 DuckDB로 직접 scan하여 숫자형 컬럼 간 "
+            "상관계수 행렬을 계산합니다. 전체 파일을 pandas DataFrame으로 적재하지 않습니다."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "dataset_id": {
+                "source_id": {
                     "type": "string",
-                    "description": "상관관계를 계산할 데이터셋 ID입니다.",
+                    "description": "상관관계를 계산할 원천 데이터 파일 source_id입니다.",
                 },
                 "columns": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "선택적으로 상관관계 계산에 포함할 컬럼 목록입니다.",
+                    "description": "선택적으로 상관관계 계산에 포함할 숫자형 컬럼 목록입니다.",
                 },
             },
-            "required": ["dataset_id"],
+            "required": ["source_id"],
             "additionalProperties": False,
         },
     }
 
 
 def execute(arguments: dict[str, object]) -> dict[str, object]:
-    """LLM function_call arguments만 받아 상관관계 행렬을 계산합니다."""
-    dataset_id = read_string(arguments.get("dataset_id"))
-    if dataset_id is None:
-        return _error_result("dataset_id is required.")
+    """LLM function_call arguments만 받아 DuckDB 상관관계 행렬을 계산합니다."""
+    source_id = read_string(arguments.get("source_id"))
+    if source_id is None:
+        return _error_result("source_id is required.")
 
     selected_columns = _read_columns(arguments.get("columns"))
     if isinstance(selected_columns, str):
         return _error_result(selected_columns)
 
     try:
-        dataframe = load_dataset_dataframe(dataset_id)
-        matrix = compute_correlation_matrix(dataframe, columns=selected_columns)
+        source_path = load_source_path(source_id)
+        columns = _resolve_columns(source_path, selected_columns)
+        matrix = compute_correlation_matrix(source_path, columns=columns)
     except KeyError:
-        return _error_result("Dataset not found.")
+        return _error_result("Source not found.")
     except ValueError as exc:
         return _error_result(str(exc))
 
     data = {
-        "dataset_id": dataset_id,
-        "columns": list(matrix.keys()),
+        "source_id": source_id,
+        "columns": columns,
         "correlation_matrix": matrix,
     }
     return _success_result(data)
 
 
 def compute_correlation_matrix(
-    dataframe: pd.DataFrame,
+    source_path,
     *,
-    columns: list[str] | None = None,
+    columns: list[str],
 ) -> dict[str, dict[str, float]]:
-    """DataFrame의 숫자형 컬럼 상관계수 행렬을 계산합니다."""
-    target = _select_columns(dataframe, columns)
-    numeric_dataframe = target.select_dtypes(include=["number"])
-    if numeric_dataframe.empty:
-        raise ValueError("No numeric columns are available for correlation.")
-    if len(numeric_dataframe.columns) < 2:
+    """DuckDB aggregate corr 함수로 전체 DataFrame 적재 없이 상관계수 행렬을 계산합니다."""
+    select_parts: list[str] = []
+    aliases: dict[str, tuple[str, str]] = {}
+    for left_index, left in enumerate(columns):
+        for right_index, right in enumerate(columns):
+            alias = f"corr_{left_index}_{right_index}"
+            aliases[alias] = (left, right)
+            select_parts.append(
+                "corr("
+                f"try_cast({quote_identifier(left)} AS DOUBLE), "
+                f"try_cast({quote_identifier(right)} AS DOUBLE)"
+                f") AS {quote_identifier(alias)}"
+            )
+
+    result = execute_dataset_sql(
+        source_path,
+        f"SELECT {', '.join(select_parts)} FROM dataset",
+    )
+    if result.empty:
+        raise ValueError("Correlation query returned no rows.")
+
+    row = result.iloc[0].to_dict()
+    matrix = {column: {} for column in columns}
+    for alias, (left, right) in aliases.items():
+        matrix[left][right] = _to_json_float(row.get(alias))
+    return matrix
+
+
+def _resolve_columns(source_path, selected_columns: list[str] | None) -> list[str]:
+    """요청 컬럼이 있으면 검증하고, 없으면 DuckDB numeric 컬럼을 사용합니다."""
+    numeric_columns = list_numeric_columns(source_path)
+    if selected_columns:
+        missing = [column for column in selected_columns if column not in numeric_columns]
+        if missing:
+            raise ValueError(f"Unknown or non-numeric columns: {', '.join(missing)}")
+        columns = selected_columns
+    else:
+        columns = numeric_columns
+
+    if len(columns) < 2:
         raise ValueError("At least two numeric columns are required for correlation.")
-
-    # NaN은 LLM이 JSON으로 안정적으로 읽을 수 있도록 0.0으로 치환합니다.
-    return _to_float_matrix(numeric_dataframe.corr(numeric_only=True).fillna(0.0))
-
-
-def _select_columns(
-    dataframe: pd.DataFrame,
-    columns: list[str] | None,
-) -> pd.DataFrame:
-    """요청된 컬럼이 있으면 해당 컬럼만 선택합니다."""
-    if not columns:
-        return dataframe
-
-    missing = [column for column in columns if column not in dataframe.columns]
-    if missing:
-        raise ValueError(f"Unknown columns: {', '.join(missing)}")
-    return dataframe[columns]
+    return columns
 
 
 def _read_columns(value: object) -> list[str] | str | None:
@@ -109,14 +132,12 @@ def _read_columns(value: object) -> list[str] | str | None:
     return columns
 
 
-def _to_float_matrix(dataframe: pd.DataFrame) -> dict[str, dict[str, float]]:
-    """pandas corr 결과를 JSON 직렬화에 적합한 float dict로 변환합니다."""
-    matrix: dict[str, dict[str, float]] = {}
-    for row_name, row in dataframe.to_dict().items():
-        matrix[str(row_name)] = {
-            str(column): float(value) for column, value in row.items()
-        }
-    return matrix
+def _to_json_float(value: object) -> float:
+    """DuckDB numeric 결과를 JSON 안전 float으로 변환합니다."""
+    if value is None:
+        return 0.0
+    number = float(value)
+    return number if math.isfinite(number) else 0.0
 
 
 def _success_result(data: dict[str, Any]) -> dict[str, object]:

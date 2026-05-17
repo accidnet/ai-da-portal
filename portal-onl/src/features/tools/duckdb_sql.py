@@ -73,6 +73,39 @@ def execute_select_sql(dataset_path: Path, sql: str, limit: int) -> pd.DataFrame
     return result
 
 
+def execute_dataset_sql(dataset_path: Path, sql: str) -> pd.DataFrame:
+    """dataset view를 대상으로 한 읽기 SQL을 실행하고 결과 DataFrame만 반환합니다."""
+    normalized_sql = _normalize_readonly_sql(sql)
+    connection = duckdb.connect(database=":memory:")
+    try:
+        _create_dataset_view(connection, dataset_path)
+        return connection.execute(normalized_sql).fetchdf()
+    except duckdb.Error as exc:
+        raise ValueError(f"Failed to execute SQL: {exc}") from exc
+    finally:
+        connection.close()
+
+
+def list_numeric_columns(dataset_path: Path) -> list[str]:
+    """DuckDB가 추론한 dataset view schema에서 숫자형 컬럼명을 조회합니다."""
+    schema = execute_dataset_sql(dataset_path, "DESCRIBE dataset")
+    columns: list[str] = []
+    for row in schema.to_dict("records"):
+        column_name = row.get("column_name")
+        column_type = row.get("column_type")
+        if isinstance(column_name, str) and _is_numeric_duckdb_type(column_type):
+            columns.append(column_name)
+    return columns
+
+
+def quote_identifier(identifier: str) -> str:
+    """DuckDB SQL identifier를 안전하게 quote합니다."""
+    if not identifier:
+        raise ValueError("Identifier must not be empty.")
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
+
+
 def _create_dataset_view(connection: duckdb.DuckDBPyConnection, dataset_path: Path) -> None:
     """저장 파일 확장자에 맞는 DuckDB scan 함수로 dataset view를 생성합니다."""
     suffix = dataset_path.suffix.lower()
@@ -98,6 +131,43 @@ def _create_dataset_view(connection: duckdb.DuckDBPyConnection, dataset_path: Pa
         )
         return
     raise ValueError(f"Unsupported dataset format for DuckDB SQL: {suffix}")
+
+
+def _normalize_readonly_sql(sql: str) -> str:
+    """단일 SELECT/WITH/DESCRIBE 읽기 SQL만 허용하도록 정규화합니다."""
+    normalized_sql = sql.strip().rstrip(";").strip()
+    if ";" in normalized_sql:
+        raise ValueError("sql must contain a single read-only statement.")
+    first_token = normalized_sql.split(maxsplit=1)[0].lower() if normalized_sql else ""
+    if first_token not in {"select", "with", "describe"}:
+        raise ValueError("sql must be a read-only SELECT/WITH/DESCRIBE query.")
+    return normalized_sql
+
+
+def _is_numeric_duckdb_type(column_type: object) -> bool:
+    """DuckDB type 문자열이 분석 가능한 숫자 타입인지 확인합니다."""
+    if not isinstance(column_type, str):
+        return False
+    normalized_type = column_type.upper()
+    return any(
+        numeric_type in normalized_type
+        for numeric_type in (
+            "TINYINT",
+            "SMALLINT",
+            "INTEGER",
+            "BIGINT",
+            "HUGEINT",
+            "UTINYINT",
+            "USMALLINT",
+            "UINTEGER",
+            "UBIGINT",
+            "FLOAT",
+            "DOUBLE",
+            "REAL",
+            "DECIMAL",
+            "NUMERIC",
+        )
+    )
 
 
 def _duckdb_string_literal(value: str) -> str:
