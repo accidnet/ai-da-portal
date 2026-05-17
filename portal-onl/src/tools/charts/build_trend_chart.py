@@ -5,7 +5,7 @@ from domain.shared import ChartMeta, ChartPayload, ChartSeries
 from shared.integrations.ai.contracts import Function
 from tools.charts.common import tool_error, tool_success
 
-from .sql_query import (
+from tools.duckdb_sql import (
     execute_select_sql,
     load_dataset_path,
     read_limit,

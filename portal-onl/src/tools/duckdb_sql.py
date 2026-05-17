@@ -32,7 +32,7 @@ def read_required_string(arguments: dict[str, object], key: str) -> str:
 
 
 def read_limit(value: object) -> int:
-    """차트 데이터 행 제한값을 안전한 범위로 보정합니다."""
+    """DuckDB SQL 결과 행 제한값을 안전한 범위로 보정합니다."""
     if value is None:
         return 500
     if not isinstance(value, int):
@@ -43,7 +43,7 @@ def read_limit(value: object) -> int:
 
 
 def execute_select_sql(dataset_path: Path, sql: str, limit: int) -> pd.DataFrame:
-    """DuckDB가 업로드 파일을 직접 읽는 dataset view를 만들고 SELECT SQL을 실행합니다."""
+    """DuckDB가 데이터 파일을 직접 읽는 dataset view를 만들고 SELECT SQL을 실행합니다."""
     normalized_sql = sql.strip().rstrip(";").strip()
     if ";" in normalized_sql:
         raise ValueError("sql must contain a single SELECT statement.")
@@ -53,7 +53,7 @@ def execute_select_sql(dataset_path: Path, sql: str, limit: int) -> pd.DataFrame
     connection = duckdb.connect(database=":memory:")
     try:
         _create_dataset_view(connection, dataset_path)
-        limited_sql = f"SELECT * FROM ({normalized_sql}) AS chart_result LIMIT {limit}"
+        limited_sql = f"SELECT * FROM ({normalized_sql}) AS duckdb_result LIMIT {limit}"
         result = connection.execute(limited_sql).fetchdf()
     except duckdb.Error as exc:
         raise ValueError(f"Failed to execute SQL: {exc}") from exc

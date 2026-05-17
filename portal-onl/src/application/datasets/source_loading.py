@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from application.datasets.dataframe_loader import load_dataframe
 from application.datasets.ports import DatasetMetadataRecord
 from core.paths import UPLOADED_DATASET_DIR
 from features.data_sources.infrastructure.repositories import DataSourceRepository
-from tools.datasets.dataframe_loader import load_dataframe
 
 
 def resolve_dataset_source_paths(

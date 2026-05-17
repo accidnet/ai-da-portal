@@ -10,6 +10,7 @@ from application.datasets.dto import (
     DatasetPreviewPayload,
     DatasetProfilePayload,
 )
+from application.datasets.dataframe_loader import load_dataframe
 from application.datasets.inspection import (
     build_preview_from_dataframe,
     build_profile_from_dataframe,
@@ -33,7 +34,6 @@ from domain.sessions.service import SessionService
 from features.data_sources.domain.models import DataSourceItem
 from features.data_sources.infrastructure.repositories import DataSourceRepository
 from infrastructure.db.repositories import DatasetRecord, DatasetRepository
-from tools.datasets.dataframe_loader import load_dataframe
 
 
 class DatasetApplicationService:

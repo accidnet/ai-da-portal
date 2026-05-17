@@ -6,7 +6,7 @@ from tools.charts import (
     build_correlation_scatter,
     build_trend_chart,
 )
-from tools.datasets import inspect_dataset_context
+from tools.datasets import inspect_dataset_context, run_source_file_duckdb_sql
 from tools.planning import update_plan
 
 
@@ -25,6 +25,7 @@ class ToolModule(Protocol):
 _TOOL_MODULES: tuple[ToolModule, ...] = (
     update_plan,
     inspect_dataset_context,
+    run_source_file_duckdb_sql,
     correlation,
     anomaly_detection,
     build_trend_chart,
