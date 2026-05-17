@@ -15,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   uploadDataset: [];
-  attachDataset: [datasetId: string];
+  attachDataset: [datasetId: string, workspaceId?: string];
   selectDataset: [datasetId: string];
   detachDataset: [datasetId: string];
 }>();
@@ -51,7 +51,7 @@ function closeDatasetLinkDialog() {
 
 /** 선택한 데이터셋을 현재 세션과 연결하고 다이얼로그를 닫습니다. */
 function attachDataset(datasetId: string) {
-  emit("attachDataset", datasetId);
+  emit("attachDataset", datasetId, props.activeWorkspaceId ?? undefined);
   isDatasetLinkDialogOpen.value = false;
 }
 

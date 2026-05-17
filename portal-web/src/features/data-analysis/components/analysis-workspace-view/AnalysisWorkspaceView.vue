@@ -44,7 +44,7 @@ const emit = defineEmits<{
   shareReport: []
   closeAnalyticsPanel: []
   uploadDataset: []
-  attachDataset: [datasetId: string]
+  attachDataset: [datasetId: string, workspaceId?: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
 }>()
@@ -89,7 +89,7 @@ const emit = defineEmits<{
       @share-report="emit('shareReport')"
       @close-analytics-panel="emit('closeAnalyticsPanel')"
       @upload-dataset="emit('uploadDataset')"
-      @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
+      @attach-dataset="(datasetId, workspaceId) => emit('attachDataset', datasetId, workspaceId)"
       @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
     />

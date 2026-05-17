@@ -17,20 +17,20 @@ const emit = defineEmits<{
 const draft = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
-const canSend = computed(
-  () => draft.value.trim().length > 0 && !props.sendDisabled,
-)
+const canSend = computed(() => draft.value.trim().length > 0 && !props.sendDisabled)
 
-function shouldRenderMessage(message: ConversationData['messages'][number]): boolean {
-  return Boolean(
-    message.text.trim()
-    || message.planExplanation?.trim()
-    || message.plan?.length
-    || message.attachmentStatus
-    || message.attachmentPreview
-    || message.codeBlock
-    || message.bullets?.length,
-  )
+const thinkingMessageIndex = computed(() => {
+  if (!props.conversation.isThinking) return -1
+  for (let index = props.conversation.messages.length - 1; index >= 0; index -= 1) {
+    if (props.conversation.messages[index].role === 'assistant') {
+      return index
+    }
+  }
+  return -1
+})
+
+function shouldRenderThinking(index: number): boolean {
+  return thinkingMessageIndex.value === index
 }
 
 function escapeHtml(value: string): string {
@@ -165,16 +165,8 @@ onMounted(() => {
     class="conversation-shell"
   >
     <div class="conversation-scroll">
-      <div v-if="conversation.isThinking" class="thinking-row thinking-row--top" aria-live="polite">
-        <span></span>
-        <span></span>
-        <span></span>
-        <strong>{{ conversation.thinkingLabel }}</strong>
-      </div>
-
       <article
         v-for="(message, index) in conversation.messages"
-        v-show="shouldRenderMessage(message)"
         :key="`${message.role}-${index}`"
         class="message-row"
         :class="`message-row--${message.role}`"
@@ -186,6 +178,13 @@ onMounted(() => {
           </div>
 
           <div v-if="message.text.trim()" class="message-text" v-html="renderMarkdown(message.text)"></div>
+
+          <div v-if="shouldRenderThinking(index)" class="thinking-row thinking-row--inline" aria-live="polite">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>{{ conversation.thinkingLabel }}</strong>
+          </div>
 
           <div v-if="message.planExplanation || message.plan?.length" class="message-plan-card">
             <strong v-if="message.planExplanation" class="message-plan-card__title">{{ message.planExplanation }}</strong>
@@ -647,18 +646,13 @@ onMounted(() => {
   text-transform: uppercase;
 }
 
-.thinking-row--top {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  width: max-content;
-  max-width: 100%;
-  min-height: 32px;
-  padding: 10px 12px;
-  border: 1px solid rgba(24, 74, 140, 0.12);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 10px 20px rgba(20, 31, 48, 0.08);
+.thinking-row--inline {
+  min-height: 28px;
+  margin-top: 10px;
+}
+
+.message-text + .thinking-row--inline {
+  margin-top: 14px;
 }
 
 .thinking-row span {

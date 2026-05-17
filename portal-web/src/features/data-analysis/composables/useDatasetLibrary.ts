@@ -254,6 +254,7 @@ export function useDatasetLibrary(options: {
           .map((id) => byId.get(id))
           .filter((dataset): dataset is NonNullable<typeof dataset> => Boolean(dataset))
         syncSessionSummaryWithState(sessionId)
+        await hydrateWorkspaceDatasets(workspaceId, sessionId)
       }
       await loadDatasets()
       datasetLibraryError.value = null

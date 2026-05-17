@@ -37,7 +37,7 @@ const emit = defineEmits<{
   shareReport: []
   closeAnalyticsPanel: []
   uploadDataset: []
-  attachDataset: [datasetId: string]
+  attachDataset: [datasetId: string, workspaceId?: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
 }>()
@@ -131,7 +131,7 @@ watch(activeMode, (mode) => {
       :datasets-library="datasetsLibrary"
       :is-dataset-mutating="isDatasetMutating"
       @upload-dataset="emit('uploadDataset')"
-      @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
+      @attach-dataset="(datasetId, workspaceId) => emit('attachDataset', datasetId, workspaceId)"
       @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
     />
