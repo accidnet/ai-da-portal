@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -8,7 +7,11 @@ from core.utils import read_string
 from features.data_sources.domain.models import DataSourceItem
 from features.data_sources.infrastructure.repositories import DataSourceRepository
 from shared.integrations.ai.contracts import Function
-from features.tools.duckdb_sql import execute_select_sql, read_limit
+from features.tools.duckdb_sql import (
+    execute_select_sql,
+    read_limit,
+    resolve_source_file_path,
+)
 from features.tools.dto import ToolExecutionError, ToolExecutionResult
 
 
@@ -132,12 +135,8 @@ def _execute_query(
     limit: int,
 ) -> dict[str, object]:
     """단일 source 파일에 DuckDB SQL을 실행하고 JSON 응답 payload를 생성합니다."""
-    if source_item.item_type != "file":
-        raise ValueError("Source must be a file.")
-    if source_item.storage_path is None:
-        raise ValueError("Source storage path is missing.")
-
-    dataframe = execute_select_sql(Path(source_item.storage_path), sql, limit)
+    source_path = resolve_source_file_path(source_item)
+    dataframe = execute_select_sql(source_path, sql, limit)
     return {
         "source_id": source_item.id,
         "source_name": source_item.name,

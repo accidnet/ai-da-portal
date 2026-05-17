@@ -260,6 +260,7 @@ export interface ChatSubMessageStreamEvent {
 
 export interface AgentChartStreamPayload {
   dataset_id?: string | null
+  source_id?: string | null
   chart: AnalyticsPayloadResponse['charts'][number]
 }
 
@@ -286,6 +287,7 @@ interface ChatStreamEvent {
   detail?: string
   state?: AgentStateStreamPayload
   dataset_id?: string | null
+  source_id?: string | null
   chart?: AnalyticsPayloadResponse['charts'][number]
   ok?: boolean
   data?: AgentPlanStreamPayload['data']
@@ -695,6 +697,7 @@ export async function streamChatMessage(
     if (eventType === 'agent.iteration.chart' && event.chart) {
       options.onChart?.({
         dataset_id: event.dataset_id,
+        source_id: event.source_id,
         chart: event.chart,
       })
       return

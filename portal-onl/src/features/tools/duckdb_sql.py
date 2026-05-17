@@ -3,24 +3,32 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from features.datasets.application.source_loading import resolve_dataset_source_paths
 from core.utils import read_string
-from infrastructure.db.repositories import DatasetRepository
+from features.data_sources.domain.models import DataSourceItem
+from features.data_sources.infrastructure.repositories import DataSourceRepository
 
 
-def load_dataset_path(dataset_id: str) -> Path:
-    """dataset_id로 저장 파일 경로만 조회합니다."""
-    dataset = DatasetRepository().get_or_raise(dataset_id)
-    storage_path = read_string(dataset.storage_path)
-    if storage_path is not None:
-        return Path(storage_path)
+def load_source_path(source_id: str) -> Path:
+    """source_id로 원천 데이터 파일의 실제 저장 경로를 조회합니다."""
+    source_item = get_source_item_or_raise(source_id)
+    return resolve_source_file_path(source_item)
 
-    source_paths = resolve_dataset_source_paths(dataset)
-    if not source_paths:
-        raise ValueError("Dataset storage path is missing.")
-    if len(source_paths) > 1:
-        raise ValueError("SQL charts currently support a single source file dataset.")
-    return source_paths[0][1]
+
+def get_source_item_or_raise(source_id: str) -> DataSourceItem:
+    """source_id에 해당하는 원천 데이터 노드를 조회하고 없으면 KeyError를 발생시킵니다."""
+    items = DataSourceRepository().list_items_by_ids([source_id])
+    if not items:
+        raise KeyError(source_id)
+    return items[0]
+
+
+def resolve_source_file_path(source_item: DataSourceItem) -> Path:
+    """원천 데이터 노드가 실제 파일인지 검증하고 저장 경로를 반환합니다."""
+    if source_item.item_type != "file":
+        raise ValueError("Source must be a file.")
+    if source_item.storage_path is None:
+        raise ValueError("Source storage path is missing.")
+    return Path(source_item.storage_path)
 
 
 def read_required_string(arguments: dict[str, object], key: str) -> str:

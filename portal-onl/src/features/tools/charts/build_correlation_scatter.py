@@ -7,7 +7,7 @@ from features.tools.charts.common import tool_error, tool_success
 
 from features.tools.duckdb_sql import (
     execute_select_sql,
-    load_dataset_path,
+    load_source_path,
     read_limit,
     read_required_string,
 )
@@ -25,9 +25,9 @@ def tool_definition() -> dict[str, object]:
         parameters={
             "type": "object",
             "properties": {
-                "dataset_id": {
+                "source_id": {
                     "type": "string",
-                    "description": "대상 데이터셋 ID입니다.",
+                    "description": "대상 원천 데이터 파일 ID입니다.",
                 },
                 "sql": {
                     "type": "string",
@@ -73,7 +73,7 @@ def tool_definition() -> dict[str, object]:
                 },
             },
             "required": [
-                "dataset_id",
+                "source_id",
                 "sql",
                 "chart_type",
                 "x_axis",
@@ -92,7 +92,7 @@ def tool_definition() -> dict[str, object]:
 def execute(arguments: dict[str, object]) -> dict[str, object]:
     """LLM function_call arguments만 받아 correlation scatter chart를 생성합니다."""
     try:
-        dataset_id = read_required_string(arguments, "dataset_id")
+        source_id = read_required_string(arguments, "source_id")
         sql = read_required_string(arguments, "sql")
         x_axis = read_required_string(arguments, "x_axis")
         y_axis = read_required_string(arguments, "y_axis")
@@ -100,8 +100,8 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
         chart_type = read_string(arguments.get("chart_type")) or "scatter"
         label_column = read_string(arguments.get("label_column"))
         limit = read_limit(arguments.get("limit"))
-        dataset_path = load_dataset_path(dataset_id)
-        result = execute_select_sql(dataset_path, sql, limit)
+        source_path = load_source_path(source_id)
+        result = execute_select_sql(source_path, sql, limit)
         chart = _build_sql_correlation_scatter(
             result,
             x_axis=x_axis,
@@ -111,11 +111,11 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
             chart_type=chart_type,
         )
     except KeyError:
-        return tool_error("Dataset not found.")
+        return tool_error("Source not found.")
     except ValueError as exc:
         return tool_error(str(exc))
     return tool_success(
-        {"dataset_id": dataset_id, "chart": chart.model_dump(mode="json")}
+        {"source_id": source_id, "chart": chart.model_dump(mode="json")}
     )
 
 

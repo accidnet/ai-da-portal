@@ -392,6 +392,7 @@ class ChatStreamingAgent(BaseAgent):
                 event_type="agent.iteration.chart",
                 data={
                     "dataset_id": data.get("dataset_id"),
+                    "source_id": data.get("source_id"),
                     "chart": chart,
                 },
             )
