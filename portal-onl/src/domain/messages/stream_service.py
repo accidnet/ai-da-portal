@@ -6,8 +6,8 @@ from typing import Protocol, cast
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from agents.runtimes import ChatStreamingAgent
-from agents.state import AgentInvokeOutput
+from features.agents.runtimes import ChatStreamingAgent
+from features.agents.state import AgentInvokeOutput
 from core.sse import SseEvent
 from domain.messages.schemas import (
     MessageStreamRequest,

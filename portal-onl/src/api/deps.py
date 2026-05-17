@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from agents.runtimes import (
+from features.agents.runtimes import (
     ChatStreamingAgent,
     build_chat_streaming_agent,
 )

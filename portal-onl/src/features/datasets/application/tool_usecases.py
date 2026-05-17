@@ -11,7 +11,7 @@ from features.datasets.application.inspection import (
 )
 from features.datasets.application.ports import DatasetMetadataReader, DatasetMetadataRecord
 from features.datasets.application.source_loading import load_dataset_dataframe
-from tools.dto import (
+from features.tools.dto import (
     DatasetInspectionPayload,
     DatasetToolPreviewPayload,
     DatasetToolProfilePayload,

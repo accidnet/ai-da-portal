@@ -5,7 +5,7 @@ from api.deps import (
     get_chat_streaming_agent_runtime,
     get_message_stream_service,
 )
-from agents.runtimes import ChatStreamingAgent
+from features.agents.runtimes import ChatStreamingAgent
 from domain.messages.schemas import MessageStreamRequest
 from domain.messages.stream_service import MessageStreamService
 
