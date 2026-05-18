@@ -192,6 +192,12 @@ watch(activeMode, (mode) => {
   gap: 16px;
 }
 
+.analysis-right-pane :deep(.connected-data-pane),
+.analysis-right-pane :deep(.analytics-shell) {
+  min-height: 0;
+  height: 100%;
+}
+
 .pane-switch {
   display: flex;
   height: 40px;
@@ -241,6 +247,8 @@ watch(activeMode, (mode) => {
     bottom: 16px;
     z-index: 12;
     width: min(420px, calc(100vw - 32px));
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 12px;
     padding: 14px;
     border-radius: 24px;
     background: rgba(245, 247, 251, 0.96);

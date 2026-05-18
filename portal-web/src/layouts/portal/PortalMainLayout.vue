@@ -235,6 +235,11 @@ defineExpose({
   overflow: hidden;
 }
 
+.analysis-screen-shell > :deep(*) {
+  min-height: 0;
+  height: 100%;
+}
+
 .auth-error,
 .export-message {
   margin: 0 4px;

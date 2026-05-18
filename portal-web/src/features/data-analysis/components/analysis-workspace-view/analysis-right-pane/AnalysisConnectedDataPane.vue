@@ -339,6 +339,7 @@ function fileRows(
 <style scoped>
 .connected-data-pane {
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
@@ -419,15 +420,19 @@ function fileRows(
 
 .dataset-card-list {
   min-height: 0;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
   gap: 16px;
   margin-top: 24px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .dataset-card {
+  flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
