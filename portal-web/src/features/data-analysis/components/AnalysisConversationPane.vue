@@ -1,169 +1,200 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 
-import type { ComposerData, ConversationData } from '../types'
+import type { ComposerData, ConversationData } from "../types";
 
 const props = defineProps<{
-  conversation: ConversationData
-  composer: ComposerData
-  sendDisabled?: boolean
-  errorMessage?: string | null
-}>()
+  conversation: ConversationData;
+  composer: ComposerData;
+  sendDisabled?: boolean;
+  errorMessage?: string | null;
+}>();
 
 const emit = defineEmits<{
-  send: [message: string]
-}>()
+  send: [message: string];
+}>();
 
-const draft = ref('')
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
+// 입력창 위에 노출할 기본 추천 질문 목록입니다.
+const recommendedQuestions = [
+  "연결된 데이터 중 유의미한 연구 주제를 제안해줘",
+  "모든 데이터에 대해 핵심을 간략히 분석해줘",
+] as const;
 
-const canSend = computed(() => draft.value.trim().length > 0 && !props.sendDisabled)
+const draft = ref("");
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+const canSend = computed(
+  () => draft.value.trim().length > 0 && !props.sendDisabled,
+);
 
 const thinkingMessageIndex = computed(() => {
-  if (!props.conversation.isThinking) return -1
-  for (let index = props.conversation.messages.length - 1; index >= 0; index -= 1) {
-    if (props.conversation.messages[index].role === 'assistant') {
-      return index
+  if (!props.conversation.isThinking) return -1;
+  for (
+    let index = props.conversation.messages.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    if (props.conversation.messages[index].role === "assistant") {
+      return index;
     }
   }
-  return -1
-})
+  return -1;
+});
 
 function shouldRenderThinking(index: number): boolean {
-  return thinkingMessageIndex.value === index
+  return thinkingMessageIndex.value === index;
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function applyInlineMarkdown(value: string): string {
   return value
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, "$1<em>$2</em>")
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+    );
 }
 
 function renderMarkdown(value: string): string {
-  const lines = value.split(/\r?\n/)
-  const blocks: string[] = []
-  let paragraph: string[] = []
-  let listItems: string[] = []
+  const lines = value.split(/\r?\n/);
+  const blocks: string[] = [];
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
 
   const flushParagraph = () => {
     if (!paragraph.length) {
-      return
+      return;
     }
 
-    blocks.push(`<p>${applyInlineMarkdown(paragraph.join('<br />'))}</p>`)
-    paragraph = []
-  }
+    blocks.push(`<p>${applyInlineMarkdown(paragraph.join("<br />"))}</p>`);
+    paragraph = [];
+  };
 
   const flushList = () => {
     if (!listItems.length) {
-      return
+      return;
     }
 
-    blocks.push(`<ul>${listItems.map((item) => `<li>${applyInlineMarkdown(item)}</li>`).join('')}</ul>`)
-    listItems = []
-  }
+    blocks.push(
+      `<ul>${listItems.map((item) => `<li>${applyInlineMarkdown(item)}</li>`).join("")}</ul>`,
+    );
+    listItems = [];
+  };
 
   for (const rawLine of lines) {
-    const line = escapeHtml(rawLine.trimEnd())
-    const trimmed = line.trim()
+    const line = escapeHtml(rawLine.trimEnd());
+    const trimmed = line.trim();
 
     if (!trimmed) {
-      flushParagraph()
-      flushList()
-      continue
+      flushParagraph();
+      flushList();
+      continue;
     }
 
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/)
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
     if (headingMatch) {
-      flushParagraph()
-      flushList()
-      const level = headingMatch[1].length
-      blocks.push(`<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`)
-      continue
+      flushParagraph();
+      flushList();
+      const level = headingMatch[1].length;
+      blocks.push(
+        `<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`,
+      );
+      continue;
     }
 
-    const listMatch = trimmed.match(/^[-*]\s+(.*)$/)
+    const listMatch = trimmed.match(/^[-*]\s+(.*)$/);
     if (listMatch) {
-      flushParagraph()
-      listItems.push(listMatch[1])
-      continue
+      flushParagraph();
+      listItems.push(listMatch[1]);
+      continue;
     }
 
-    flushList()
-    paragraph.push(trimmed)
+    flushList();
+    paragraph.push(trimmed);
   }
 
-  flushParagraph()
-  flushList()
+  flushParagraph();
+  flushList();
 
-  return blocks.join('')
+  return blocks.join("");
 }
 
-function formatPlanStepStatus(status: 'pending' | 'in_progress' | 'completed'): string {
-  if (status === 'completed') return '완료'
-  if (status === 'in_progress') return '진행 중'
-  return '대기'
+function formatPlanStepStatus(
+  status: "pending" | "in_progress" | "completed",
+): string {
+  if (status === "completed") return "완료";
+  if (status === "in_progress") return "진행 중";
+  return "대기";
 }
 
-function formatPlanStepMarker(status: 'pending' | 'in_progress' | 'completed'): string {
-  if (status === 'completed') return 'check_circle'
-  if (status === 'in_progress') return 'schedule'
-  return 'radio_button_unchecked'
+function formatPlanStepMarker(
+  status: "pending" | "in_progress" | "completed",
+): string {
+  if (status === "completed") return "check_circle";
+  if (status === "in_progress") return "schedule";
+  return "radio_button_unchecked";
 }
 
 function submit() {
-  const message = draft.value.trim()
+  const message = draft.value.trim();
   if (!message || props.sendDisabled) {
-    return
+    return;
   }
-  emit('send', message)
-  draft.value = ''
-  nextTick(syncTextareaHeight)
+  emit("send", message);
+  draft.value = "";
+  nextTick(syncTextareaHeight);
+}
+
+function selectRecommendedQuestion(question: string) {
+  // 추천 질문 클릭 시 사용자가 전송 전 수정할 수 있도록 입력창에만 반영합니다.
+  draft.value = question;
+  nextTick(() => {
+    syncTextareaHeight();
+    textareaRef.value?.focus();
+  });
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    submit()
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    submit();
   }
 }
 
 function syncTextareaHeight() {
-  const textarea = textareaRef.value
-  if (!textarea) return
+  const textarea = textareaRef.value;
+  if (!textarea) return;
 
-  textarea.style.height = 'auto'
-  const lineHeight = 24
-  const maxHeight = lineHeight * 5
-  const nextHeight = Math.min(textarea.scrollHeight, maxHeight)
-  textarea.style.height = `${nextHeight}px`
-  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  textarea.style.height = "auto";
+  const lineHeight = 24;
+  const maxHeight = lineHeight * 5;
+  const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY =
+    textarea.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
 watch(draft, () => {
-  nextTick(syncTextareaHeight)
-})
+  nextTick(syncTextareaHeight);
+});
 
 onMounted(() => {
-  syncTextareaHeight()
-})
+  syncTextareaHeight();
+});
 </script>
 
 <template>
-  <section
-    class="conversation-shell"
-  >
+  <section class="conversation-shell">
     <div class="conversation-scroll">
       <article
         v-for="(message, index) in conversation.messages"
@@ -173,21 +204,38 @@ onMounted(() => {
       >
         <div class="message-card" :class="`message-card--${message.role}`">
           <div v-if="message.author" class="message-author">
-            <span class="message-author__badge material-symbols-outlined">architecture</span>
+            <span class="message-author__badge material-symbols-outlined"
+              >architecture</span
+            >
             <span>{{ message.author }}</span>
           </div>
 
-          <div v-if="message.text.trim()" class="message-text" v-html="renderMarkdown(message.text)"></div>
+          <div
+            v-if="message.text.trim()"
+            class="message-text"
+            v-html="renderMarkdown(message.text)"
+          ></div>
 
-          <div v-if="shouldRenderThinking(index)" class="thinking-row thinking-row--inline" aria-live="polite">
+          <div
+            v-if="shouldRenderThinking(index)"
+            class="thinking-row thinking-row--inline"
+            aria-live="polite"
+          >
             <span></span>
             <span></span>
             <span></span>
             <strong>{{ conversation.thinkingLabel }}</strong>
           </div>
 
-          <div v-if="message.planExplanation || message.plan?.length" class="message-plan-card">
-            <strong v-if="message.planExplanation" class="message-plan-card__title">{{ message.planExplanation }}</strong>
+          <div
+            v-if="message.planExplanation || message.plan?.length"
+            class="message-plan-card"
+          >
+            <strong
+              v-if="message.planExplanation"
+              class="message-plan-card__title"
+              >{{ message.planExplanation }}</strong
+            >
             <ul v-if="message.plan?.length" class="message-plan-list">
               <li
                 v-for="planStep in message.plan"
@@ -196,44 +244,75 @@ onMounted(() => {
                 :class="`message-plan-list__item--${planStep.status}`"
               >
                 <div class="message-plan-step">
-                  <span class="message-plan-step__marker material-symbols-outlined">{{ formatPlanStepMarker(planStep.status) }}</span>
-                  <span class="message-plan-step__text">{{ planStep.step }}</span>
+                  <span
+                    class="message-plan-step__marker material-symbols-outlined"
+                    >{{ formatPlanStepMarker(planStep.status) }}</span
+                  >
+                  <span class="message-plan-step__text">{{
+                    planStep.step
+                  }}</span>
                 </div>
-                <span class="message-plan-status">{{ formatPlanStepStatus(planStep.status) }}</span>
+                <span class="message-plan-status">{{
+                  formatPlanStepStatus(planStep.status)
+                }}</span>
               </li>
             </ul>
           </div>
 
-          <div v-if="message.attachmentStatus" class="message-attachment-status">
+          <div
+            v-if="message.attachmentStatus"
+            class="message-attachment-status"
+          >
             <span class="material-symbols-outlined">description</span>
             <div>
               <strong>{{ message.attachmentStatus.filename }}</strong>
-              <span>{{ message.attachmentStatus.meta ?? '메시지와 함께 전송됨' }}</span>
+              <span>{{
+                message.attachmentStatus.meta ?? "메시지와 함께 전송됨"
+              }}</span>
             </div>
           </div>
 
-          <div v-if="message.attachmentPreview" class="message-attachment-preview">
+          <div
+            v-if="message.attachmentPreview"
+            class="message-attachment-preview"
+          >
             <div class="message-attachment-preview__header">
               <div>
                 <strong>{{ message.attachmentPreview.filename }}</strong>
-                <span>{{ message.attachmentPreview.meta ?? '첨부 파일 미리보기' }}</span>
+                <span>{{
+                  message.attachmentPreview.meta ?? "첨부 파일 미리보기"
+                }}</span>
               </div>
               <span class="material-symbols-outlined">table_view</span>
             </div>
 
             <div
-              v-if="message.attachmentPreview.columns.length && message.attachmentPreview.rows.length"
+              v-if="
+                message.attachmentPreview.columns.length &&
+                message.attachmentPreview.rows.length
+              "
               class="message-attachment-preview__table"
             >
               <table>
                 <thead>
                   <tr>
-                    <th v-for="column in message.attachmentPreview.columns" :key="column">{{ column }}</th>
+                    <th
+                      v-for="column in message.attachmentPreview.columns"
+                      :key="column"
+                    >
+                      {{ column }}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(row, rowIndex) in message.attachmentPreview.rows" :key="rowIndex">
-                    <td v-for="column in message.attachmentPreview.columns" :key="column">
+                  <tr
+                    v-for="(row, rowIndex) in message.attachmentPreview.rows"
+                    :key="rowIndex"
+                  >
+                    <td
+                      v-for="column in message.attachmentPreview.columns"
+                      :key="column"
+                    >
                       {{ row[column] }}
                     </td>
                   </tr>
@@ -248,11 +327,25 @@ onMounted(() => {
           </div>
 
           <ul v-if="message.bullets?.length" class="message-list">
-            <li v-for="bullet in message.bullets" :key="bullet.text">{{ bullet.text }}</li>
+            <li v-for="bullet in message.bullets" :key="bullet.text">
+              {{ bullet.text }}
+            </li>
           </ul>
         </div>
       </article>
+    </div>
 
+    <div class="recommended-question-bar" aria-label="추천 질문">
+      <button
+        v-for="question in recommendedQuestions"
+        :key="question"
+        type="button"
+        class="recommended-question-button"
+        :disabled="sendDisabled"
+        @click="selectRecommendedQuestion(question)"
+      >
+        {{ question }}
+      </button>
     </div>
 
     <footer class="composer-shell">
@@ -292,7 +385,10 @@ onMounted(() => {
   border-radius: var(--radius-lg);
   background: rgba(244, 247, 251, 0.78);
   overflow: hidden;
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
 }
 
 .conversation-scroll {
@@ -405,7 +501,9 @@ onMounted(() => {
   padding: 2px 6px;
   border-radius: 8px;
   background: rgba(24, 74, 140, 0.08);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   font-size: 0.82em;
 }
 
@@ -619,7 +717,9 @@ onMounted(() => {
 .code-card pre,
 .code-card code {
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   font-size: 0.85rem;
   line-height: 1.65;
   white-space: pre-wrap;
@@ -671,9 +771,50 @@ onMounted(() => {
   animation-delay: 0.3s;
 }
 
-.composer-shell {
-  padding: 20px 24px 24px;
+.recommended-question-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 24px 0;
   border-top: 1px solid var(--color-border);
+  background: rgba(242, 246, 250, 0.94);
+}
+
+.recommended-question-button {
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 1px solid rgba(24, 74, 140, 0.16);
+  border-radius: 999px;
+  color: var(--color-primary-strong);
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.recommended-question-button:hover:not(:disabled),
+.recommended-question-button:focus-visible:not(:disabled) {
+  border-color: rgba(24, 74, 140, 0.34);
+  background: var(--color-surface-strong);
+  transform: translateY(-1px);
+}
+
+.recommended-question-button:focus-visible {
+  outline: 2px solid rgba(24, 74, 140, 0.28);
+  outline-offset: 2px;
+}
+
+.recommended-question-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.composer-shell {
+  padding: 14px 24px 24px;
   background: rgba(242, 246, 250, 0.94);
 }
 
@@ -751,8 +892,16 @@ onMounted(() => {
     padding: 18px;
   }
 
+  .recommended-question-bar {
+    padding: 12px 16px 0;
+  }
+
+  .recommended-question-button {
+    flex: 1 1 100%;
+  }
+
   .composer-shell {
-    padding: 16px;
+    padding: 12px 16px 16px;
   }
 }
 </style>
