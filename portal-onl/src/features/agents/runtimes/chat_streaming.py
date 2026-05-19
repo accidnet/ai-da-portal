@@ -44,6 +44,7 @@ class ChatStreamingAgent(BaseAgent):
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
         max_iterations = 20
         iteration_count = 0
+        plan_completion_requested = False
         while True:
             if iteration_count >= max_iterations:
                 break
@@ -98,6 +99,17 @@ class ChatStreamingAgent(BaseAgent):
 
             # 실행할 function call이 없고 답변 message가 완료되면 iteration을 종료합니다.
             if not function_call_items and should_stop_iteration:
+                # 진행 중인 plan이 남아 있으면 종료 직전 한 번 더 상태 갱신을 유도합니다.
+                if self._should_request_plan_completion(
+                    output=output,
+                    already_requested=plan_completion_requested,
+                ):
+                    if stream_input_items:
+                        input_items.extend(stream_input_items)
+                    input_items.append(self._build_plan_completion_input(output))
+                    plan_completion_requested = True
+                    continue
+
                 break
 
         output["input_items"] = output_input_items
@@ -178,6 +190,52 @@ class ChatStreamingAgent(BaseAgent):
         if not stream_input_items:
             return []
         return InputItemList(items=tuple(stream_input_items)).to_payload()
+
+    def _should_request_plan_completion(
+        self,
+        *,
+        output: AgentInvokeOutput,
+        already_requested: bool,
+    ) -> bool:
+        """최종 답변 직후 남은 plan 상태를 갱신할 추가 iteration이 필요한지 판단합니다."""
+        if already_requested:
+            return False
+
+        plan = output.get("plan", [])
+        if not plan:
+            return False
+
+        # pending 또는 in_progress가 남아 있으면 종료 전 update_plan을 한 번 더 허용합니다.
+        return any(
+            isinstance(step, dict) and step.get("status") != "completed"
+            for step in plan
+        )
+
+    def _build_plan_completion_input(
+        self,
+        output: AgentInvokeOutput,
+    ) -> dict[str, object]:
+        """남은 plan 단계만 완료 상태로 정리하도록 LLM에 전달할 내부 입력을 만듭니다."""
+        plan = [
+            step
+            for step in output.get("plan", [])
+            if isinstance(step, dict) and isinstance(step.get("step"), str)
+        ]
+        return {
+            "type": "message",
+            "role": "developer",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": (
+                        "최종 답변은 이미 작성했습니다. 새 최종 답변을 작성하지 말고, "
+                        "현재 계획에 pending 또는 in_progress 단계가 남아 있으면 "
+                        "update_plan tool로 실제 완료된 단계의 status를 completed로 갱신하세요. "
+                        f"현재 계획: {json.dumps(plan, ensure_ascii=False)}"
+                    ),
+                }
+            ],
+        }
 
     def _log_unhandled_stream_event(self, event: object) -> None:
         if event is None or event == "" or event == [] or event == {}:
