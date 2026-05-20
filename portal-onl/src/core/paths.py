@@ -5,6 +5,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 SRC_DIR = ROOT_DIR / "src"
 DATA_DIR = ROOT_DIR / "data"
+LOG_DIR = ROOT_DIR / "logs"
 UPLOADED_DATASET_DIR = DATA_DIR / "attached_datasets"
 DATA_SOURCE_STORAGE_DIR = DATA_DIR / "data_sources"
 
