@@ -60,7 +60,7 @@ def execute_select_sql(dataset_path: Path, sql: str, limit: int) -> pd.DataFrame
 
     connection = duckdb.connect(database=":memory:")
     try:
-        _create_dataset_view(connection, dataset_path)
+        create_source_view(connection, dataset_path, "dataset")
         limited_sql = f"SELECT * FROM ({normalized_sql}) AS duckdb_result LIMIT {limit}"
         result = connection.execute(limited_sql).fetchdf()
     except duckdb.Error as exc:
@@ -78,7 +78,7 @@ def execute_dataset_sql(dataset_path: Path, sql: str) -> pd.DataFrame:
     normalized_sql = _normalize_readonly_sql(sql)
     connection = duckdb.connect(database=":memory:")
     try:
-        _create_dataset_view(connection, dataset_path)
+        create_source_view(connection, dataset_path, "dataset")
         return connection.execute(normalized_sql).fetchdf()
     except duckdb.Error as exc:
         raise ValueError(f"Failed to execute SQL: {exc}") from exc
@@ -106,28 +106,33 @@ def quote_identifier(identifier: str) -> str:
     return f'"{escaped}"'
 
 
-def _create_dataset_view(connection: duckdb.DuckDBPyConnection, dataset_path: Path) -> None:
-    """저장 파일 확장자에 맞는 DuckDB scan 함수로 dataset view를 생성합니다."""
+def create_source_view(
+    connection: duckdb.DuckDBPyConnection,
+    dataset_path: Path,
+    view_name: str,
+) -> None:
+    """저장 파일 확장자에 맞는 DuckDB scan 함수로 source view를 생성합니다."""
     suffix = dataset_path.suffix.lower()
     path_literal = _duckdb_string_literal(str(dataset_path))
+    quoted_view_name = quote_identifier(view_name)
     if suffix in {".csv", ".txt"}:
         connection.execute(
-            f"CREATE VIEW dataset AS SELECT * FROM read_csv_auto({path_literal})",
+            f"CREATE VIEW {quoted_view_name} AS SELECT * FROM read_csv_auto({path_literal})",
         )
         return
     if suffix == ".tsv":
         connection.execute(
-            f"CREATE VIEW dataset AS SELECT * FROM read_csv_auto({path_literal}, delim='\t')",
+            f"CREATE VIEW {quoted_view_name} AS SELECT * FROM read_csv_auto({path_literal}, delim='\t')",
         )
         return
     if suffix == ".json":
         connection.execute(
-            f"CREATE VIEW dataset AS SELECT * FROM read_json_auto({path_literal})",
+            f"CREATE VIEW {quoted_view_name} AS SELECT * FROM read_json_auto({path_literal})",
         )
         return
     if suffix == ".parquet":
         connection.execute(
-            f"CREATE VIEW dataset AS SELECT * FROM read_parquet({path_literal})",
+            f"CREATE VIEW {quoted_view_name} AS SELECT * FROM read_parquet({path_literal})",
         )
         return
     raise ValueError(f"Unsupported dataset format for DuckDB SQL: {suffix}")

@@ -24,11 +24,10 @@ class RuntimeResourceSnapshot:
 
 
 def collect_runtime_resource_payload() -> dict[str, object]:
-    """LLM developer message에 넣을 리소스 상태와 실행 가이드를 생성합니다."""
+    """LLM developer message에 넣을 리소스 상태를 생성합니다."""
     snapshot = collect_runtime_resource_snapshot()
     return {
         "runtime_resources": asdict(snapshot),
-        "execution_guidance": _build_execution_guidance(snapshot),
     }
 
 
@@ -49,24 +48,6 @@ def collect_runtime_resource_snapshot() -> RuntimeResourceSnapshot:
         cpu_count=os.cpu_count(),
         load_average_1m=_read_load_average_1m(),
     )
-
-
-def _build_execution_guidance(snapshot: RuntimeResourceSnapshot) -> list[str]:
-    """리소스 상태를 데이터 분석 실행 지침으로 변환합니다."""
-    guidance = [
-        "Prefer DuckDB source_id tools for correlation, anomaly detection, charts, and SQL analysis.",
-        "Avoid loading entire source files into pandas unless the file is small and the task requires it.",
-        "Keep intermediate and final tool payloads compact with row and column limits.",
-    ]
-    if snapshot.available_memory_mb is not None and snapshot.available_memory_mb < 1024:
-        guidance.append(
-            "Available memory is low; use aggregate SQL, sampling, or limited projections instead of full DataFrame loads."
-        )
-    if snapshot.data_disk_free_mb < 1024:
-        guidance.append(
-            "Data disk free space is low; avoid creating large temporary files or materialized exports."
-        )
-    return guidance
 
 
 def _read_memory_info() -> dict[str, int]:

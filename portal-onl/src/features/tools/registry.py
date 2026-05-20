@@ -7,7 +7,11 @@ from features.tools.charts import (
     build_correlation_scatter,
     build_trend_chart,
 )
-from features.tools.datasets import inspect_dataset_context, run_source_file_duckdb_sql
+from features.tools.datasets import (
+    inspect_dataset_context,
+    run_source_file_duckdb_sql,
+    run_source_files_duckdb_sql,
+)
 from features.tools.planning import update_plan
 
 
@@ -27,12 +31,15 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     update_plan,
     # inspect_dataset_context,
     run_source_file_duckdb_sql,
+    run_source_files_duckdb_sql,
     correlation,
     anomaly_detection,
     build_trend_chart,
     build_correlation_scatter,
 )
 _TOOL_ALIASES: dict[str, ToolModule] = {
+    "run_source_file_duckdb_sql": run_source_file_duckdb_sql,
+    "run_source_files_duckdb_sql": run_source_files_duckdb_sql,
     "build_trend_chart": build_trend_chart,
     "build_correlation_scatter": build_correlation_scatter,
 }

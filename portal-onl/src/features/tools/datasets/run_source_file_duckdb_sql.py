@@ -18,32 +18,31 @@ from features.tools.dto import ToolExecutionError, ToolExecutionResult
 def tool_definition() -> dict[str, object]:
     """원천 데이터 파일별 DuckDB SQL 실행 tool 정의를 반환합니다."""
     definition = Function(
-        name="run_source_file_duckdb_sql",
+        name="run_each_source_file_duckdb_sql",
         description=(
-            "source_id로 지정한 원천 데이터 파일을 DuckDB dataset view로 열고 "
-            "읽기 전용 SQL을 실행합니다. DuckDB SELECT/WITH 쿼리 안에서 필터링, "
-            "정렬, 집계, 조인식, CTE, 윈도우 함수, 타입 변환, 날짜/문자열/수치 함수 등 "
-            "DuckDB가 지원하는 분석 SQL 기능을 활용할 수 있습니다. 복수 source_id를 "
-            "사용할 때는 queries 배열에 source_id와 sql을 1:1로 매핑합니다."
+            "하나 이상의 source_id 원천 데이터 파일을 파일별로 독립 실행합니다. "
+            "각 query는 해당 파일 하나만 DuckDB dataset view로 열고 SELECT/WITH SQL을 실행합니다. "
+            "파일 간 JOIN/UNION처럼 여러 파일을 하나의 SQL에서 함께 다루는 작업에는 사용하지 않습니다. "
+            "파일별 필터링, 정렬, 집계, CTE, 윈도우 함수, 타입 변환, 날짜/문자열/수치 함수 등에 적합합니다."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "queries": {
                     "type": "array",
-                    "description": "source_id와 해당 파일에 실행할 DuckDB SELECT/WITH SQL 목록입니다.",
+                    "description": "파일별로 독립 실행할 source_id와 DuckDB SELECT/WITH SQL 목록입니다.",
                     "items": {
                         "type": "object",
                         "properties": {
                             "source_id": {
                                 "type": "string",
-                                "description": "SQL을 실행할 원천 데이터 파일 ID입니다.",
+                                "description": "이 query 하나에서 dataset view로 열 원천 데이터 파일 ID입니다.",
                             },
                             "sql": {
                                 "type": "string",
                                 "description": (
                                     "DuckDB에서 실행할 읽기 전용 SELECT/WITH SQL입니다. "
-                                    "대상 파일은 dataset view로 참조합니다. "
+                                    "대상 파일 하나는 dataset view로 참조합니다. "
                                     "DuckDB의 집계, CTE, 윈도우 함수, CASE, CAST, 날짜/문자열/수치 함수 등을 사용할 수 있습니다. "
                                     "예: SELECT region, SUM(sales) AS sales "
                                     "FROM dataset GROUP BY region ORDER BY sales DESC"
