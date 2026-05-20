@@ -9,6 +9,16 @@ import type { AnalyticsChartPayload, AnalyticsChartType, ChartPoint } from '@/fe
 
 type RendererType = AnalyticsChartType | 'bar_line'
 type TooltipParam = { data?: unknown }
+type CategoryAxisLabelLayout = {
+  rotate: number
+  interval: number | 'auto'
+  width: number
+  gridBottom: number
+}
+type ChartGridLayout = {
+  bottom: number
+  left: number
+}
 
 use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
@@ -69,7 +79,7 @@ function buildChartOption(
   return buildBarLineOption(chart)
 }
 
-function buildBaseOption(): EChartsOption {
+function buildBaseOption(gridLayout: Partial<ChartGridLayout> = {}): EChartsOption {
   return {
     color: ['#184a8c', '#3c78c9', '#7a9cc9', '#a8bdd7', '#d7a43a', '#6f7d8f'],
     animationDuration: 260,
@@ -87,30 +97,50 @@ function buildBaseOption(): EChartsOption {
     grid: {
       top: 28,
       right: 18,
-      bottom: 34,
-      left: 44,
+      bottom: gridLayout.bottom ?? 48,
+      left: gridLayout.left ?? 44,
       containLabel: true,
     },
   }
 }
 
 function buildAxisOption(chart: AnalyticsChartPayload, type: 'line' | 'bar', isArea: boolean): EChartsOption {
+  const xAxisLabelLayout = resolveCategoryAxisLabelLayout(chart.x)
+  const gridLayout = resolveGridLayout({
+    xAxisLabelLayout,
+    hasXAxisName: Boolean(chart.meta?.x_label),
+    hasYAxisName: Boolean(chart.meta?.y_label),
+  })
   return {
-    ...buildBaseOption(),
+    ...buildBaseOption(gridLayout),
     xAxis: {
       type: 'category',
       data: chart.x,
       name: chart.meta?.x_label ?? undefined,
+      nameGap: xAxisLabelLayout.rotate ? 58 : 40,
+      nameLocation: 'middle',
+      nameTextStyle: { color: '#475569', fontWeight: 700 },
       boundaryGap: type === 'bar',
       axisTick: { show: false },
       axisLine: { lineStyle: { color: '#cbd5e1' } },
-      axisLabel: { color: '#64748b' },
+      axisLabel: {
+        color: '#64748b',
+        hideOverlap: true,
+        interval: xAxisLabelLayout.interval,
+        overflow: 'truncate',
+        rotate: xAxisLabelLayout.rotate,
+        width: xAxisLabelLayout.width,
+      },
     },
     yAxis: {
       type: 'value',
       name: chart.meta?.y_label ?? undefined,
+      nameGap: 82,
+      nameLocation: 'middle',
+      nameRotate: 90,
+      nameTextStyle: { color: '#475569', fontWeight: 700 },
       splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
-      axisLabel: { color: '#64748b' },
+      axisLabel: { color: '#64748b', margin: 10 },
     },
     series: chart.series.map((series) => ({
       name: series.name,
@@ -124,6 +154,45 @@ function buildAxisOption(chart: AnalyticsChartPayload, type: 'line' | 'bar', isA
       barMaxWidth: type === 'bar' ? 34 : undefined,
       itemStyle: type === 'bar' ? { borderRadius: [8, 8, 2, 2] } : undefined,
     })),
+  }
+}
+
+function resolveGridLayout({
+  xAxisLabelLayout,
+  hasXAxisName,
+  hasYAxisName,
+}: {
+  xAxisLabelLayout: CategoryAxisLabelLayout
+  hasXAxisName: boolean
+  hasYAxisName: boolean
+}): ChartGridLayout {
+  return {
+    // 축 제목을 중앙에 배치할 때 라벨과 겹치지 않도록 축 제목 공간을 별도로 확보합니다.
+    bottom: xAxisLabelLayout.gridBottom + (hasXAxisName ? 24 : 0),
+    left: hasYAxisName ? 92 : 44,
+  }
+}
+
+function resolveCategoryAxisLabelLayout(labels: string[]): CategoryAxisLabelLayout {
+  const longestLabelLength = labels.reduce((maxLength, label) => Math.max(maxLength, String(label).length), 0)
+  const hasDenseLabels = labels.length > 8
+  const hasLongLabels = longestLabelLength > 10
+
+  if (hasLongLabels || hasDenseLabels) {
+    // 좁은 analytics 패널에서 긴 x축 라벨이 캔버스 밖으로 잘리지 않도록 회전과 하단 여백을 함께 늘립니다.
+    return {
+      rotate: 35,
+      interval: labels.length > 14 ? 'auto' : 0,
+      width: 92,
+      gridBottom: 76,
+    }
+  }
+
+  return {
+    rotate: 0,
+    interval: 0,
+    width: 80,
+    gridBottom: 48,
   }
 }
 
@@ -157,7 +226,10 @@ function buildBarLineOption(chart: AnalyticsChartPayload): EChartsOption {
 
 function buildScatterOption(chart: AnalyticsChartPayload): EChartsOption {
   return {
-    ...buildBaseOption(),
+    ...buildBaseOption({
+      bottom: chart.meta?.x_label ? 72 : 48,
+      left: chart.meta?.y_label ? 92 : 44,
+    }),
     tooltip: {
       trigger: 'item',
       confine: true,
@@ -174,14 +246,21 @@ function buildScatterOption(chart: AnalyticsChartPayload): EChartsOption {
     xAxis: {
       type: 'value',
       name: chart.meta?.x_label ?? undefined,
+      nameGap: 42,
+      nameLocation: 'middle',
+      nameTextStyle: { color: '#475569', fontWeight: 700 },
       splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
       axisLabel: { color: '#64748b' },
     },
     yAxis: {
       type: 'value',
       name: chart.meta?.y_label ?? undefined,
+      nameGap: 82,
+      nameLocation: 'middle',
+      nameRotate: 90,
+      nameTextStyle: { color: '#475569', fontWeight: 700 },
       splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
-      axisLabel: { color: '#64748b' },
+      axisLabel: { color: '#64748b', margin: 10 },
     },
     series: [
       {
@@ -264,7 +343,7 @@ function normalizeNumericValue(value: number | string | null): number {
 
 .echart-canvas {
   width: 100%;
-  height: 260px;
-  min-height: 260px;
+  height: 300px;
+  min-height: 300px;
 }
 </style>
