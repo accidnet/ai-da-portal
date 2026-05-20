@@ -11,7 +11,7 @@ defineProps<{
 
 <template>
   <EChartRenderer
-    chart-type="scatter"
+    :chart-type="chart?.type ?? 'scatter'"
     :chart="chart"
     :fallback-points="fallbackPoints"
   />

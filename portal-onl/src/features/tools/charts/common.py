@@ -4,7 +4,7 @@ import pandas as pd
 
 from features.datasets.application.inspection import build_profile_from_dataframe
 from core.utils import read_string
-from domain.shared import (
+from features.tools.charts.dto import (
     AnalyticsPayload,
     ChartId,
     ChartMeta,

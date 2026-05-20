@@ -7,7 +7,7 @@ from features.agents.runtimes.base import BaseAgent
 from features.agents.state import AgentInvokeInput, AgentInvokeOutput, PlanStep
 from features.agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
-from domain.shared import ChartPayload
+from features.tools.charts.dto import ChartPayload
 from features.datasets.application.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, coerce_optional_dict
 from shared.integrations.ai.contracts import (
@@ -21,6 +21,7 @@ AgentStreamEvent = dict[str, object] | SseEvent
 CHART_FUNCTION_NAMES = {
     "build_trend_chart",
     "build_correlation_scatter",
+    "build_segment_bubble_chart",
     "render_trend_chart",
 }
 

@@ -142,14 +142,17 @@ export type AnalyticsChartId =
   | 'category_bar'
   | 'category_area'
   | 'correlation_scatter'
+  | 'segment_bubble'
   | 'share_donut'
 
-export type AnalyticsChartType = 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
+export type AnalyticsChartType = 'line' | 'bar' | 'area' | 'scatter' | 'bubble' | 'donut' | 'table' | 'metric'
 
 export interface AnalyticsChartPointPayload {
   x: number
   y: number
   label?: string | null
+  size?: number | null
+  category?: string | null
 }
 
 export interface AnalyticsChartMeta {

@@ -1,7 +1,7 @@
 import pandas as pd
 
 from core.utils import read_string
-from domain.shared import ChartMeta, ChartPayload, ChartSeries
+from features.tools.charts.dto import ChartMeta, ChartPayload, ChartSeries
 from shared.integrations.ai.contracts import Function
 from features.tools.charts.common import tool_error, tool_success
 

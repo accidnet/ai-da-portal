@@ -5,6 +5,7 @@ from features.tools.analysis import dataframe_context
 from features.tools.analysis import anomaly_detection, correlation
 from features.tools.charts import (
     build_correlation_scatter,
+    build_segment_bubble_chart,
     build_trend_chart,
 )
 from features.tools.datasets import (
@@ -38,6 +39,7 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     anomaly_detection,
     build_trend_chart,
     build_correlation_scatter,
+    build_segment_bubble_chart,
     list_files,
     read_file,
     write_file,
@@ -48,6 +50,7 @@ _TOOL_ALIASES: dict[str, ToolModule] = {
     "run_source_files_duckdb_sql": run_source_files_duckdb_sql,
     "build_trend_chart": build_trend_chart,
     "build_correlation_scatter": build_correlation_scatter,
+    "build_segment_bubble_chart": build_segment_bubble_chart,
 }
 
 

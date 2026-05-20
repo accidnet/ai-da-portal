@@ -155,12 +155,12 @@ export interface AnalyticsPayloadResponse {
     tone?: 'primary' | 'warning' | 'neutral'
   }>
   charts: Array<{
-    id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'share_donut' | null
-    type: 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
+    id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'segment_bubble' | 'share_donut' | null
+    type: 'line' | 'bar' | 'area' | 'scatter' | 'bubble' | 'donut' | 'table' | 'metric'
     title: string
     x: string[]
     series: Array<{ name: string; data: Array<number | string | null> }>
-    points?: Array<{ x: number; y: number; label?: string | null }>
+    points?: Array<{ x: number; y: number; label?: string | null; size?: number | null; category?: string | null }>
     meta?: {
       x_label?: string | null
       y_label?: string | null

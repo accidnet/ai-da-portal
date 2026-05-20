@@ -71,6 +71,7 @@ function buildChartOption(
   if (!chart || !hasRenderableData(chart)) {
     return buildFallbackOption(fallbackPoints)
   }
+  if (resolvedType === 'bubble') return buildBubbleOption(chart)
   if (resolvedType === 'scatter') return buildScatterOption(chart)
   if (resolvedType === 'donut') return buildDonutOption(chart)
   if (resolvedType === 'area') return buildAxisOption(chart, 'line', true)
@@ -273,6 +274,72 @@ function buildScatterOption(chart: AnalyticsChartPayload): EChartsOption {
   }
 }
 
+function buildBubbleOption(chart: AnalyticsChartPayload): EChartsOption {
+  const points = chart.points ?? []
+  const maxSize = Math.max(...points.map((point) => normalizeBubbleSizeValue(point.size)), 1)
+  const groupedPoints = groupBubblePoints(points)
+
+  return {
+    ...buildBaseOption({
+      bottom: chart.meta?.x_label ? 72 : 48,
+      left: chart.meta?.y_label ? 92 : 44,
+    }),
+    legend: {
+      type: 'scroll',
+      top: 0,
+      right: 0,
+      textStyle: { color: '#475569' },
+    },
+    tooltip: {
+      trigger: 'item',
+      confine: true,
+      backgroundColor: 'rgba(15, 23, 42, 0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#fff' },
+      formatter(params: TooltipParam | TooltipParam[]) {
+        if (Array.isArray(params)) return ''
+        const data = Array.isArray(params.data) ? params.data : []
+        const label = data[3] ? `${data[3]}<br/>` : ''
+        const size = data[2] ?? '-'
+        return `${label}${chart.meta?.x_label ?? 'x'}: ${data[0]}<br/>${chart.meta?.y_label ?? 'y'}: ${data[1]}<br/>규모: ${size}`
+      },
+    },
+    xAxis: {
+      type: 'value',
+      name: chart.meta?.x_label ?? undefined,
+      nameGap: 42,
+      nameLocation: 'middle',
+      nameTextStyle: { color: '#475569', fontWeight: 700 },
+      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
+      axisLabel: { color: '#64748b' },
+    },
+    yAxis: {
+      type: 'value',
+      name: chart.meta?.y_label ?? undefined,
+      nameGap: 82,
+      nameLocation: 'middle',
+      nameRotate: 90,
+      nameTextStyle: { color: '#475569', fontWeight: 700 },
+      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
+      axisLabel: { color: '#64748b', margin: 10 },
+    },
+    series: Object.entries(groupedPoints).map(([category, categoryPoints]) => ({
+      name: category,
+      type: 'scatter',
+      data: categoryPoints.map((point) => [
+        point.x,
+        point.y,
+        normalizeBubbleSizeValue(point.size),
+        point.label ?? category,
+      ]),
+      symbolSize(data: unknown) {
+        const size = Array.isArray(data) ? normalizeBubbleSizeValue(data[2]) : 0
+        return 14 + Math.sqrt(size / maxSize) * 34
+      },
+    })),
+  }
+}
+
 function buildDonutOption(chart: AnalyticsChartPayload): EChartsOption {
   const values = chart.series[0]?.data ?? []
   return {
@@ -327,6 +394,18 @@ function normalizeNumericValue(value: number | string | null): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function normalizeBubbleSizeValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(value, 0) : 0
+}
+
+function groupBubblePoints(points: NonNullable<AnalyticsChartPayload['points']>) {
+  return points.reduce<Record<string, NonNullable<AnalyticsChartPayload['points']>>>((groups, point) => {
+    const category = point.category || point.label || '세그먼트'
+    groups[category] = [...(groups[category] ?? []), point]
+    return groups
+  }, {})
 }
 </script>
 

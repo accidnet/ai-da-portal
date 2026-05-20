@@ -17,6 +17,7 @@ const visualizationById: Record<string, Component> = {
   category_bar: BarChart,
   category_area: AreaTrend,
   correlation_scatter: ScatterPlot,
+  segment_bubble: ScatterPlot,
   share_donut: DonutShare,
 }
 
@@ -25,6 +26,7 @@ const visualizationByType: Record<string, Component> = {
   bar: BarChart,
   area: AreaTrend,
   scatter: ScatterPlot,
+  bubble: ScatterPlot,
   donut: DonutShare,
 }
 
