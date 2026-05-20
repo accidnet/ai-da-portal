@@ -1,8 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import PortalLayout from '@/layouts/portal/PortalLayout.vue'
-import AnalysisPage from '@/pages/AnalysisPage.vue'
-import DataSourcesPage from '@/pages/DataSourcesPage.vue'
 
 const LAST_PORTAL_ROUTE_STORAGE_KEY = 'portal:last-route-name'
 
@@ -28,12 +26,12 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'analysis',
         name: 'analysis',
-        component: AnalysisPage,
+        component: () => import('@/pages/AnalysisPage.vue'),
       },
       {
         path: 'data-sources',
         name: 'data-sources',
-        component: DataSourcesPage,
+        component: () => import('@/pages/DataSourcesPage.vue'),
       },
     ],
   },

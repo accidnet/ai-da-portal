@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type {
   DataSourceItem,
@@ -21,8 +21,10 @@ const emit = defineEmits<{
 
 type SourceDetail = "upload" | "db";
 
+const DATA_SOURCE_EXPANDED_FOLDERS_STORAGE_KEY = "portal:data-source-expanded-folders";
+
 const activeDetail = ref<SourceDetail>("upload");
-const collapsedFolderIds = ref<Set<string>>(new Set());
+const expandedFolderIds = ref<Set<string>>(readStoredExpandedFolderIds());
 const actionMenuItemId = ref<string | null>(null);
 const actionMenuPosition = ref({ top: 0, left: 0 });
 
@@ -40,6 +42,67 @@ const uploadProgressTone = computed(() => ({
   "source-upload-progress--failed": props.uploadProgress.status === "failed",
 }));
 
+watch(
+  () => props.items,
+  (items) => {
+    pruneStoredExpandedFolderIds(items);
+  },
+  { immediate: true },
+);
+
+/** 브라우저 저장소에서 이전에 펼친 폴더 목록을 읽습니다. */
+function readStoredExpandedFolderIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+
+  try {
+    const rawValue = window.localStorage.getItem(DATA_SOURCE_EXPANDED_FOLDERS_STORAGE_KEY);
+    const parsedValue: unknown = rawValue ? JSON.parse(rawValue) : [];
+    if (!Array.isArray(parsedValue)) return new Set();
+
+    return new Set(parsedValue.filter((item): item is string => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+/** 사용자가 펼친 폴더 목록을 브라우저 저장소에 기록합니다. */
+function writeStoredExpandedFolderIds(folderIds: Set<string>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    DATA_SOURCE_EXPANDED_FOLDERS_STORAGE_KEY,
+    JSON.stringify([...folderIds]),
+  );
+}
+
+/** 현재 원천 데이터 트리에 존재하는 폴더 ID를 수집합니다. */
+function collectFolderIds(items: DataSourceItem[]): Set<string> {
+  const folderIds = new Set<string>();
+
+  for (const item of items) {
+    if (item.itemType !== "folder") continue;
+    folderIds.add(item.id);
+    for (const childId of collectFolderIds(item.children)) {
+      folderIds.add(childId);
+    }
+  }
+
+  return folderIds;
+}
+
+/** 삭제되었거나 응답에 없는 폴더의 펼침 상태를 정리합니다. */
+function pruneStoredExpandedFolderIds(items: DataSourceItem[]) {
+  if (items.length === 0) return;
+
+  const folderIds = collectFolderIds(items);
+  const nextExpandedIds = new Set(
+    [...expandedFolderIds.value].filter((folderId) => folderIds.has(folderId)),
+  );
+  if (nextExpandedIds.size === expandedFolderIds.value.size) return;
+
+  expandedFolderIds.value = nextExpandedIds;
+  writeStoredExpandedFolderIds(nextExpandedIds);
+}
+
 /** 트리 응답을 파일 브라우저 행 목록으로 펼치되 접힌 폴더 하위는 제외합니다. */
 function flattenVisibleItems(items: DataSourceItem[]): DataSourceItem[] {
   const sortedItems = [...items].sort((left, right) => {
@@ -50,7 +113,7 @@ function flattenVisibleItems(items: DataSourceItem[]): DataSourceItem[] {
   });
 
   return sortedItems.flatMap((item) => {
-    if (item.itemType !== "folder" || collapsedFolderIds.value.has(item.id)) {
+    if (item.itemType !== "folder" || !expandedFolderIds.value.has(item.id)) {
       return [item];
     }
     return [item, ...flattenVisibleItems(item.children)];
@@ -60,7 +123,7 @@ function flattenVisibleItems(items: DataSourceItem[]): DataSourceItem[] {
 /** 원천 데이터 노드의 상태 텍스트를 반환합니다. */
 function formatStatus(item: DataSourceItem): string {
   if (item.itemType === "folder") {
-    return collapsedFolderIds.value.has(item.id) ? "접힘" : "열림";
+    return expandedFolderIds.value.has(item.id) ? "열림" : "접힘";
   }
   return "등록됨";
 }
@@ -69,13 +132,14 @@ function formatStatus(item: DataSourceItem): string {
 function toggleFolder(item: DataSourceItem) {
   if (item.itemType !== "folder") return;
 
-  const nextCollapsedIds = new Set(collapsedFolderIds.value);
-  if (nextCollapsedIds.has(item.id)) {
-    nextCollapsedIds.delete(item.id);
+  const nextExpandedIds = new Set(expandedFolderIds.value);
+  if (nextExpandedIds.has(item.id)) {
+    nextExpandedIds.delete(item.id);
   } else {
-    nextCollapsedIds.add(item.id);
+    nextExpandedIds.add(item.id);
   }
-  collapsedFolderIds.value = nextCollapsedIds;
+  expandedFolderIds.value = nextExpandedIds;
+  writeStoredExpandedFolderIds(nextExpandedIds);
 }
 
 /** 파일 브라우저 행 클릭을 처리합니다. */
@@ -275,7 +339,7 @@ function setActiveDetail(detail: SourceDetail) {
               tabindex="0"
               :aria-expanded="
                 dataset.itemType === 'folder'
-                  ? !collapsedFolderIds.has(dataset.id)
+                  ? expandedFolderIds.has(dataset.id)
                   : undefined
               "
               @click="handleItemClick(dataset)"
@@ -286,7 +350,7 @@ function setActiveDetail(detail: SourceDetail) {
                   v-if="dataset.itemType === 'folder'"
                   class="material-symbols-outlined source-folder-caret"
                 >
-                  {{ collapsedFolderIds.has(dataset.id) ? "chevron_right" : "expand_more" }}
+                  {{ expandedFolderIds.has(dataset.id) ? "expand_more" : "chevron_right" }}
                 </span>
                 <span v-else class="source-folder-caret"></span>
                 <span class="material-symbols-outlined">
