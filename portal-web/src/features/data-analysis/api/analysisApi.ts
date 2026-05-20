@@ -226,6 +226,7 @@ export interface SessionSnapshotResponse {
   messages: SessionSnapshotMessageResponse[]
   dataset_ids: string[]
   datasets: SessionSnapshotDatasetResponse[]
+  analytics_payload?: AnalyticsPayloadResponse | null
 }
 
 export interface ChatResponse {

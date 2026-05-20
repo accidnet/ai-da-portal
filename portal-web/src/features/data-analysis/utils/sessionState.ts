@@ -141,7 +141,7 @@ export function mapSnapshotToSessionState(
   return {
     title,
     messages: messages.length > 0 ? messages : createWelcomeMessages(title),
-    analyticsPayload: null,
+    analyticsPayload: snapshot.analytics_payload ?? null,
     workspacePayload: null,
     datasets,
     preferredDatasetId: snapshot.session.preferred_dataset_id ?? null,

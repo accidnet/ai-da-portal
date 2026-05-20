@@ -8,6 +8,7 @@ from features.datasets.api.schemas import (
     DatasetPreviewResponse,
     DatasetProfileResponse,
 )
+from features.tools.charts.dto import AnalyticsPayload
 
 
 class SessionCreateRequest(BaseModel):
@@ -83,6 +84,7 @@ class SessionSnapshotResponse(BaseModel):
     messages: list[SessionMessage]
     dataset_ids: list[str]
     datasets: list[SessionSnapshotDataset]
+    analytics_payload: AnalyticsPayload | None = None
 
 
 class SessionDatasetLinkRequest(BaseModel):

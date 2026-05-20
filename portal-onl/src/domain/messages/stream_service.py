@@ -126,6 +126,7 @@ class MessageStreamService:
         try:
             streamed_text_parts: list[str] = []
             sub_messages: dict[str, dict[str, object]] = {}
+            charts: list[dict[str, object]] = []
             should_separate_next_text = False
             agent_run_id = (
                 self._message_repository.create_agent_run(
@@ -170,6 +171,7 @@ class MessageStreamService:
                     event=sse_event,
                     streamed_text_parts=streamed_text_parts,
                     sub_messages=sub_messages,
+                    charts=charts,
                     should_separate_next_text=should_separate_next_text,
                 )
                 yield self._encode_sse_event(sse_event)
@@ -185,6 +187,7 @@ class MessageStreamService:
                 input_items=self._extract_input_items(output),
                 snapshot=snapshot,
                 sub_messages=sub_messages,
+                charts=charts,
             )
 
             yield self._encode_sse_event(
@@ -229,6 +232,7 @@ class MessageStreamService:
         input_items: list[dict[str, object]],
         snapshot: dict[str, object],
         sub_messages: dict[str, dict[str, object]],
+        charts: list[dict[str, object]],
     ) -> None:
         """완료된 assistant 응답을 agent timeline에 저장합니다."""
         assistant_message = str(snapshot["assistant_message"]).strip()
@@ -253,6 +257,7 @@ class MessageStreamService:
                     assistant_message=assistant_message,
                     snapshot=snapshot,
                     sub_messages=sub_messages,
+                    charts=charts,
                 ),
                 is_input_reusable=not input_items and bool(assistant_message),
             )
@@ -264,6 +269,7 @@ class MessageStreamService:
         assistant_message: str,
         snapshot: dict[str, object],
         sub_messages: dict[str, dict[str, object]],
+        charts: list[dict[str, object]],
     ) -> dict[str, object]:
         """세션 복원에 필요한 assistant 결과 payload를 저장 형태로 변환합니다."""
         return {
@@ -273,6 +279,7 @@ class MessageStreamService:
             "plan": snapshot.get("plan") or [],
             "plan_explanation": snapshot.get("plan_explanation"),
             "sub_messages": list(sub_messages.values()),
+            "charts": charts,
         }
 
     def _build_assistant_input_item(
@@ -315,6 +322,7 @@ class MessageStreamService:
         event: SseEvent,
         streamed_text_parts: list[str],
         sub_messages: dict[str, dict[str, object]],
+        charts: list[dict[str, object]],
         should_separate_next_text: bool,
     ) -> bool:
         """프론트로 내보낸 SSE 이벤트를 히스토리 저장용 메시지 조각으로 누적합니다."""
@@ -367,6 +375,8 @@ class MessageStreamService:
         if event_type == "agent.iteration.chart":
             chart = data.get("chart")
             title = chart.get("title") if isinstance(chart, dict) else None
+            if isinstance(chart, dict):
+                self._append_chart_payload(charts, chart)
             self._upsert_sub_message(
                 sub_messages,
                 sub_message_id=f"agent.chart:{title or len(sub_messages)}",
@@ -388,6 +398,14 @@ class MessageStreamService:
             return should_separate_next_text
 
         return should_separate_next_text
+
+    def _append_chart_payload(
+        self, charts: list[dict[str, object]], chart: dict[str, object]
+    ) -> None:
+        """세션 복원에 사용할 chart payload를 중복 없이 누적합니다."""
+        if chart in charts:
+            return
+        charts.append(chart)
 
     def _upsert_sub_message(
         self,

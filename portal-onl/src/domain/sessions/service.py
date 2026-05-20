@@ -3,6 +3,8 @@ import re
 from typing import Protocol
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from features.datasets.api.schemas import (
     DatasetInfo,
     DatasetPreviewResponse,
@@ -20,6 +22,7 @@ from domain.sessions.schemas import (
     SessionSummary,
     SessionUpdateRequest,
 )
+from features.tools.charts.dto import AnalyticsPayload, ChartPayload
 from infrastructure.db.models import AgentTimelineItemOrm, SessionOrm, UserMessageOrm
 from infrastructure.db.repositories import MessageRepository, SessionRepository
 
@@ -218,6 +221,9 @@ class SessionService:
             messages=self._build_timeline_messages(timeline_messages),
             dataset_ids=dataset_ids,
             datasets=datasets,
+            analytics_payload=self._build_snapshot_analytics_payload(
+                timeline_messages
+            ),
         )
 
     def _normalize_title(self, title: str | None) -> str | None:
@@ -358,6 +364,33 @@ class SessionService:
             if timeline_item is not None:
                 timeline.append(timeline_item)
         return timeline
+
+    def _build_snapshot_analytics_payload(
+        self, messages: list[UserMessageOrm | AgentTimelineItemOrm]
+    ) -> AnalyticsPayload | None:
+        """assistant timeline에 저장된 chart payload를 세션 복원용 analytics payload로 모읍니다."""
+        charts: list[ChartPayload] = []
+        seen_chart_signatures: set[str] = set()
+        for message in messages:
+            if not isinstance(message, AgentTimelineItemOrm):
+                continue
+            payload = message.stream_payload or {}
+            for raw_chart in payload.get("charts", []):
+                if not isinstance(raw_chart, dict):
+                    continue
+                try:
+                    chart = ChartPayload.model_validate(raw_chart)
+                except ValidationError:
+                    continue
+                signature = chart.model_dump_json()
+                if signature in seen_chart_signatures:
+                    continue
+                seen_chart_signatures.add(signature)
+                charts.append(chart)
+
+        if not charts:
+            return None
+        return AnalyticsPayload(charts=charts)
 
     def _coerce_datetime(self, value: datetime) -> datetime:
         if value.tzinfo is not None:
