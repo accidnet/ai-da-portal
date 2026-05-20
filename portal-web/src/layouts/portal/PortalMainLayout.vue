@@ -65,6 +65,7 @@ const emit = defineEmits<{
   selectDataset: [datasetId: string | null]
   attachDataset: [datasetId: string, workspaceId?: string]
   detachDataset: [datasetId: string]
+  detachDatasets: [datasetIds: string[]]
   deleteDataset: [datasetId: string]
   createDatasetFromSources: [payload: CreateDatasetFromSourcesPayload]
   datasetFileChange: [event: Event, target: UploadPickerTarget]
@@ -167,6 +168,7 @@ defineExpose({
           @select-dataset="(datasetId: string | null) => emit('selectDataset', datasetId)"
           @attach-dataset="(datasetId: string, workspaceId?: string) => emit('attachDataset', datasetId, workspaceId)"
           @detach-dataset="(datasetId: string) => emit('detachDataset', datasetId)"
+          @detach-datasets="(datasetIds: string[]) => emit('detachDatasets', datasetIds)"
           @delete-dataset="(datasetId: string) => emit('deleteDataset', datasetId)"
           @create-dataset-from-sources="(payload: CreateDatasetFromSourcesPayload) => emit('createDatasetFromSources', payload)"
           @dataset-file-change="(event: Event) => emit('datasetFileChange', event, uploadPickerTarget)"

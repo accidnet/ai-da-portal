@@ -370,6 +370,37 @@ export function useDatasetLibrary(options: {
     }
   }
 
+  /** 여러 데이터셋 연결을 한 번에 해제하되 서버 상태 충돌을 피하기 위해 순차 처리합니다. */
+  async function handleDetachDatasets(datasetIds: string[]) {
+    const uniqueDatasetIds = [...new Set(datasetIds)].filter(Boolean)
+    const sessionId = activeSessionId.value
+    const workspaceId = activeWorkspaceId.value
+    if (uniqueDatasetIds.length === 0) return
+    if (!sessionId || !workspaceId) {
+      datasetLibraryError.value = '활성 워크스페이스가 없어 연결 해제를 진행할 수 없어요.'
+      return
+    }
+
+    try {
+      isDatasetMutating.value = true
+      let linkedDatasetIds = new Set<string>()
+      for (const datasetId of uniqueDatasetIds) {
+        const linked = await detachDatasetFromWorkspace(workspaceId, datasetId)
+        linkedDatasetIds = new Set(linked.dataset_ids)
+      }
+
+      const state = ensureSessionState(sessionId, activeSessionSummary.value?.title ?? DEFAULT_SESSION_TITLE)
+      state.datasets = state.datasets.filter((dataset) => linkedDatasetIds.has(dataset.id))
+      syncSessionSummaryWithState(sessionId)
+      await loadDatasets()
+      datasetLibraryError.value = null
+    } catch (error) {
+      datasetLibraryError.value = error instanceof Error ? error.message : '데이터셋 연결 해제에 실패했어요.'
+    } finally {
+      isDatasetMutating.value = false
+    }
+  }
+
   async function handleDeleteDataset(datasetId: string) {
     try {
       isDatasetMutating.value = true
@@ -422,6 +453,7 @@ export function useDatasetLibrary(options: {
     handleAttachDataset,
     hydrateWorkspaceDatasets,
     handleDetachDataset,
+    handleDetachDatasets,
     handleDeleteDataset,
     removeSessionLinks,
   }

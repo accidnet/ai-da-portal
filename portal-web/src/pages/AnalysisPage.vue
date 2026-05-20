@@ -49,6 +49,7 @@ const emit = defineEmits<{
   attachDataset: [datasetId: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
+  detachDatasets: [datasetIds: string[]]
 }>()
 </script>
 
@@ -87,6 +88,7 @@ const emit = defineEmits<{
     @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
     @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
     @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
+    @detach-datasets="(datasetIds) => emit('detachDatasets', datasetIds)"
   />
   <AnalysisWorkspaceView
     v-else
@@ -122,5 +124,6 @@ const emit = defineEmits<{
     @attach-dataset="(datasetId) => emit('attachDataset', datasetId)"
     @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
     @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
+    @detach-datasets="(datasetIds) => emit('detachDatasets', datasetIds)"
   />
 </template>

@@ -146,6 +146,7 @@ const {
   handleAttachDataset,
   hydrateWorkspaceDatasets,
   handleDetachDataset,
+  handleDetachDatasets,
   handleDeleteDataset,
   handleCreateDatasetFromSources,
   removeSessionLinks: removeDatasetSessionLinks,
@@ -299,6 +300,15 @@ async function handleWorkspaceSend(message: string) {
   await handleSendMessage(message)
 }
 
+/** 새로고침 후 저장된 워크스페이스의 연결 데이터셋을 현재 화면 상태에 복원합니다. */
+async function restoreActiveWorkspaceContext() {
+  const workspaceId = activeWorkspaceId.value
+  if (!workspaceId) return
+
+  analysisViewMode.value = 'workspace'
+  await hydrateWorkspaceDatasets(workspaceId, activeSessionId.value)
+}
+
 function openHelpDialog() {
   isHelpDialogOpen.value = true
 }
@@ -421,6 +431,7 @@ onMounted(async () => {
   await loadSessions()
   await loadDatasets()
   await loadDataSourceTree()
+  await restoreActiveWorkspaceContext()
 
   const sharedId = getSharedAnalysisIdFromUrl()
   if (sharedId) {
@@ -523,6 +534,7 @@ onBeforeUnmount(() => {
       @select-dataset="handleSelectDataset"
       @attach-dataset="(datasetId, workspaceId) => handleAttachDataset(datasetId, workspaceId)"
       @detach-dataset="handleDetachDataset"
+      @detach-datasets="handleDetachDatasets"
       @delete-dataset="handleDeleteDataset"
       @create-dataset-from-sources="handleCreateDatasetFromSources"
       @dataset-file-change="handleUploadFileChange"

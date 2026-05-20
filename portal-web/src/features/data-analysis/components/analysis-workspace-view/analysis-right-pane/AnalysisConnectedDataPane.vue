@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type {
   DatasetAsset,
@@ -19,15 +19,25 @@ const emit = defineEmits<{
   attachDataset: [datasetId: string, workspaceId?: string];
   selectDataset: [datasetId: string];
   detachDataset: [datasetId: string];
+  detachDatasets: [datasetIds: string[]];
 }>();
 
 const expandedDatasetId = ref<string | null>(null);
 const isDatasetLinkDialogOpen = ref(false);
+const selectedDatasetIds = ref<Set<string>>(new Set());
 const hiddenDatasetIds = ref<Set<string>>(new Set());
 const hiddenColumnKeys = ref<Set<string>>(new Set());
 
-const selectedDeleteLabel = computed(
-  () => `전체 선택 (0/${props.connectedDatasets.length})`,
+const connectedDatasetIds = computed(() => props.connectedDatasets.map((dataset) => dataset.id));
+const selectedConnectedDatasetIds = computed(() =>
+  connectedDatasetIds.value.filter((datasetId) => selectedDatasetIds.value.has(datasetId)),
+);
+const selectedDatasetCount = computed(() => selectedConnectedDatasetIds.value.length);
+const isAllDatasetsSelected = computed(
+  () => props.connectedDatasets.length > 0 && selectedDatasetCount.value === props.connectedDatasets.length,
+);
+const selectAllLabel = computed(
+  () => `전체 선택 (${selectedDatasetCount.value}/${props.connectedDatasets.length})`,
 );
 const connectedDatasetIdSet = computed(
   () => new Set(props.connectedDatasets.map((dataset) => dataset.id)),
@@ -37,6 +47,16 @@ const connectableDatasets = computed(() =>
     (dataset) => !connectedDatasetIdSet.value.has(dataset.id),
   ),
 );
+
+watch(connectedDatasetIds, (datasetIds) => {
+  const connectedIds = new Set(datasetIds);
+  const nextSelectedIds = new Set(
+    [...selectedDatasetIds.value].filter((datasetId) => connectedIds.has(datasetId)),
+  );
+  if (nextSelectedIds.size !== selectedDatasetIds.value.size) {
+    selectedDatasetIds.value = nextSelectedIds;
+  }
+});
 
 /** 기존 데이터셋 목록에서 현재 세션에 연결할 항목을 고르는 다이얼로그를 엽니다. */
 function openDatasetLinkDialog() {
@@ -61,6 +81,40 @@ function toggleDatasetOpen(datasetId: string) {
   expandedDatasetId.value =
     expandedDatasetId.value === datasetId ? null : datasetId;
   emit("selectDataset", datasetId);
+}
+
+/** 개별 연결 데이터셋의 선택 상태를 전환합니다. */
+function toggleDatasetSelection(datasetId: string) {
+  const next = new Set(selectedDatasetIds.value);
+  if (next.has(datasetId)) {
+    next.delete(datasetId);
+  } else {
+    next.add(datasetId);
+  }
+  selectedDatasetIds.value = next;
+}
+
+/** 전체 선택 버튼으로 연결 데이터셋 전체를 선택하거나 해제합니다. */
+function toggleAllDatasetSelection() {
+  if (isAllDatasetsSelected.value) {
+    selectedDatasetIds.value = new Set();
+    return;
+  }
+  selectedDatasetIds.value = new Set(connectedDatasetIds.value);
+}
+
+/** 선택한 연결 데이터셋을 현재 워크스페이스에서 해제합니다. */
+function detachSelectedDatasets() {
+  if (selectedConnectedDatasetIds.value.length === 0) return;
+  emit("detachDatasets", selectedConnectedDatasetIds.value);
+  selectedDatasetIds.value = new Set();
+}
+
+/** 연결 데이터셋 전체를 현재 워크스페이스에서 해제합니다. */
+function detachAllDatasets() {
+  if (connectedDatasetIds.value.length === 0) return;
+  emit("detachDatasets", connectedDatasetIds.value);
+  selectedDatasetIds.value = new Set();
 }
 
 /** 데이터 카드의 표시/숨김 상태를 로컬 UI 상태로 전환합니다. */
@@ -138,10 +192,39 @@ function formatSourceMeta(source: DatasetSourceTreeItem): string {
       </button>
     </div>
 
-    <label class="bulk-delete-row">
-      <span class="checkbox" aria-hidden="true"></span>
-      <span>{{ selectedDeleteLabel }}</span>
-    </label>
+    <div class="bulk-select-row">
+      <button
+        type="button"
+        class="bulk-select-row__toggle"
+        :disabled="isDatasetMutating || connectedDatasets.length === 0"
+        @click="toggleAllDatasetSelection"
+      >
+        <span
+          class="checkbox"
+          :class="{ 'checkbox--checked': isAllDatasetsSelected }"
+          aria-hidden="true"
+        ></span>
+        <span>{{ selectAllLabel }}</span>
+      </button>
+      <div class="bulk-select-row__actions">
+        <button
+          type="button"
+          class="soft-button"
+          :disabled="isDatasetMutating || selectedDatasetCount === 0"
+          @click="detachSelectedDatasets"
+        >
+          선택 해제
+        </button>
+        <button
+          type="button"
+          class="primary-button"
+          :disabled="isDatasetMutating || connectedDatasets.length === 0"
+          @click="detachAllDatasets"
+        >
+          전체 해제
+        </button>
+      </div>
+    </div>
 
     <div class="connected-data-pane__divider"></div>
 
@@ -157,10 +240,19 @@ function formatSourceMeta(source: DatasetSourceTreeItem): string {
       >
         <div class="dataset-card__body">
           <div class="dataset-card__top">
-            <label class="select-label">
-              <span class="checkbox" aria-hidden="true"></span>
+            <button
+              type="button"
+              class="select-label"
+              :disabled="isDatasetMutating"
+              @click="toggleDatasetSelection(dataset.id)"
+            >
+              <span
+                class="checkbox"
+                :class="{ 'checkbox--checked': selectedDatasetIds.has(dataset.id) }"
+                aria-hidden="true"
+              ></span>
               <span>선택</span>
-            </label>
+            </button>
 
             <div class="dataset-card__actions">
               <button
@@ -185,7 +277,7 @@ function formatSourceMeta(source: DatasetSourceTreeItem): string {
                 :disabled="isDatasetMutating"
                 @click="emit('detachDataset', dataset.id)"
               >
-                삭제
+                해제
               </button>
             </div>
           </div>
@@ -388,7 +480,8 @@ function formatSourceMeta(source: DatasetSourceTreeItem): string {
   transform: translateY(-1px);
 }
 
-.bulk-delete-row,
+.bulk-select-row,
+.bulk-select-row__toggle,
 .select-label,
 .dataset-card__top,
 .dataset-card__actions,
@@ -397,19 +490,63 @@ function formatSourceMeta(source: DatasetSourceTreeItem): string {
   align-items: center;
 }
 
-.bulk-delete-row {
+.bulk-select-row {
+  justify-content: space-between;
   gap: 8px;
   margin-top: 20px;
+}
+
+.bulk-select-row__toggle,
+.select-label {
+  border: 0;
+  background: transparent;
   color: #000;
+  cursor: pointer;
+  font: inherit;
   font-size: 14px;
 }
 
+.bulk-select-row__toggle {
+  gap: 8px;
+  padding: 0;
+}
+
+.bulk-select-row__actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.bulk-select-row__toggle:disabled,
+.select-label:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .checkbox {
+  position: relative;
   width: 16px;
   height: 16px;
   flex-shrink: 0;
   border: 1px solid #000;
   background: #fff;
+}
+
+.checkbox--checked {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+}
+
+.checkbox--checked::after {
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  content: "";
+  transform: rotate(45deg);
 }
 
 .connected-data-pane__divider {
@@ -461,8 +598,7 @@ function formatSourceMeta(source: DatasetSourceTreeItem): string {
 
 .select-label {
   gap: 6px;
-  color: #000;
-  font-size: 14px;
+  padding: 0;
 }
 
 .dataset-card__actions {

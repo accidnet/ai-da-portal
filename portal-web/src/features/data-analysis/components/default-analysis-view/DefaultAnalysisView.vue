@@ -47,6 +47,7 @@ const emit = defineEmits<{
   attachDataset: [datasetId: string, workspaceId?: string]
   selectDataset: [datasetId: string]
   detachDataset: [datasetId: string]
+  detachDatasets: [datasetIds: string[]]
 }>()
 </script>
 
@@ -92,6 +93,7 @@ const emit = defineEmits<{
       @attach-dataset="(datasetId, workspaceId) => emit('attachDataset', datasetId, workspaceId)"
       @select-dataset="(datasetId) => emit('selectDataset', datasetId)"
       @detach-dataset="(datasetId) => emit('detachDataset', datasetId)"
+      @detach-datasets="(datasetIds) => emit('detachDatasets', datasetIds)"
     />
   </div>
 </template>
