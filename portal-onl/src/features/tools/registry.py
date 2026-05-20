@@ -13,6 +13,8 @@ from features.tools.datasets import (
     run_source_files_duckdb_sql,
 )
 from features.tools.planning import update_plan
+from features.tools.workspace_files import delete_path, list_files, read_file, write_file
+from features.tools.workspace_files.context import clear_workspace_file_context
 
 
 class ToolModule(Protocol):
@@ -36,6 +38,10 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     anomaly_detection,
     build_trend_chart,
     build_correlation_scatter,
+    list_files,
+    read_file,
+    write_file,
+    delete_path,
 )
 _TOOL_ALIASES: dict[str, ToolModule] = {
     "run_source_file_duckdb_sql": run_source_file_duckdb_sql,
@@ -70,6 +76,7 @@ def cleanup_runtime_memory() -> None:
     """agent 실행 후 tool 모듈의 요청 단위 캐시를 정리합니다."""
     dataframe_context.clear_runtime_memory()
     inspect_dataset_context.clear_runtime_memory()
+    clear_workspace_file_context()
 
 
 def _parse_tool_arguments(

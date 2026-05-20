@@ -3,22 +3,20 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from core.paths import DATA_DIR, ROOT_DIR
+from core.paths import ROOT_DIR
 
-_BYTES_PER_MB = 1024 * 1024
+_BYTES_PER_GB = 1024 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeResourceSnapshot:
     """agent 호출 시점의 컴퓨팅 리소스 상태를 표현합니다."""
 
-    total_memory_mb: int | None
-    available_memory_mb: int | None
-    process_memory_mb: int | None
-    root_disk_total_mb: int
-    root_disk_free_mb: int
-    data_disk_total_mb: int
-    data_disk_free_mb: int
+    total_memory_gb: float | None
+    available_memory_gb: float | None
+    process_memory_gb: float | None
+    root_disk_total_gb: float
+    root_disk_free_gb: float
     cpu_count: int | None
     load_average_1m: float | None
 
@@ -32,19 +30,15 @@ def collect_runtime_resource_payload() -> dict[str, object]:
 
 
 def collect_runtime_resource_snapshot() -> RuntimeResourceSnapshot:
-    """현재 프로세스와 데이터 디렉터리 기준의 리소스 스냅샷을 수집합니다."""
+    """현재 프로세스와 루트 디스크 기준의 리소스 스냅샷을 수집합니다."""
     memory = _read_memory_info()
     root_disk = shutil.disk_usage(ROOT_DIR)
-    data_disk_path = _existing_parent(DATA_DIR)
-    data_disk = shutil.disk_usage(data_disk_path)
     return RuntimeResourceSnapshot(
-        total_memory_mb=_bytes_to_mb(memory.get("MemTotal")),
-        available_memory_mb=_bytes_to_mb(memory.get("MemAvailable")),
-        process_memory_mb=_read_process_memory_mb(),
-        root_disk_total_mb=_bytes_to_mb(root_disk.total) or 0,
-        root_disk_free_mb=_bytes_to_mb(root_disk.free) or 0,
-        data_disk_total_mb=_bytes_to_mb(data_disk.total) or 0,
-        data_disk_free_mb=_bytes_to_mb(data_disk.free) or 0,
+        total_memory_gb=_bytes_to_gb(memory.get("MemTotal")),
+        available_memory_gb=_bytes_to_gb(memory.get("MemAvailable")),
+        process_memory_gb=_read_process_memory_gb(),
+        root_disk_total_gb=_bytes_to_gb(root_disk.total) or 0,
+        root_disk_free_gb=_bytes_to_gb(root_disk.free) or 0,
         cpu_count=os.cpu_count(),
         load_average_1m=_read_load_average_1m(),
     )
@@ -70,8 +64,8 @@ def _read_memory_info() -> dict[str, int]:
     return memory
 
 
-def _read_process_memory_mb() -> int | None:
-    """현재 백엔드 프로세스의 RSS 메모리를 MB 단위로 읽습니다."""
+def _read_process_memory_gb() -> float | None:
+    """현재 백엔드 프로세스의 RSS 메모리를 GB 단위로 읽습니다."""
     statm_path = Path("/proc/self/statm")
     if not statm_path.is_file():
         return None
@@ -83,7 +77,7 @@ def _read_process_memory_mb() -> int | None:
         resident_pages = int(parts[1])
     except ValueError:
         return None
-    return _bytes_to_mb(resident_pages * os.sysconf("SC_PAGE_SIZE"))
+    return _bytes_to_gb(resident_pages * os.sysconf("SC_PAGE_SIZE"))
 
 
 def _read_load_average_1m() -> float | None:
@@ -96,16 +90,8 @@ def _read_load_average_1m() -> float | None:
         return None
 
 
-def _existing_parent(path: Path) -> Path:
-    """아직 생성되지 않은 경로는 가장 가까운 상위 존재 경로로 대체합니다."""
-    current = path
-    while not current.exists() and current.parent != current:
-        current = current.parent
-    return current
-
-
-def _bytes_to_mb(value: int | None) -> int | None:
-    """byte 값을 MB 정수로 변환합니다."""
+def _bytes_to_gb(value: int | None) -> float | None:
+    """byte 값을 GB 소수값으로 변환합니다."""
     if value is None:
         return None
-    return int(value / _BYTES_PER_MB)
+    return round(value / _BYTES_PER_GB, 2)

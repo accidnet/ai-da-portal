@@ -33,15 +33,15 @@ def tool_definition() -> dict[str, object]:
                     "description": "z-score 이상치 탐지에 사용할 숫자형 컬럼명입니다.",
                 },
                 "threshold": {
-                    "type": "number",
-                    "description": "이상치로 판단할 z-score 절댓값 기준입니다. 기본값은 3.0입니다.",
+                    "type": ["number", "null"],
+                    "description": "이상치로 판단할 z-score 절댓값 기준입니다. 기본값을 쓰려면 null입니다.",
                 },
                 "limit": {
-                    "type": "integer",
-                    "description": "응답에 포함할 이상치 row 최대 개수입니다. 기본값은 100입니다.",
+                    "type": ["integer", "null"],
+                    "description": "응답에 포함할 이상치 row 최대 개수입니다. 기본값을 쓰려면 null입니다.",
                 },
             },
-            "required": ["source_id", "column"],
+            "required": ["source_id", "column", "threshold", "limit"],
             "additionalProperties": False,
         },
     }

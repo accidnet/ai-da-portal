@@ -27,7 +27,7 @@ def tool_definition() -> dict[str, object]:
             "type": "object",
             "properties": {
                 "explanation": {
-                    "type": "string",
+                    "type": ["string", "null"],
                     "description": "계획을 새로 만들거나 수정한 이유를 짧게 설명합니다.",
                 },
                 "plan": {
@@ -53,7 +53,7 @@ def tool_definition() -> dict[str, object]:
                     },
                 },
             },
-            "required": ["plan"],
+            "required": ["explanation", "plan"],
             "additionalProperties": False,
         },
     }

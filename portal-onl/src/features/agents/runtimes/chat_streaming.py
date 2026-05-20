@@ -31,6 +31,10 @@ class ChatStreamingAgent(BaseAgent):
     def invoke(
         self, invoke_input: AgentInvokeInput
     ) -> Generator[AgentStreamEvent, None, AgentInvokeOutput]:
+        self._configure_workspace_local_storage(
+            workspace_id=invoke_input.get("workspace_id"),
+            workspace_local_path=invoke_input.get("workspace_local_path"),
+        )
         output = self._build_initial_output()
         output_input_items: list[dict[str, object]] = []
 

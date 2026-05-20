@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from core.paths import DATA_DIR, ROOT_DIR
+from core.paths import DATA_DIR, ROOT_DIR, WORKSPACE_STORAGE_DIR
 
 
 class Settings(BaseSettings):
@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(DATA_DIR / 'portal-onl.db').as_posix()}"
     storage_root: str = "storage"
     uploads_dir: str = "storage/uploads"
+
+    # workspace settings
+    workspace_storage_dir: Path = WORKSPACE_STORAGE_DIR
+    workspace_storage_ttl_seconds: int = 60 * 60 * 24 * 30
+    workspace_storage_cleanup_interval_seconds: int = 60 * 60 * 24 * 7
 
     llm_provider: str = "openai"
     llm_model: str = "gpt-5.4"

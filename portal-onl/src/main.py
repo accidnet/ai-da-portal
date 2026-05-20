@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,6 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.router import api_router
 from core.config import get_settings
 from core.logging import configure_logging
+from features.workspaces.application.cleanup import (
+    cancel_cleanup_task,
+    cleanup_workspace_storage_once,
+    run_workspace_storage_cleanup_loop,
+    wait_cleanup_task_cancelled,
+)
+from features.workspaces.application.local_storage import WorkspaceLocalStorage
 from infrastructure.db.session import init_database
 
 
@@ -15,7 +23,26 @@ from infrastructure.db.session import init_database
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     init_database()
-    yield
+    settings = get_settings()
+    workspace_local_storage = WorkspaceLocalStorage(
+        root_dir=settings.workspace_storage_dir,
+        ttl_seconds=settings.workspace_storage_ttl_seconds,
+    )
+    # 서버 시작 시 이전 실행에서 만료된 워크스페이스 로컬 공간을 먼저 정리합니다.
+    cleanup_workspace_storage_once(workspace_local_storage)
+    # 서버 실행 중에는 설정된 주기마다 만료된 워크스페이스 로컬 공간을 백그라운드에서 정리합니다.
+    cleanup_task = asyncio.create_task(
+        run_workspace_storage_cleanup_loop(
+            local_storage=workspace_local_storage,
+            settings=settings,
+        )
+    )
+    try:
+        yield
+    finally:
+        # 앱 종료 시 백그라운드 정리 task를 남기지 않고 종료합니다.
+        cancel_cleanup_task(cleanup_task)
+        await wait_cleanup_task_cancelled(cleanup_task)
 
 
 def create_app() -> FastAPI:

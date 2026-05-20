@@ -29,6 +29,10 @@ from shared.integrations.ai.contracts import (
     ResponseInputText,
 )
 from features.tools import registry
+from features.tools.workspace_files.context import (
+    set_workspace_file_context,
+    workspace_usage_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,18 @@ class BaseAgent:
         """단일 agent 스트리밍 호출이 끝난 뒤 요청 단위 메모리를 정리합니다."""
         registry.cleanup_runtime_memory()
         gc.collect()
+
+    def _configure_workspace_local_storage(
+        self,
+        *,
+        workspace_id: str | None,
+        workspace_local_path: str | None,
+    ) -> None:
+        """agent tool 실행에서 사용할 워크스페이스 로컬 저장소 컨텍스트를 설정합니다."""
+        set_workspace_file_context(
+            workspace_id=workspace_id,
+            local_path=workspace_local_path,
+        )
 
     def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
         """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 활용합니다."""
@@ -263,8 +279,11 @@ class BaseAgent:
         self, input_items: list[dict[str, object]]
     ) -> list[dict[str, object]]:
         """LLM API 호출 직전 최신 컴퓨팅 리소스 상태를 developer input으로 추가합니다."""
-        resource_input = self._build_runtime_resource_input()
-        logger.debug("Built runtime resource developer input=%s", resource_input)
+        developer_inputs = [self._build_runtime_resource_input()]
+        workspace_input = self._build_workspace_local_storage_input()
+        if workspace_input is not None:
+            developer_inputs.append(workspace_input)
+        logger.debug("Built runtime developer inputs=%s", developer_inputs)
         insert_index = 0
         for item in input_items:
             if item.get("role") != "developer":
@@ -272,7 +291,7 @@ class BaseAgent:
             insert_index += 1
         return [
             *input_items[:insert_index],
-            resource_input,
+            *developer_inputs,
             *input_items[insert_index:],
         ]
 
@@ -288,6 +307,28 @@ class BaseAgent:
                             text=(
                                 "현재 백엔드 컴퓨팅 리소스 상태입니다. "
                                 "데이터 로드, 전처리, 집계, 임시 파일 생성 방식을 결정할 때 참고하세요.\n"
+                                f"{json.dumps(payload, ensure_ascii=False)}"
+                            )
+                        ),
+                    ),
+                ),
+            )
+        ).to_payload()[0]
+
+    def _build_workspace_local_storage_input(self) -> dict[str, object] | None:
+        """워크스페이스 로컬 저장소 사용 안내를 모델 입력용 developer message로 변환합니다."""
+        payload = workspace_usage_payload()
+        if payload is None:
+            return None
+
+        return InputItemList(
+            items=(
+                Message(
+                    role="developer",
+                    content=(
+                        ResponseInputText(
+                            text=(
+                                "현재 워크스페이스에서 사용할 수 있는 로컬 저장소 정보입니다.\n"
                                 f"{json.dumps(payload, ensure_ascii=False)}"
                             )
                         ),

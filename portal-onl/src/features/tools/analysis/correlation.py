@@ -28,12 +28,12 @@ def tool_definition() -> dict[str, object]:
                     "description": "상관관계를 계산할 원천 데이터 파일 source_id입니다.",
                 },
                 "columns": {
-                    "type": "array",
+                    "type": ["array", "null"],
                     "items": {"type": "string"},
-                    "description": "선택적으로 상관관계 계산에 포함할 숫자형 컬럼 목록입니다.",
+                    "description": "상관관계 계산에 포함할 숫자형 컬럼 목록입니다. 전체 숫자형 컬럼을 쓰려면 null입니다.",
                 },
             },
-            "required": ["source_id"],
+            "required": ["source_id", "columns"],
             "additionalProperties": False,
         },
     }

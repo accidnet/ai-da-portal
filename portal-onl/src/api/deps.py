@@ -8,6 +8,7 @@ from core.config import Settings, get_settings
 from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
 from features.datasets.application.service import DatasetApplicationService
 from domain.messages.stream_service import MessageStreamService
+from features.workspaces.application.local_storage import WorkspaceLocalStorage
 from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService
 from features.workspaces.application.usecase import WorkspaceUsecase
@@ -47,6 +48,15 @@ def get_workspace_repository() -> WorkspaceRepository:
 
 
 @lru_cache
+def get_workspace_local_storage() -> WorkspaceLocalStorage:
+    settings = get_settings()
+    return WorkspaceLocalStorage(
+        root_dir=settings.workspace_storage_dir,
+        ttl_seconds=settings.workspace_storage_ttl_seconds,
+    )
+
+
+@lru_cache
 def get_data_source_repository() -> DataSourceRepository:
     return DataSourceRepository()
 
@@ -61,7 +71,10 @@ def get_session_service() -> SessionService:
 
 @lru_cache
 def get_workspace_usecase() -> WorkspaceUsecase:
-    return WorkspaceUsecase(repository=get_workspace_repository())
+    return WorkspaceUsecase(
+        repository=get_workspace_repository(),
+        local_storage=get_workspace_local_storage(),
+    )
 
 
 @lru_cache
@@ -98,6 +111,7 @@ def get_message_stream_service() -> MessageStreamService:
     return MessageStreamService(
         session_service=get_session_service(),
         message_repository=get_message_repository(),
+        workspace_local_storage=get_workspace_local_storage(),
     )
 
 

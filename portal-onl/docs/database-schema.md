@@ -103,6 +103,8 @@ Primary key는 `workspace_id`, `dataset_id` 조합입니다. 워크스페이스 
 
 워크스페이스와 세션은 `workspaces` 1:N `sessions` 관계입니다. 워크스페이스 전용 채팅은 기존 `sessions` row에 `workspace_id`를 저장해 구분합니다.
 
+워크스페이스 생성 시 agent가 임시 산출물과 메모를 저장할 로컬 작업 공간을 `data/workspaces/{workspace_id}`에 생성합니다. 이 공간은 DB 테이블이 아니라 파일시스템 저장소이며, 설정된 TTL과 정리 주기에 따라 주기적으로 제거될 수 있습니다.
+
 ### `user_messages`
 
 사용자가 입력한 원문 메시지입니다.

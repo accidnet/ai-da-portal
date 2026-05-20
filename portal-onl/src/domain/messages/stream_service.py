@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from features.agents.runtimes import ChatStreamingAgent
 from features.agents.state import AgentInvokeOutput
+from features.workspaces.application.local_storage import WorkspaceLocalStorage
 from core.sse import SseEvent
 from domain.messages.schemas import (
     MessageStreamRequest,
@@ -33,9 +34,11 @@ class MessageStreamService:
         self,
         session_service: SessionService,
         message_repository: MessageRepository,
+        workspace_local_storage: WorkspaceLocalStorage,
     ) -> None:
         self._session_service = session_service
         self._message_repository = message_repository
+        self._workspace_local_storage = workspace_local_storage
 
     async def create_streaming_response(
         self,
@@ -71,6 +74,11 @@ class MessageStreamService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="session_id does not belong to the requested workspace_id.",
             )
+        workspace_local_path = (
+            str(self._workspace_local_storage.ensure_workspace(workspace_id))
+            if workspace_id is not None
+            else None
+        )
 
         # 사용자 입력 메세지는 바로 저장
         user_message_id = self._message_repository.record_user_message(
@@ -84,6 +92,8 @@ class MessageStreamService:
             self._generate_stream_events(
                 session_id=session_id,
                 user_message_id=user_message_id,
+                workspace_id=workspace_id,
+                workspace_local_path=workspace_local_path,
                 message=stream_request.message,
                 dataset_ids=stream_request.dataset_ids,
                 agent_runtime=agent_runtime,
@@ -105,6 +115,8 @@ class MessageStreamService:
         *,
         session_id: str,
         user_message_id: str | None,
+        workspace_id: str | None,
+        workspace_local_path: str | None,
         message: str,
         dataset_ids: list[str],
         agent_runtime: ChatStreamingAgent,
@@ -136,6 +148,8 @@ class MessageStreamService:
             agent_events = agent_runtime.invoke(
                 {
                     "session_id": session_id,
+                    "workspace_id": workspace_id,
+                    "workspace_local_path": workspace_local_path,
                     "message": message,
                     "dataset_ids": dataset_ids,
                     "input_items": input_items,

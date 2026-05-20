@@ -46,14 +46,14 @@ def tool_definition() -> dict[str, object]:
                                 "description": "DuckDB view로 등록할 원천 데이터 파일 ID입니다.",
                             },
                             "alias": {
-                                "type": "string",
+                                "type": ["string", "null"],
                                 "description": (
                                     "SQL에서 사용할 view 이름입니다. 영문/숫자/_만 허용하며 숫자로 시작할 수 없습니다. "
-                                    "예: customers, transactions"
+                                    "예: customers, transactions. null이면 s1, s2 순서로 자동 생성합니다."
                                 ),
                             },
                         },
-                        "required": ["source_id"],
+                        "required": ["source_id", "alias"],
                         "additionalProperties": False,
                     },
                     "minItems": 1,

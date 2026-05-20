@@ -8,6 +8,7 @@ from features.workspaces.application.dto import (
     WorkspaceResult,
     WorkspaceUpdateCommand,
 )
+from features.workspaces.application.local_storage import WorkspaceLocalStorage
 from features.workspaces.domain.models import Workspace
 from features.workspaces.domain.repositories import WorkspaceRepository
 
@@ -15,8 +16,13 @@ from features.workspaces.domain.repositories import WorkspaceRepository
 class WorkspaceUsecase:
     """워크스페이스 생성과 조회 유스케이스를 수행합니다."""
 
-    def __init__(self, repository: WorkspaceRepository) -> None:
+    def __init__(
+        self,
+        repository: WorkspaceRepository,
+        local_storage: WorkspaceLocalStorage,
+    ) -> None:
         self._repository = repository
+        self._local_storage = local_storage
 
     def create(self, command: WorkspaceCreateCommand) -> WorkspaceResult:
         """요청 이름을 정규화해 새 워크스페이스를 생성합니다."""
@@ -28,6 +34,7 @@ class WorkspaceUsecase:
             workspace_id=str(uuid4()),
             name=normalized_name,
         )
+        self._local_storage.ensure_workspace(workspace.id)
         return self._build_response(workspace)
 
     def list_workspaces(self) -> list[WorkspaceResult]:
@@ -54,6 +61,7 @@ class WorkspaceUsecase:
     def delete(self, workspace_id: str) -> WorkspaceDeleteResult:
         """워크스페이스를 삭제합니다."""
         self._repository.delete(workspace_id)
+        self._local_storage.delete_workspace(workspace_id)
         return WorkspaceDeleteResult(id=workspace_id, deleted=True)
 
     def attach_dataset(

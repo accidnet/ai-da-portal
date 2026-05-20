@@ -10,6 +10,8 @@ class AgentInvokeInput(TypedDict, total=False):
     """agent 실행에 필요한 외부 입력 값입니다."""
 
     session_id: str
+    workspace_id: str | None
+    workspace_local_path: str | None
     message: str
     dataset_ids: list[str]
     input_items: list[dict[str, object]]
