@@ -1,102 +1,126 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref } from "vue";
 
-import type { DatasetAsset, DatasetLibraryItem } from '@/features/data-analysis/types'
+import type {
+  DatasetAsset,
+  DatasetLibraryItem,
+  DatasetSourceTreeItem,
+} from "@/features/data-analysis/types";
 
 const props = defineProps<{
-  connectedDatasets: DatasetAsset[]
-  activeWorkspaceId: string | null
-  datasetsLibrary: DatasetLibraryItem[]
-  isDatasetMutating: boolean
-}>()
+  connectedDatasets: DatasetAsset[];
+  activeWorkspaceId: string | null;
+  datasetsLibrary: DatasetLibraryItem[];
+  isDatasetMutating: boolean;
+}>();
 
 const emit = defineEmits<{
-  uploadDataset: []
-  attachDataset: [datasetId: string, workspaceId?: string]
-  selectDataset: [datasetId: string]
-  detachDataset: [datasetId: string]
-}>()
+  uploadDataset: [];
+  attachDataset: [datasetId: string, workspaceId?: string];
+  selectDataset: [datasetId: string];
+  detachDataset: [datasetId: string];
+}>();
 
-const expandedDatasetId = ref<string | null>(null)
-const isDatasetLinkDialogOpen = ref(false)
-const hiddenDatasetIds = ref<Set<string>>(new Set())
-const hiddenColumnKeys = ref<Set<string>>(new Set())
+const expandedDatasetId = ref<string | null>(null);
+const isDatasetLinkDialogOpen = ref(false);
+const hiddenDatasetIds = ref<Set<string>>(new Set());
+const hiddenColumnKeys = ref<Set<string>>(new Set());
 
-const selectedDeleteLabel = computed(() => `선택한 데이터 모두 삭제 (0/${props.connectedDatasets.length})`)
-const connectedDatasetIdSet = computed(() => new Set(props.connectedDatasets.map((dataset) => dataset.id)))
-const connectableDatasets = computed(() => props.datasetsLibrary.filter((dataset) => !connectedDatasetIdSet.value.has(dataset.id)))
+const selectedDeleteLabel = computed(
+  () => `전체 선택 (0/${props.connectedDatasets.length})`,
+);
+const connectedDatasetIdSet = computed(
+  () => new Set(props.connectedDatasets.map((dataset) => dataset.id)),
+);
+const connectableDatasets = computed(() =>
+  props.datasetsLibrary.filter(
+    (dataset) => !connectedDatasetIdSet.value.has(dataset.id),
+  ),
+);
 
 /** 기존 데이터셋 목록에서 현재 세션에 연결할 항목을 고르는 다이얼로그를 엽니다. */
 function openDatasetLinkDialog() {
-  if (!props.activeWorkspaceId) return
-  isDatasetLinkDialogOpen.value = true
+  if (!props.activeWorkspaceId) return;
+  isDatasetLinkDialogOpen.value = true;
 }
 
 /** 데이터셋 연결 다이얼로그를 닫습니다. */
 function closeDatasetLinkDialog() {
-  if (props.isDatasetMutating) return
-  isDatasetLinkDialogOpen.value = false
+  if (props.isDatasetMutating) return;
+  isDatasetLinkDialogOpen.value = false;
 }
 
 /** 선택한 데이터셋을 현재 세션과 연결하고 다이얼로그를 닫습니다. */
 function attachDataset(datasetId: string) {
-  emit('attachDataset', datasetId, props.activeWorkspaceId ?? undefined)
-  isDatasetLinkDialogOpen.value = false
+  emit("attachDataset", datasetId, props.activeWorkspaceId ?? undefined);
+  isDatasetLinkDialogOpen.value = false;
 }
 
 /** 연결 데이터의 파일 트리를 열거나 닫습니다. */
 function toggleDatasetOpen(datasetId: string) {
-  expandedDatasetId.value = expandedDatasetId.value === datasetId ? null : datasetId
-  emit('selectDataset', datasetId)
+  expandedDatasetId.value =
+    expandedDatasetId.value === datasetId ? null : datasetId;
+  emit("selectDataset", datasetId);
 }
 
 /** 데이터 카드의 표시/숨김 상태를 로컬 UI 상태로 전환합니다. */
 function toggleDatasetVisibility(datasetId: string) {
-  const next = new Set(hiddenDatasetIds.value)
+  const next = new Set(hiddenDatasetIds.value);
   if (next.has(datasetId)) {
-    next.delete(datasetId)
+    next.delete(datasetId);
   } else {
-    next.add(datasetId)
+    next.add(datasetId);
   }
-  hiddenDatasetIds.value = next
+  hiddenDatasetIds.value = next;
 }
 
-/** 컬럼 행의 표시/숨김 상태를 로컬 UI 상태로 전환합니다. */
-function toggleColumnVisibility(datasetId: string, columnName: string) {
-  const key = `${datasetId}:${columnName}`
-  const next = new Set(hiddenColumnKeys.value)
+/** 원천 데이터 행의 표시/숨김 상태를 로컬 UI 상태로 전환합니다. */
+function toggleColumnVisibility(datasetId: string, sourceId: string) {
+  const key = `${datasetId}:${sourceId}`;
+  const next = new Set(hiddenColumnKeys.value);
   if (next.has(key)) {
-    next.delete(key)
+    next.delete(key);
   } else {
-    next.add(key)
+    next.add(key);
   }
-  hiddenColumnKeys.value = next
+  hiddenColumnKeys.value = next;
 }
 
 function isDatasetVisible(datasetId: string): boolean {
-  return !hiddenDatasetIds.value.has(datasetId)
+  return !hiddenDatasetIds.value.has(datasetId);
 }
 
-function isColumnVisible(datasetId: string, columnName: string): boolean {
-  return !hiddenColumnKeys.value.has(`${datasetId}:${columnName}`)
+function isColumnVisible(datasetId: string, sourceId: string): boolean {
+  return !hiddenColumnKeys.value.has(`${datasetId}:${sourceId}`);
 }
 
 function formatDatasetMeta(dataset: DatasetAsset): string {
-  const rowCount = dataset.profile?.rowCount ?? dataset.preview?.rows.length ?? 0
-  const columnCount = dataset.profile?.columnCount ?? dataset.preview?.columns.length ?? 0
-  return `${rowCount.toLocaleString()}행 · ${columnCount.toLocaleString()}열`
+  const rowCount =
+    dataset.profile?.rowCount ?? dataset.preview?.rows.length ?? 0;
+  const columnCount =
+    dataset.profile?.columnCount ?? dataset.preview?.columns.length ?? 0;
+  return `${rowCount.toLocaleString()}행 · ${columnCount.toLocaleString()}열`;
 }
 
 function formatLibraryDatasetMeta(dataset: DatasetLibraryItem): string {
-  return `${dataset.rowCount.toLocaleString()}행 · ${dataset.columnCount.toLocaleString()}열`
+  return `${dataset.rowCount.toLocaleString()}행 · ${dataset.columnCount.toLocaleString()}열`;
 }
 
-function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }> {
-  const columns = dataset.profile?.columns.map((column) => column.name) ?? dataset.preview?.columns ?? []
-  return columns.slice(0, 6).map((name, index) => ({
-    name,
-    depth: index === 0 ? 1 : 2,
-  }))
+/** 데이터셋 원천 데이터 트리를 카드 확장 영역에 표시할 flat row로 변환합니다. */
+function fileRows(dataset: DatasetAsset): DatasetSourceTreeItem[] {
+  const flattenTree = (
+    items: DatasetSourceTreeItem[],
+  ): DatasetSourceTreeItem[] =>
+    items.flatMap((item) => [item, ...flattenTree(item.children)]);
+  return flattenTree(dataset.sourceTree ?? []);
+}
+
+/** 원천 데이터 행의 파일 수와 shape 정보를 보조 텍스트로 표시합니다. */
+function formatSourceMeta(source: DatasetSourceTreeItem): string {
+  if (source.itemType === "folder") {
+    return `${source.fileCount.toLocaleString()}개 파일`;
+  }
+  return `${source.rowCount.toLocaleString()}행 · ${source.columnCount.toLocaleString()}열`;
 }
 </script>
 
@@ -104,7 +128,12 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   <section class="connected-data-pane">
     <div class="connected-data-pane__header">
       <h2>세션과 연결된 데이터</h2>
-      <button type="button" class="pane-add-button" aria-label="데이터 추가" @click="openDatasetLinkDialog">
+      <button
+        type="button"
+        class="pane-add-button"
+        aria-label="데이터 추가"
+        @click="openDatasetLinkDialog"
+      >
         <span class="material-symbols-outlined">add</span>
       </button>
     </div>
@@ -134,19 +163,28 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
             </label>
 
             <div class="dataset-card__actions">
-              <button type="button" class="soft-button" :disabled="isDatasetMutating" @click="emit('selectDataset', dataset.id)">
+              <button
+                type="button"
+                class="soft-button"
+                :disabled="isDatasetMutating"
+                @click="emit('selectDataset', dataset.id)"
+              >
                 변경
               </button>
               <button
-                v-if="expandedDatasetId !== dataset.id"
                 type="button"
                 class="gray-button"
                 :disabled="isDatasetMutating"
                 @click="toggleDatasetOpen(dataset.id)"
               >
-                열기
+                {{ expandedDatasetId === dataset.id ? "닫기" : "열기" }}
               </button>
-              <button type="button" class="primary-button" :disabled="isDatasetMutating" @click="emit('detachDataset', dataset.id)">
+              <button
+                type="button"
+                class="primary-button"
+                :disabled="isDatasetMutating"
+                @click="emit('detachDataset', dataset.id)"
+              >
                 삭제
               </button>
             </div>
@@ -162,77 +200,134 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
             <button
               type="button"
               class="visibility-button"
-              :aria-label="isDatasetVisible(dataset.id) ? '데이터 보이기' : '데이터 숨김'"
+              :aria-label="
+                isDatasetVisible(dataset.id) ? '데이터 보이기' : '데이터 숨김'
+              "
               @click="toggleDatasetVisibility(dataset.id)"
             >
-              <span class="material-symbols-outlined">{{ isDatasetVisible(dataset.id) ? 'visibility' : 'visibility_off' }}</span>
+              <span class="material-symbols-outlined">{{
+                isDatasetVisible(dataset.id) ? "visibility" : "visibility_off"
+              }}</span>
             </button>
           </div>
         </div>
 
         <div v-if="expandedDatasetId === dataset.id" class="file-tree">
           <div class="file-tree__rows">
-            <div class="file-row file-row--root">
-              <span class="material-symbols-outlined file-row__icon">description</span>
-              <span class="file-row__name">{{ dataset.filename }}</span>
-              <button type="button" class="visibility-button" @click="toggleDatasetVisibility(dataset.id)">
-                <span class="material-symbols-outlined">{{ isDatasetVisible(dataset.id) ? 'visibility' : 'visibility_off' }}</span>
+            <div v-if="dataset.sourceTree == null" class="file-tree__empty">
+              <span class="material-symbols-outlined">progress_activity</span>
+              원천 데이터 목록을 불러오는 중입니다.
+            </div>
+
+            <div
+              v-else
+              v-for="row in fileRows(dataset)"
+              :key="row.id"
+              class="file-row"
+              :class="{
+                'file-row--folder': row.itemType === 'folder',
+                'file-row--hidden': !isColumnVisible(dataset.id, row.id),
+              }"
+              :style="{ '--file-depth': row.depth + 1 }"
+            >
+              <span class="file-row__branch">ㄴ</span>
+              <span class="material-symbols-outlined file-row__icon">
+                {{ row.itemType === "folder" ? "folder" : "description" }}
+              </span>
+              <span class="file-row__name">
+                <strong>{{ row.name }}</strong>
+                <small
+                  >{{ row.relativePath }} · {{ formatSourceMeta(row) }}</small
+                >
+              </span>
+              <button
+                type="button"
+                class="visibility-button"
+                @click="toggleColumnVisibility(dataset.id, row.id)"
+              >
+                <span class="material-symbols-outlined">{{
+                  isColumnVisible(dataset.id, row.id)
+                    ? "visibility"
+                    : "visibility_off"
+                }}</span>
               </button>
             </div>
 
             <div
-              v-for="row in fileRows(dataset)"
-              :key="`${dataset.id}-${row.name}`"
-              class="file-row"
-              :class="{ 'file-row--hidden': !isColumnVisible(dataset.id, row.name) }"
-              :style="{ '--file-depth': row.depth }"
+              v-if="
+                dataset.sourceTree != null && fileRows(dataset).length === 0
+              "
+              class="file-tree__empty"
             >
-              <span class="file-row__branch">ㄴ</span>
-              <span class="material-symbols-outlined file-row__icon">description</span>
-              <span class="file-row__name">{{ row.name }}</span>
-              <button type="button" class="visibility-button" @click="toggleColumnVisibility(dataset.id, row.name)">
-                <span class="material-symbols-outlined">{{ isColumnVisible(dataset.id, row.name) ? 'visibility' : 'visibility_off' }}</span>
-              </button>
+              <span class="material-symbols-outlined">folder_off</span>
+              연결된 원천 데이터가 없습니다.
             </div>
           </div>
-
-          <button type="button" class="tree-close-button" @click="expandedDatasetId = null">닫기</button>
-          <div class="file-tree__fade"></div>
         </div>
       </article>
     </div>
 
     <section v-else class="empty-data-state">
       <span class="material-symbols-outlined">database</span>
-          <strong>연결된 데이터가 없습니다</strong>
-      <p>상단의 추가 버튼으로 등록된 데이터셋을 현재 워크스페이스에 연결합니다.</p>
+      <strong>연결된 데이터가 없습니다</strong>
+      <p>
+        상단의 추가 버튼으로 등록된 데이터셋을 현재 워크스페이스에 연결합니다.
+      </p>
     </section>
 
-    <div v-if="isDatasetLinkDialogOpen" class="link-dialog-backdrop" role="presentation" @click.self="closeDatasetLinkDialog">
-      <section class="link-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-link-dialog-title">
+    <div
+      v-if="isDatasetLinkDialogOpen"
+      class="link-dialog-backdrop"
+      role="presentation"
+      @click.self="closeDatasetLinkDialog"
+    >
+      <section
+        class="link-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dataset-link-dialog-title"
+      >
         <header class="link-dialog__header">
           <div>
             <p>데이터셋 연결</p>
             <h3 id="dataset-link-dialog-title">세션에 연결할 데이터셋 선택</h3>
           </div>
-          <button type="button" class="dialog-icon-button" :disabled="isDatasetMutating" aria-label="닫기" @click="closeDatasetLinkDialog">
+          <button
+            type="button"
+            class="dialog-icon-button"
+            :disabled="isDatasetMutating"
+            aria-label="닫기"
+            @click="closeDatasetLinkDialog"
+          >
             <span class="material-symbols-outlined">close</span>
           </button>
         </header>
 
         <div class="link-dialog__list">
-          <article v-for="dataset in connectableDatasets" :key="dataset.id" class="link-dialog__item">
+          <article
+            v-for="dataset in connectableDatasets"
+            :key="dataset.id"
+            class="link-dialog__item"
+          >
             <div>
               <strong>{{ dataset.filename }}</strong>
               <span>{{ formatLibraryDatasetMeta(dataset) }}</span>
             </div>
-            <button type="button" class="link-dialog__action" :disabled="isDatasetMutating" @click="attachDataset(dataset.id)">
+            <button
+              type="button"
+              class="link-dialog__action"
+              :disabled="isDatasetMutating"
+              @click="attachDataset(dataset.id)"
+            >
               <span class="material-symbols-outlined">link</span>
               연결
             </button>
           </article>
 
-          <div v-if="connectableDatasets.length === 0" class="link-dialog__empty">
+          <div
+            v-if="connectableDatasets.length === 0"
+            class="link-dialog__empty"
+          >
             <span class="material-symbols-outlined">dataset_linked</span>
             연결 가능한 데이터셋이 없습니다.
           </div>
@@ -277,7 +372,11 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   color: var(--color-primary);
   background: #fff;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 
 .pane-add-button:hover,
@@ -382,7 +481,10 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
-  transition: background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 
 .soft-button {
@@ -473,7 +575,9 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   color: #000;
   background: #d9d9d9;
   cursor: pointer;
-  transition: background-color 150ms ease, transform 150ms ease;
+  transition:
+    background-color 150ms ease,
+    transform 150ms ease;
 }
 
 .visibility-button:hover,
@@ -495,6 +599,8 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 }
 
 .file-tree__rows {
+  max-height: 270px;
+  overflow-y: auto;
   display: grid;
   gap: 13px;
   padding-right: 18px;
@@ -502,7 +608,7 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 
 .file-row {
   min-width: 0;
-  height: 24px;
+  min-height: 38px;
   display: grid;
   grid-template-columns: 15px 24px minmax(0, 1fr) 35px;
   align-items: center;
@@ -512,9 +618,7 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
   font-size: 16px;
 }
 
-.file-row--root {
-  grid-template-columns: 24px minmax(0, 1fr) 35px;
-  padding-left: 0;
+.file-row--folder {
   font-weight: 800;
 }
 
@@ -538,35 +642,37 @@ function fileRows(dataset: DatasetAsset): Array<{ name: string; depth: number }>
 
 .file-row__name {
   min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.file-row__name strong,
+.file-row__name small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tree-close-button {
-  position: absolute;
-  right: 20px;
-  bottom: 20px;
-  min-height: 28px;
-  padding: 4px 16px;
-  border: 0;
-  border-radius: 8px;
-  color: #fff;
-  background: var(--color-primary);
-  font: inherit;
+.file-row__name strong {
   font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
 }
 
-.file-tree__fade {
-  pointer-events: none;
-  position: absolute;
-  left: 7px;
-  right: 0;
-  bottom: 54px;
-  height: 87px;
-  background: linear-gradient(to bottom, rgba(237, 237, 237, 0), #ededed);
+.file-row__name small {
+  color: #66758a;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.file-tree__empty {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: #66758a;
+  font-size: 14px;
+  text-align: center;
 }
 
 .empty-data-state {

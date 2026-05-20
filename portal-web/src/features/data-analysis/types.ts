@@ -4,6 +4,7 @@ export type {
   DatasetLibraryItem,
   DatasetPreview,
   DatasetProfile,
+  DatasetSourceTreeItem,
 } from '@/features/data-source/types'
 export type {
   BackendConnectionStatus,

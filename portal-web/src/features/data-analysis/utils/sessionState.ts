@@ -49,6 +49,7 @@ export function mapDatasetAsset(payload: SessionSnapshotDatasetResponse): Datase
       rows: payload.preview.rows,
     },
     profile: mapDatasetProfile(payload.profile.profile),
+    sourceTree: null,
   }
 }
 
@@ -70,6 +71,7 @@ export function mapDatasetInfoToAsset(payload: {
         }
       : null,
     profile: payload.profile ? mapDatasetProfile(payload.profile.profile) : null,
+    sourceTree: null,
   }
 }
 

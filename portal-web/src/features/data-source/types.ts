@@ -58,6 +58,7 @@ export interface DatasetAsset {
   createdAt: string
   preview?: DatasetPreview | null
   profile?: DatasetProfile | null
+  sourceTree?: DatasetSourceTreeItem[] | null
 }
 
 export type UploadPickerMode = 'files' | 'folder'

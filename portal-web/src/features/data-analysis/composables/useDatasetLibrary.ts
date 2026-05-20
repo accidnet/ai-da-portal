@@ -123,8 +123,13 @@ export function useDatasetLibrary(options: {
   async function processDatasetFile(file: File, sessionId: string): Promise<boolean> {
     try {
       const detail = await uploadDataset(file, sessionId)
-      const [preview, profile] = await Promise.all([fetchDatasetPreview(detail.id), fetchDatasetProfile(detail.id)])
+      const [preview, profile, sources] = await Promise.all([
+        fetchDatasetPreview(detail.id),
+        fetchDatasetProfile(detail.id),
+        fetchDatasetSources(detail.id),
+      ])
       const dataset = mapDatasetInfoToAsset({ detail, preview, profile })
+      dataset.sourceTree = sources.sources.map(mapDatasetSourceTreeItem)
       const sessionState = ensureSessionState(sessionId, DEFAULT_SESSION_TITLE)
       sessionState.datasets = [dataset, ...sessionState.datasets.filter((item) => item.id !== dataset.id)]
       sessionState.analyticsPayload = null
@@ -195,7 +200,21 @@ export function useDatasetLibrary(options: {
     }
 
     selectedDatasetId.value = datasetId
-    await ensureDatasetLibraryDetails(datasetId)
+    const details = await ensureDatasetLibraryDetails(datasetId)
+    if (!details) return
+
+    // 연결 데이터 패널에서 즉시 원천 데이터 트리를 볼 수 있도록 세션 상태도 갱신합니다.
+    for (const state of Object.values(sessionStates.value)) {
+      state.datasets = state.datasets.map((dataset) => {
+        if (dataset.id !== datasetId) return dataset
+        return {
+          ...dataset,
+          preview: details.preview ?? dataset.preview ?? null,
+          profile: details.profile ?? dataset.profile ?? null,
+          sourceTree: details.sourceTree ?? dataset.sourceTree ?? null,
+        }
+      })
+    }
   }
 
   async function handleAttachDataset(datasetId: string, targetWorkspaceId?: string) {
@@ -249,6 +268,7 @@ export function useDatasetLibrary(options: {
               }
             : null,
         })
+        asset.sourceTree = details.sourceTree ?? null
         const byId = new Map([...state.datasets, asset].map((dataset) => [dataset.id, dataset]))
         state.datasets = linked.dataset_ids
           .map((id) => byId.get(id))
@@ -280,7 +300,7 @@ export function useDatasetLibrary(options: {
         linked.dataset_ids.map(async (datasetId) => {
           const details = await ensureDatasetLibraryDetails(datasetId)
           if (!details) return null
-          return mapDatasetInfoToAsset({
+          const asset = mapDatasetInfoToAsset({
             detail: {
               id: details.id,
               filename: details.filename,
@@ -314,6 +334,8 @@ export function useDatasetLibrary(options: {
                 }
               : null,
           })
+          asset.sourceTree = details.sourceTree ?? null
+          return asset
         }),
       )
 
