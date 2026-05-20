@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import {
   fetchWorkspaces,
@@ -40,10 +40,13 @@ const selectedSourceIds = ref<Set<string>>(new Set());
 const collapsedSourceFolderIds = ref<Set<string>>(new Set());
 const createDatasetError = ref<string | null>(null);
 const isCreateSubmitting = ref(false);
+const createDatasetProgressPercent = ref(0);
 const sessionLinkDatasetId = ref<string | null>(null);
 const workspaceItems = ref<Array<{ id: string; name: string; updatedAt: string }>>([]);
 const isWorkspaceListLoading = ref(false);
 const workspaceListError = ref<string | null>(null);
+let createDatasetProgressTimer: ReturnType<typeof window.setInterval> | null = null;
+let createDatasetProgressStartedAt = 0;
 
 /** 데이터셋 생성 요청 중 모달 입력과 닫기 동작을 잠급니다. */
 const isCreatePending = computed(() => isCreateSubmitting.value || props.isBusy);
@@ -75,13 +78,30 @@ const visibleSourceItems = computed(() => {
   });
 });
 
-/** 선택된 원천 데이터가 실제로 포함하는 파일 수를 계산합니다. */
-const selectedSourceFileCount = computed(() => {
+/** 선택된 원천 데이터가 실제로 포함하는 파일 수와 용량을 계산합니다. */
+const selectedSourceStats = computed(() => {
+  const stats = { fileCount: 0, totalBytes: 0 };
   const fileIds = new Set<string>();
   for (const item of props.dataSourceItems) {
-    collectSelectedFileIds(item, fileIds);
+    collectSelectedFileStats(item, fileIds, stats);
   }
-  return fileIds.size;
+  return stats;
+});
+
+const selectedSourceFileCount = computed(() => selectedSourceStats.value.fileCount);
+const selectedSourceSizeLabel = computed(() => formatBytes(selectedSourceStats.value.totalBytes));
+const createDatasetProgressLabel = computed(() => `${Math.round(createDatasetProgressPercent.value)}%`);
+const createDatasetProgressMessage = computed(() => {
+  if (createDatasetProgressPercent.value >= 95) {
+    return "데이터셋 목록과 상세 정보를 갱신하는 중입니다.";
+  }
+  if (createDatasetProgressPercent.value >= 68) {
+    return "선택한 파일의 미리보기와 프로파일을 저장하는 중입니다.";
+  }
+  if (createDatasetProgressPercent.value >= 32) {
+    return "선택한 원천 파일을 확인하고 프로파일을 계산하는 중입니다.";
+  }
+  return "데이터셋 생성 요청을 준비하고 있습니다.";
 });
 
 /** 선택된 데이터셋에 연결된 원천 데이터를 렌더링 가능한 flat tree row로 변환합니다. */
@@ -152,23 +172,33 @@ function collectDescendantItems(item: DataSourceItem): DataSourceItem[] {
 }
 
 /** 선택 상태에서 실제 파일 노드만 중복 없이 집계합니다. */
-function collectSelectedFileIds(item: DataSourceItem, fileIds: Set<string>) {
+function collectSelectedFileStats(
+  item: DataSourceItem,
+  fileIds: Set<string>,
+  stats: { fileCount: number; totalBytes: number },
+) {
   if (item.itemType === "file" && selectedSourceIds.value.has(item.id)) {
-    fileIds.add(item.id);
+    if (!fileIds.has(item.id)) {
+      fileIds.add(item.id);
+      stats.fileCount += 1;
+      stats.totalBytes += item.sizeBytes ?? 0;
+    }
     return;
   }
 
   if (item.itemType === "folder" && selectedSourceIds.value.has(item.id)) {
     for (const descendant of collectDescendantItems(item)) {
-      if (descendant.itemType === "file") {
+      if (descendant.itemType === "file" && !fileIds.has(descendant.id)) {
         fileIds.add(descendant.id);
+        stats.fileCount += 1;
+        stats.totalBytes += descendant.sizeBytes ?? 0;
       }
     }
     return;
   }
 
   for (const child of item.children) {
-    collectSelectedFileIds(child, fileIds);
+    collectSelectedFileStats(child, fileIds, stats);
   }
 }
 
@@ -271,6 +301,7 @@ function closeCreateDatasetDialog() {
   isCreateDialogOpen.value = false;
   createDatasetError.value = null;
   isCreateSubmitting.value = false;
+  resetCreateDatasetProgress();
 }
 
 /** 선택한 원천 데이터와 메타데이터로 데이터셋 생성을 요청합니다. */
@@ -286,6 +317,7 @@ function submitCreateDataset() {
   }
 
   isCreateSubmitting.value = true;
+  startCreateDatasetProgress();
   createDatasetError.value = null;
   emit("createDatasetFromSources", {
     name,
@@ -315,9 +347,70 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
 }
 
+/** 바이트 값을 진행률 보조 정보에 맞는 용량 문자열로 변환합니다. */
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 /** 데이터셋 카탈로그의 등록일 정렬 방향을 전환합니다. */
 function toggleSortOrder() {
   sortOrder.value = sortOrder.value === "desc" ? "asc" : "desc";
+}
+
+/** 선택한 파일 규모에 따라 완료 전까지 보여줄 추정 진행률을 시작합니다. */
+function startCreateDatasetProgress() {
+  stopCreateDatasetProgress();
+  createDatasetProgressStartedAt = Date.now();
+  createDatasetProgressPercent.value = 6;
+
+  const estimatedDurationMs = Math.min(
+    90000,
+    Math.max(
+      10000,
+      selectedSourceStats.value.fileCount * 1300 +
+        selectedSourceStats.value.totalBytes / (18 * 1024 * 1024),
+    ),
+  );
+
+  createDatasetProgressTimer = window.setInterval(() => {
+    const elapsedRatio = Math.min(
+      1,
+      (Date.now() - createDatasetProgressStartedAt) / estimatedDurationMs,
+    );
+    const easedRatio = 1 - Math.pow(1 - elapsedRatio, 2.2);
+    createDatasetProgressPercent.value = Math.min(
+      92,
+      Math.max(createDatasetProgressPercent.value, 6 + easedRatio * 86),
+    );
+  }, 300);
+}
+
+/** 생성 완료 시 진행률을 100%로 표시한 뒤 다이얼로그를 닫습니다. */
+function finishCreateDatasetProgress() {
+  stopCreateDatasetProgress();
+  createDatasetProgressPercent.value = 100;
+  window.setTimeout(() => {
+    isCreateDialogOpen.value = false;
+    createDatasetError.value = null;
+    resetCreateDatasetProgress();
+  }, 360);
+}
+
+/** 진행률 타이머를 중지합니다. */
+function stopCreateDatasetProgress() {
+  if (!createDatasetProgressTimer) return;
+  window.clearInterval(createDatasetProgressTimer);
+  createDatasetProgressTimer = null;
+}
+
+/** 생성 진행률 상태를 초기화합니다. */
+function resetCreateDatasetProgress() {
+  stopCreateDatasetProgress();
+  createDatasetProgressPercent.value = 0;
+  createDatasetProgressStartedAt = 0;
 }
 
 watch(
@@ -327,8 +420,7 @@ watch(
 
     isCreateSubmitting.value = false;
     if (!props.errorMessage) {
-      isCreateDialogOpen.value = false;
-      createDatasetError.value = null;
+      finishCreateDatasetProgress();
     }
   },
 );
@@ -339,12 +431,17 @@ watch(
     if (!isCreateSubmitting.value || !message) return;
 
     isCreateSubmitting.value = false;
+    resetCreateDatasetProgress();
     createDatasetError.value = message;
   },
 );
 
 onMounted(() => {
   void loadWorkspacesForLinkDialog();
+});
+
+onBeforeUnmount(() => {
+  stopCreateDatasetProgress();
 });
 </script>
 
@@ -609,9 +706,25 @@ onMounted(() => {
           <div>
             <span class="material-symbols-outlined">progress_activity</span>
             <strong>데이터셋을 만들고 있습니다</strong>
-            <small>선택한 파일의 미리보기와 프로파일을 저장하는 중입니다.</small>
+            <small>{{ createDatasetProgressMessage }}</small>
           </div>
-          <span class="dataset-create-progress__bar" aria-hidden="true"></span>
+          <div class="dataset-create-progress__meta">
+            <span>
+              {{ formatNumber(selectedSourceFileCount) }}개 파일 ·
+              {{ selectedSourceSizeLabel }}
+            </span>
+            <strong>{{ createDatasetProgressLabel }}</strong>
+          </div>
+          <span
+            class="dataset-create-progress__bar"
+            role="progressbar"
+            aria-label="데이터셋 생성 진행률"
+            :aria-valuenow="Math.round(createDatasetProgressPercent)"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <span :style="{ width: createDatasetProgressLabel }"></span>
+          </span>
         </div>
 
         <div class="dataset-create-body">
@@ -1342,23 +1455,45 @@ onMounted(() => {
   font-size: 0.82rem;
 }
 
+.dataset-create-progress__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.dataset-create-progress__meta > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataset-create-progress__meta > strong {
+  flex: 0 0 auto;
+  color: var(--color-primary-strong);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .dataset-create-progress__bar {
   position: relative;
   display: block;
-  height: 5px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(24, 74, 140, 0.14);
 }
 
-.dataset-create-progress__bar::after {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 42%;
+.dataset-create-progress__bar > span {
+  display: block;
+  width: 0;
+  height: 100%;
   border-radius: inherit;
   background: var(--color-primary);
-  animation: dataset-create-progress 1.15s ease-in-out infinite;
-  content: "";
+  transition: width 0.28s ease;
 }
 
 .dataset-create-body {
@@ -1587,20 +1722,6 @@ onMounted(() => {
   justify-content: flex-end;
   border-top: 1px solid var(--color-border);
   border-bottom: 0;
-}
-
-@keyframes dataset-create-progress {
-  0% {
-    transform: translateX(-110%);
-  }
-
-  50% {
-    transform: translateX(70%);
-  }
-
-  100% {
-    transform: translateX(245%);
-  }
 }
 
 @keyframes dataset-create-spin {
