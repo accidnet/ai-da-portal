@@ -12,6 +12,11 @@ from infrastructure.db.models import (
     UserMessageOrm,
 )
 from infrastructure.db.session import SessionLocal
+from core.config import get_settings
+from infrastructure.ai.model_catalog import (
+    get_model_input_token_limit,
+    trim_input_items_to_token_limit,
+)
 from shared.integrations.ai.contracts import InputItemList, Message, ResponseInputText
 
 SessionTimelineMessageOrm = UserMessageOrm | AgentTimelineItemOrm
@@ -261,7 +266,7 @@ class MessageRepository:
             if isinstance(item.input_item, dict)
         )
 
-        return input_items
+        return self._trim_conversation_input_items(input_items)
 
     def count_session_messages(self, session_id: str) -> int:
         """프론트에 노출되는 세션 메시지 개수를 조회합니다."""
@@ -360,6 +365,20 @@ class MessageRepository:
         if not isinstance(input_item, dict):
             return False
         return input_item.get("role") == "user"
+
+    def _trim_conversation_input_items(
+        self, input_items: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
+        """모델 input token 한도에 맞춰 재사용 대화 입력을 최근 항목 중심으로 제한합니다."""
+        settings = get_settings()
+        max_input_tokens = get_model_input_token_limit(
+            provider=settings.llm_provider,
+            model=settings.llm_model,
+        )
+        return trim_input_items_to_token_limit(
+            input_items,
+            max_input_tokens=max_input_tokens,
+        )
 
     def _touch_session(self, db, session_id: str, now: datetime) -> None:
         session = db.scalar(select(SessionOrm).where(SessionOrm.id == session_id))

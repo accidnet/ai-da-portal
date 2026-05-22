@@ -9,7 +9,7 @@ from features.agents.stream_event_handlers import handle_stream_event
 from core.sse import SseEvent
 from features.tools.charts.dto import ChartPayload
 from features.datasets.application.service import DatasetApplicationService
-from infrastructure.ai.client import AiClient, coerce_optional_dict
+from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
 from shared.integrations.ai.contracts import (
     FunctionCall,
     InputItemList,
@@ -63,13 +63,18 @@ class ChatStreamingAgent(BaseAgent):
                 },
             )
 
-            # 외부 LLM API 호출
-            stream_result = yield from self._parse_stream_events(
-                self._llm_client.create_response(
-                    **self._build_llm_request_kwargs(input_items),
-                    stream=True,
-                ),
-            )
+            # 외부 LLM API 호출 중 발생한 provider 예외는 SSE error로 전환할 수 있게 정규화합니다.
+            try:
+                stream_result = yield from self._parse_stream_events(
+                    self._llm_client.create_response(
+                        **self._build_llm_request_kwargs(input_items),
+                        stream=True,
+                    ),
+                )
+            except AiClientError:
+                raise
+            except Exception as exc:
+                raise AiClientError(self._format_llm_stream_error(exc)) from exc
             function_call_items = cast(
                 list[FunctionCall],
                 stream_result.get("function_call_items", []),
@@ -251,6 +256,16 @@ class ChatStreamingAgent(BaseAgent):
             type(event).__name__,
             event,
         )
+
+    def _format_llm_stream_error(self, exc: Exception) -> str:
+        """LLM 스트리밍 예외를 사용자에게 전달 가능한 메시지로 정규화합니다."""
+        message = str(exc)
+        if "context window" in message.lower() or "input exceeds" in message.lower():
+            return (
+                "LLM 입력이 모델 context window를 초과했습니다. "
+                "이전 대화 또는 tool 결과가 너무 커서 최근 대화만 다시 시도해 주세요."
+            )
+        return f"LLM streaming request failed: {message}"
 
     def _handle_after_call_completion(
         self,
