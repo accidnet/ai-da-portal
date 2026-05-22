@@ -14,7 +14,13 @@ from features.tools.datasets import (
     run_source_files_duckdb_sql,
 )
 from features.tools.planning import update_plan
-from features.tools.workspace_files import delete_path, list_files, read_file, write_file
+from features.tools.workspace_files import (
+    delete_path,
+    list_files,
+    read_file,
+    run_cli_command,
+    write_file,
+)
 from features.tools.workspace_files.context import clear_workspace_file_context
 
 
@@ -32,7 +38,6 @@ class ToolModule(Protocol):
 
 _TOOL_MODULES: tuple[ToolModule, ...] = (
     update_plan,
-    # inspect_dataset_context,
     run_source_file_duckdb_sql,
     run_source_files_duckdb_sql,
     correlation,
@@ -44,6 +49,7 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     read_file,
     write_file,
     delete_path,
+    run_cli_command,
 )
 _TOOL_ALIASES: dict[str, ToolModule] = {
     "run_source_file_duckdb_sql": run_source_file_duckdb_sql,

@@ -74,6 +74,7 @@ def workspace_usage_payload() -> dict[str, object] | None:
             "read_workspace_file",
             "write_workspace_file",
             "delete_workspace_path",
+            "run_workspace_cli_command",
         ],
         "usage_note": (
             "생성한 중간 데이터, 메모, 결과 파일은 워크스페이스 로컬 저장소 내부 상대 경로로만 관리하세요. "
