@@ -2,10 +2,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import joinedload
 
-from infrastructure.db.models import DatasetOrm, DatasetSourceOrm, DatasetSourceProfileOrm
+from features.workspaces.infrastructure.orm import WorkspaceOrm
+from infrastructure.db.models import (
+    DatasetOrm,
+    DatasetSourceOrm,
+    DatasetSourceProfileOrm,
+    UserMessageDatasetLinkOrm,
+    WorkspaceDatasetLinkOrm,
+)
 from infrastructure.db.session import SessionLocal
 
 
@@ -172,8 +179,37 @@ class DatasetRepository:
             dataset = db.scalar(select(DatasetOrm).where(DatasetOrm.id == dataset_id))
             if dataset is None:
                 raise KeyError(dataset_id)
+            # SQLite FK 설정 차이에 영향받지 않도록 참조 링크를 먼저 제거합니다.
+            db.execute(
+                delete(WorkspaceDatasetLinkOrm).where(
+                    WorkspaceDatasetLinkOrm.dataset_id == dataset_id
+                )
+            )
+            db.execute(
+                delete(UserMessageDatasetLinkOrm).where(
+                    UserMessageDatasetLinkOrm.dataset_id == dataset_id
+                )
+            )
             db.delete(dataset)
             db.commit()
+
+    def list_workspace_links(self, dataset_id: str) -> list[tuple[str, datetime]]:
+        """데이터셋이 연결된 워크스페이스 목록을 최신 연결순으로 조회합니다."""
+        with SessionLocal() as db:
+            return list(
+                db.execute(
+                    select(
+                        WorkspaceDatasetLinkOrm.workspace_id,
+                        WorkspaceDatasetLinkOrm.linked_at,
+                    )
+                    .join(
+                        WorkspaceOrm,
+                        WorkspaceOrm.id == WorkspaceDatasetLinkOrm.workspace_id,
+                    )
+                    .where(WorkspaceDatasetLinkOrm.dataset_id == dataset_id)
+                    .order_by(WorkspaceDatasetLinkOrm.linked_at.desc())
+                ).all()
+            )
 
     def _to_record(self, dataset: DatasetOrm) -> DatasetRecord:
         """ORM aggregate를 조회 record로 변환합니다."""

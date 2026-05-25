@@ -51,9 +51,9 @@ let createDatasetProgressStartedAt = 0;
 /** 데이터셋 생성 요청 중 모달 입력과 닫기 동작을 잠급니다. */
 const isCreatePending = computed(() => isCreateSubmitting.value || props.isBusy);
 
-/** 활성 세션에 연결된 데이터셋 수를 요약 카드에 표시합니다. */
+/** 활성 워크스페이스에 연결된 데이터셋 수를 요약 카드에 표시합니다. */
 const linkedDatasetCount = computed(() => {
-  return props.datasets.filter((dataset) => isLinkedToActiveSession(dataset)).length;
+  return props.datasets.filter((dataset) => isLinkedToActiveWorkspace(dataset)).length;
 });
 
 /** 현재 선택된 데이터셋 상세 정보를 테이블 확장 영역에 표시합니다. */
@@ -141,11 +141,11 @@ const sessionLinkDataset = computed(() => {
   return props.datasets.find((dataset) => dataset.id === sessionLinkDatasetId.value) ?? null;
 });
 
-/** 현재 활성 세션과 데이터셋 연결 여부를 확인합니다. */
-function isLinkedToActiveSession(dataset: DatasetLibraryItem): boolean {
+/** 현재 활성 워크스페이스와 데이터셋 연결 여부를 확인합니다. */
+function isLinkedToActiveWorkspace(dataset: DatasetLibraryItem): boolean {
   return Boolean(
-    props.activeSessionId &&
-      dataset.linkedSessionIds.includes(props.activeSessionId),
+    props.activeWorkspaceId &&
+      dataset.linkedWorkspaceIds.includes(props.activeWorkspaceId),
   );
 }
 
@@ -214,13 +214,13 @@ function toggleDatasetRow(datasetId: string) {
   emit("selectDataset", datasetId === props.selectedDatasetId ? null : datasetId);
 }
 
-/** 데이터셋 row의 연결 버튼에서 세션 선택 다이얼로그를 엽니다. */
+/** 데이터셋 row의 연결 버튼에서 워크스페이스 선택 다이얼로그를 엽니다. */
 async function openSessionLinkDialog(datasetId: string) {
   sessionLinkDatasetId.value = datasetId;
   await loadWorkspacesForLinkDialog();
 }
 
-/** 세션 선택 다이얼로그를 닫습니다. */
+/** 워크스페이스 선택 다이얼로그를 닫습니다. */
 function closeSessionLinkDialog() {
   if (props.isBusy) return;
   sessionLinkDatasetId.value = null;
@@ -454,7 +454,7 @@ onBeforeUnmount(() => {
           <div>
             <p>데이터셋 카탈로그</p>
             <h3>분석에 연결할 데이터셋 관리</h3>
-            <span>등록된 원천 데이터를 세션에 바로 연결하고 상태를 확인합니다.</span>
+            <span>등록된 원천 데이터를 워크스페이스에 바로 연결하고 관리합니다.</span>
           </div>
         </div>
         <div class="catalog-header__actions">
@@ -514,7 +514,7 @@ onBeforeUnmount(() => {
 
       <header class="dataset-list-header">
         <strong>{{ formatNumber(filteredDatasets.length) }}개 데이터셋</strong>
-        <span>선택한 행은 상세 미리보기와 세션 연결 작업에 사용됩니다.</span>
+        <span>선택한 행은 상세 미리보기와 워크스페이스 연결 작업에 사용됩니다.</span>
       </header>
 
       <div class="dataset-table-wrap">
@@ -524,8 +524,7 @@ onBeforeUnmount(() => {
               <th>파일명</th>
               <th>등록일</th>
               <th>규모</th>
-              <th>상태</th>
-              <th>연결 세션</th>
+              <th>연결 개수</th>
               <th class="dataset-table__actions">동작</th>
             </tr>
           </thead>
@@ -538,7 +537,7 @@ onBeforeUnmount(() => {
                 class="dataset-row"
                 :class="{
                   'dataset-row--selected': dataset.id === selectedDatasetId,
-                  'dataset-row--linked': isLinkedToActiveSession(dataset),
+                  'dataset-row--linked': isLinkedToActiveWorkspace(dataset),
                 }"
                 @click="toggleDatasetRow(dataset.id)"
               >
@@ -553,27 +552,11 @@ onBeforeUnmount(() => {
                   {{ formatNumber(dataset.rowCount) }}행 ·
                   {{ formatNumber(dataset.columnCount) }}열
                 </td>
-                <td data-label="상태">
-                  <span
-                    class="status-badge"
-                    :class="
-                      isLinkedToActiveSession(dataset)
-                        ? 'status-badge--linked'
-                        : 'status-badge--idle'
-                    "
-                  >
-                    {{
-                      isLinkedToActiveSession(dataset)
-                        ? "활성 세션 연결됨"
-                        : "미연결"
-                    }}
-                  </span>
-                </td>
-                <td data-label="연결 세션">{{ dataset.linkedSessionCount }}개</td>
+                <td data-label="연결 개수">{{ dataset.linkedWorkspaceCount }}개</td>
                 <td class="dataset-table__actions">
                   <div class="row-actions">
                     <button
-                      v-if="!isLinkedToActiveSession(dataset)"
+                      v-if="!isLinkedToActiveWorkspace(dataset)"
                       type="button"
                       class="action-button action-button--primary"
                       :disabled="isBusy"
@@ -608,7 +591,7 @@ onBeforeUnmount(() => {
                 v-if="dataset.id === selectedDatasetId"
                 class="dataset-source-detail-row"
               >
-                <td colspan="6">
+                <td colspan="5">
                   <section class="dataset-source-detail">
                     <header>
                       <div>
@@ -659,7 +642,7 @@ onBeforeUnmount(() => {
               </tr>
             </template>
             <tr v-if="filteredDatasets.length === 0">
-              <td colspan="6" class="empty-row">
+              <td colspan="5" class="empty-row">
                 <span class="material-symbols-outlined">database_off</span>
                 검색 조건에 맞는 데이터 소스가 없어요.
               </td>
@@ -710,7 +693,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="dataset-create-progress__meta">
             <span>
-              {{ formatNumber(selectedSourceFileCount) }}개 파일 ·
+              {{ formatNumber(selectedSourceFileCount) }}개의 파일 ·
               {{ selectedSourceSizeLabel }}
             </span>
             <strong>{{ createDatasetProgressLabel }}</strong>
@@ -1234,26 +1217,6 @@ onBeforeUnmount(() => {
   background: rgba(24, 74, 140, 0.07);
 }
 
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 700;
-}
-
-.status-badge--linked {
-  color: #1d6b45;
-  background: rgba(44, 139, 92, 0.12);
-}
-
-.status-badge--idle {
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-}
-
 .dataset-table__actions {
   width: 1%;
   white-space: nowrap;
@@ -1432,7 +1395,7 @@ onBeforeUnmount(() => {
   background: #f7fbff;
 }
 
-.dataset-create-progress > div {
+.dataset-create-progress > div:not(.dataset-create-progress__meta) {
   display: grid;
   grid-template-columns: 28px minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
@@ -1455,7 +1418,7 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
 }
 
-.dataset-create-progress__meta {
+.dataset-create-progress .dataset-create-progress__meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1466,9 +1429,9 @@ onBeforeUnmount(() => {
 
 .dataset-create-progress__meta > span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .dataset-create-progress__meta > strong {

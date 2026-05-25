@@ -248,25 +248,26 @@ class DatasetApplicationService:
         }
 
     def delete(self, dataset_id: str) -> DatasetDeleteResponse:
-        """세션에 연결되지 않은 데이터셋을 삭제합니다."""
-        linked_sessions = self._linked_sessions(dataset_id)
-        if linked_sessions:
-            raise ValueError("Dataset is still linked to one or more sessions.")
+        """연결 여부와 무관하게 데이터셋과 참조 링크를 함께 삭제합니다."""
         self._dataset_repository.delete(dataset_id)
         return DatasetDeleteResponse(id=dataset_id, deleted=True)
 
     def _build_summary(self, dataset: DatasetRecord) -> DatasetSummary:
-        """데이터셋 record와 세션 연결 정보를 목록 요약으로 변환합니다."""
-        linked_sessions = self._linked_sessions(dataset.id)
-        linked_session_ids = [session_id for session_id, _ in linked_sessions]
-        latest_used_at = linked_sessions[0][1] if linked_sessions else None
+        """데이터셋 record와 워크스페이스 연결 정보를 목록 요약으로 변환합니다."""
+        linked_workspaces = self._dataset_repository.list_workspace_links(dataset.id)
+        linked_workspace_ids = [
+            workspace_id for workspace_id, _ in linked_workspaces
+        ]
+        latest_used_at = linked_workspaces[0][1] if linked_workspaces else None
         row_count, column_count = self._get_dataset_shape(dataset)
         return DatasetSummary(
             **self._to_dataset_info(dataset).model_dump(),
             row_count=row_count,
             column_count=column_count,
-            linked_session_count=len(linked_session_ids),
-            linked_session_ids=linked_session_ids,
+            linked_session_count=0,
+            linked_session_ids=[],
+            linked_workspace_count=len(linked_workspace_ids),
+            linked_workspace_ids=linked_workspace_ids,
             latest_used_at=latest_used_at,
         )
 

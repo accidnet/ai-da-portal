@@ -44,6 +44,8 @@ export interface DatasetLibraryItem {
   columnCount: number
   linkedSessionCount: number
   linkedSessionIds: string[]
+  linkedWorkspaceCount: number
+  linkedWorkspaceIds: string[]
   latestUsedAt: string | null
   preview?: DatasetPreview | null
   profile?: DatasetProfile | null

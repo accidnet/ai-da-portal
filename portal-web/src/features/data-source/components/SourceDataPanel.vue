@@ -120,14 +120,6 @@ function flattenVisibleItems(items: DataSourceItem[]): DataSourceItem[] {
   });
 }
 
-/** 원천 데이터 노드의 상태 텍스트를 반환합니다. */
-function formatStatus(item: DataSourceItem): string {
-  if (item.itemType === "folder") {
-    return expandedFolderIds.value.has(item.id) ? "열림" : "접힘";
-  }
-  return "등록됨";
-}
-
 /** 폴더 행 클릭 시 하위 항목을 접거나 펼칩니다. */
 function toggleFolder(item: DataSourceItem) {
   if (item.itemType !== "folder") return;
@@ -320,7 +312,6 @@ function setActiveDetail(detail: SourceDetail) {
         <div class="source-file-browser__head">
           <span>이름</span>
           <span>등록일</span>
-          <span>상태</span>
           <span>관리</span>
         </div>
         <div class="source-file-browser__body">
@@ -362,7 +353,6 @@ function setActiveDetail(detail: SourceDetail) {
                 </span>
               </span>
               <span>{{ formatDate(dataset.createdAt) }}</span>
-              <span class="source-file-status">{{ formatStatus(dataset) }}</span>
               <span class="source-file-controls">
                 <button
                   type="button"
@@ -702,7 +692,7 @@ function setActiveDetail(detail: SourceDetail) {
 .source-file-browser__head,
 .source-file-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 140px 100px 64px;
+  grid-template-columns: minmax(260px, 1fr) 140px 64px;
   align-items: center;
   gap: 12px;
 }
@@ -769,16 +759,6 @@ function setActiveDetail(detail: SourceDetail) {
   margin-top: 3px;
   color: var(--color-text-muted);
   font-size: 0.78rem;
-}
-
-.source-file-status {
-  width: fit-content;
-  padding: 6px 9px;
-  border-radius: 999px;
-  background: rgba(44, 139, 92, 0.12);
-  color: #1d6b45;
-  font-size: 0.76rem;
-  font-weight: 800;
 }
 
 .source-file-controls {

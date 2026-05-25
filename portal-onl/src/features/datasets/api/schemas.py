@@ -20,11 +20,13 @@ class DatasetInfo(BaseModel):
 class DatasetSummary(DatasetInfo):
     """목록 화면에서 사용하는 데이터셋 요약 응답 모델입니다."""
 
-    # 세션 연결 정보와 원천 파일 기준 shape를 함께 제공합니다.
+    # 기존 클라이언트 호환 필드와 워크스페이스 연결 정보를 함께 제공합니다.
     row_count: int
     column_count: int
     linked_session_count: int
     linked_session_ids: list[str]
+    linked_workspace_count: int
+    linked_workspace_ids: list[str]
     latest_used_at: datetime | None = None
 
 

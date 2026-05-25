@@ -54,6 +54,8 @@ export function mapDatasetLibraryItem(
     columnCount: dataset.column_count,
     linkedSessionCount: dataset.linked_session_count,
     linkedSessionIds: dataset.linked_session_ids,
+    linkedWorkspaceCount: dataset.linked_workspace_count ?? dataset.linked_session_count,
+    linkedWorkspaceIds: dataset.linked_workspace_ids ?? dataset.linked_session_ids,
     latestUsedAt: dataset.latest_used_at,
     preview: null,
     profile: null,

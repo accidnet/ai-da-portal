@@ -4,7 +4,7 @@ from sqlalchemy import delete, select
 
 from features.workspaces.domain.models import Workspace
 from features.workspaces.infrastructure.orm import WorkspaceOrm
-from infrastructure.db.models import WorkspaceDatasetLinkOrm
+from infrastructure.db.models import DatasetOrm, WorkspaceDatasetLinkOrm
 from infrastructure.db.session import SessionLocal
 
 
@@ -50,6 +50,12 @@ class WorkspaceRepository:
         """워크스페이스를 삭제합니다."""
         with SessionLocal() as db:
             workspace = self._get_workspace_or_raise(db, workspace_id)
+            # FK cascade가 비활성인 SQLite 환경에서도 연결 수가 누적되지 않도록 선삭제합니다.
+            db.execute(
+                delete(WorkspaceDatasetLinkOrm).where(
+                    WorkspaceDatasetLinkOrm.workspace_id == workspace_id
+                )
+            )
             db.delete(workspace)
             db.commit()
 
@@ -99,6 +105,10 @@ class WorkspaceRepository:
             return list(
                 db.scalars(
                     select(WorkspaceDatasetLinkOrm.dataset_id)
+                    .join(
+                        DatasetOrm,
+                        DatasetOrm.id == WorkspaceDatasetLinkOrm.dataset_id,
+                    )
                     .where(WorkspaceDatasetLinkOrm.workspace_id == workspace_id)
                     .order_by(WorkspaceDatasetLinkOrm.linked_at.desc())
                 ).all()

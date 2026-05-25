@@ -96,6 +96,8 @@ export interface DatasetLibraryResponse {
   column_count: number
   linked_session_count: number
   linked_session_ids: string[]
+  linked_workspace_count?: number
+  linked_workspace_ids?: string[]
   latest_used_at: string | null
 }
 
