@@ -1,3 +1,4 @@
+import logging
 import subprocess
 from pathlib import Path
 
@@ -11,8 +12,9 @@ from shared.integrations.ai.contracts import Function
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 120
-DEFAULT_MAX_OUTPUT_BYTES = 200_000
+DEFAULT_MAX_OUTPUT_BYTES = 12_000
 MAX_OUTPUT_BYTES = 1_000_000
+logger = logging.getLogger(__name__)
 
 
 def tool_definition() -> dict[str, object]:
@@ -21,7 +23,7 @@ def tool_definition() -> dict[str, object]:
         name="run_workspace_cli_command",
         description=(
             "현재 워크스페이스 로컬 저장소를 작업 디렉터리로 사용해 CLI command를 실행합니다. "
-            "셸 문법이 아닌 argv 배열로 실행되며, 임시 파일 처리나 경량 분석 명령에 사용합니다."
+            "셸 문법이 아닌 argv 배열로 실행됩니다."
         ),
         parameters={
             "type": "object",
@@ -74,6 +76,10 @@ def tool_definition() -> dict[str, object]:
 def execute(arguments: dict[str, object]) -> dict[str, object]:
     """워크스페이스 로컬 저장소 안에서 CLI command를 실행합니다."""
     try:
+        logger.debug(
+            "Preparing workspace CLI command argument_keys=%s",
+            sorted(arguments.keys()),
+        )
         workspace_id = _read_workspace_id(arguments.get("workspace_id"))
         context = _require_matching_workspace_context(workspace_id)
         command = _read_command(arguments.get("command"))
@@ -81,9 +87,32 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
         timeout_seconds = _read_timeout_seconds(arguments.get("timeout_seconds"))
         max_output_bytes = _read_max_output_bytes(arguments.get("max_output_bytes"))
         working_dir = _resolve_cli_working_dir(context, cwd)
+        logger.info(
+            "Running workspace CLI command workspace_id=%s cwd=%s working_dir=%s command=%s timeout_seconds=%s max_output_bytes=%s",
+            workspace_id,
+            cwd,
+            working_dir,
+            _format_command_for_log(command),
+            timeout_seconds,
+            max_output_bytes,
+        )
         if not working_dir.exists():
+            logger.warning(
+                "Workspace CLI cwd does not exist workspace_id=%s cwd=%s working_dir=%s workspace_root=%s",
+                workspace_id,
+                cwd,
+                working_dir,
+                context.local_path,
+            )
             raise ValueError("cwd does not exist.")
         if not working_dir.is_dir():
+            logger.warning(
+                "Workspace CLI cwd is not a directory workspace_id=%s cwd=%s working_dir=%s workspace_root=%s",
+                workspace_id,
+                cwd,
+                working_dir,
+                context.local_path,
+            )
             raise ValueError("cwd must be a directory.")
 
         # 셸을 거치지 않아 명령 문자열 해석과 의도치 않은 redirection을 피합니다.
@@ -95,6 +124,13 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
             timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "Workspace CLI command timed out workspace_id=%s cwd=%s command=%s timeout_seconds=%s",
+            workspace_id if "workspace_id" in locals() else None,
+            cwd if "cwd" in locals() else "",
+            _format_command_for_log(command) if "command" in locals() else [],
+            timeout_seconds if "timeout_seconds" in locals() else DEFAULT_TIMEOUT_SECONDS,
+        )
         stdout, stdout_truncated = _decode_output(exc.stdout, max_output_bytes)
         stderr, stderr_truncated = _decode_output(exc.stderr, max_output_bytes)
         return ToolExecutionResult[dict[str, object]](
@@ -115,16 +151,39 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
             error="Command timed out.",
         ).model_dump(mode="json", exclude_none=True)
     except OSError as exc:
+        logger.warning(
+            "Workspace CLI command OS error workspace_id=%s cwd=%s command=%s error=%s",
+            workspace_id if "workspace_id" in locals() else None,
+            cwd if "cwd" in locals() else "",
+            _format_command_for_log(command) if "command" in locals() else [],
+            exc,
+        )
         return ToolExecutionResult[object](ok=False, error=str(exc)).model_dump(
             mode="json", exclude_none=True
         )
     except ValueError as exc:
+        logger.warning(
+            "Workspace CLI command validation failed workspace_id=%s cwd=%s command=%s error=%s",
+            workspace_id if "workspace_id" in locals() else None,
+            cwd if "cwd" in locals() else "",
+            _format_command_for_log(command) if "command" in locals() else [],
+            exc,
+        )
         return ToolExecutionResult[object](ok=False, error=str(exc)).model_dump(
             mode="json", exclude_none=True
         )
 
     stdout, stdout_truncated = _decode_output(completed.stdout, max_output_bytes)
     stderr, stderr_truncated = _decode_output(completed.stderr, max_output_bytes)
+    logger.info(
+        "Workspace CLI command completed workspace_id=%s cwd=%s command=%s exit_code=%s stdout_bytes=%s stderr_bytes=%s",
+        workspace_id,
+        cwd,
+        _format_command_for_log(command),
+        completed.returncode,
+        len(completed.stdout or b""),
+        len(completed.stderr or b""),
+    )
     return ToolExecutionResult[dict[str, object]](
         ok=completed.returncode == 0,
         data={
@@ -168,9 +227,30 @@ def _read_workspace_id(value: object) -> str:
 def _require_matching_workspace_context(workspace_id: str) -> WorkspaceFileContext:
     """현재 agent context와 다른 워크스페이스 명령 실행을 차단합니다."""
     context = require_workspace_file_context()
+    logger.debug(
+        "Loaded workspace file context requested_workspace_id=%s context_workspace_id=%s local_path=%s exists=%s is_dir=%s",
+        workspace_id,
+        context.workspace_id,
+        context.local_path,
+        context.local_path.exists(),
+        context.local_path.is_dir(),
+    )
     if context.workspace_id != workspace_id:
+        logger.warning(
+            "Workspace CLI workspace_id mismatch requested_workspace_id=%s context_workspace_id=%s local_path=%s",
+            workspace_id,
+            context.workspace_id,
+            context.local_path,
+        )
         raise ValueError("workspace_id does not match the current workspace context.")
     if not context.local_path.exists() or not context.local_path.is_dir():
+        logger.warning(
+            "Workspace CLI local storage missing workspace_id=%s local_path=%s exists=%s is_dir=%s",
+            workspace_id,
+            context.local_path,
+            context.local_path.exists(),
+            context.local_path.is_dir(),
+        )
         raise ValueError("Workspace local storage does not exist.")
     return context
 
@@ -210,3 +290,8 @@ def _decode_output(value: bytes | str | None, max_bytes: int) -> tuple[str, bool
     truncated = len(raw) > max_bytes
     content = raw[:max_bytes].decode("utf-8", errors="replace")
     return content, truncated
+
+
+def _format_command_for_log(command: list[str]) -> list[str]:
+    """로그가 과도하게 커지지 않도록 긴 argv 항목을 축약합니다."""
+    return [part if len(part) <= 160 else f"{part[:157]}..." for part in command]

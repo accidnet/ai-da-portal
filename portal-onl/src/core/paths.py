@@ -14,3 +14,4 @@ WORKSPACE_STORAGE_DIR = DATA_DIR / "workspaces"
 
 AGENTS_DIR = SRC_DIR / "features" / "agents"
 AGENT_PROMPTS_DIR = AGENTS_DIR / "prompts"
+AGENT_SKILLS_DIR = AGENTS_DIR / "skills"

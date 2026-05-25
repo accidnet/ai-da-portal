@@ -3,6 +3,10 @@ import logging
 from collections.abc import Generator, Iterable
 from typing import cast
 
+from features.agents.llm_input_debug import (
+    LlmInputDebugContext,
+    write_llm_input_debug_file,
+)
 from features.agents.runtimes.base import BaseAgent
 from features.agents.state import AgentInvokeInput, AgentInvokeOutput, PlanStep
 from features.agents.stream_event_handlers import handle_stream_event
@@ -10,6 +14,7 @@ from core.sse import SseEvent
 from features.tools.charts.dto import ChartPayload
 from features.datasets.application.service import DatasetApplicationService
 from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
+from infrastructure.ai.model_catalog import estimate_input_tokens
 from shared.integrations.ai.contracts import (
     FunctionCall,
     InputItemList,
@@ -17,6 +22,8 @@ from shared.integrations.ai.contracts import (
 )
 
 logger = logging.getLogger(__name__)
+INPUT_DEBUG_LARGEST_ITEM_COUNT = 8
+INPUT_DEBUG_PREVIEW_CHARS = 240
 AgentStreamEvent = dict[str, object] | SseEvent
 CHART_FUNCTION_NAMES = {
     "build_trend_chart",
@@ -32,9 +39,11 @@ class ChatStreamingAgent(BaseAgent):
     def invoke(
         self, invoke_input: AgentInvokeInput
     ) -> Generator[AgentStreamEvent, None, AgentInvokeOutput]:
+        workspace_id = invoke_input.get("workspace_id")
+        workspace_local_path = invoke_input.get("workspace_local_path")
         self._configure_workspace_local_storage(
-            workspace_id=invoke_input.get("workspace_id"),
-            workspace_local_path=invoke_input.get("workspace_local_path"),
+            workspace_id=workspace_id,
+            workspace_local_path=workspace_local_path,
         )
         output = self._build_initial_output()
         output_input_items: list[dict[str, object]] = []
@@ -42,6 +51,7 @@ class ChatStreamingAgent(BaseAgent):
         # 사용자 메세지를 포함하여 AI API input으로 사용하기 위한 빌드
         input_items = self._build_initial_inputs(
             message=self._require_string(invoke_input, "message"),
+            workspace_id=workspace_id,
             dataset_ids=invoke_input.get("dataset_ids", []),
             input_items=invoke_input.get("input_items", []),
         )
@@ -64,16 +74,43 @@ class ChatStreamingAgent(BaseAgent):
             )
 
             # 외부 LLM API 호출 중 발생한 provider 예외는 SSE error로 전환할 수 있게 정규화합니다.
+            request_input_items: list[dict[str, object]] = []
             try:
+                # StreamingResponse가 sync generator를 재개할 때 ContextVar가 보존되지 않을 수 있습니다.
+                self._configure_workspace_local_storage(
+                    workspace_id=workspace_id,
+                    workspace_local_path=workspace_local_path,
+                )
+                request_kwargs = self._build_llm_request_kwargs(input_items)
+                request_input_items = self._read_request_input_items(request_kwargs)
+                self._write_input_items_debug(
+                    invoke_input=invoke_input,
+                    iteration=iteration_count,
+                    input_items=request_input_items,
+                )
                 stream_result = yield from self._parse_stream_events(
                     self._llm_client.create_response(
-                        **self._build_llm_request_kwargs(input_items),
+                        **request_kwargs,
                         stream=True,
                     ),
                 )
-            except AiClientError:
+            except AiClientError as exc:
+                if self._is_context_window_error(exc):
+                    self._write_context_window_error_debug(
+                        invoke_input=invoke_input,
+                        iteration=iteration_count,
+                        input_items=request_input_items,
+                        exc=exc,
+                    )
                 raise
             except Exception as exc:
+                if self._is_context_window_error(exc):
+                    self._write_context_window_error_debug(
+                        invoke_input=invoke_input,
+                        iteration=iteration_count,
+                        input_items=request_input_items,
+                        exc=exc,
+                    )
                 raise AiClientError(self._format_llm_stream_error(exc)) from exc
             function_call_items = cast(
                 list[FunctionCall],
@@ -82,6 +119,11 @@ class ChatStreamingAgent(BaseAgent):
             should_stop_iteration = stream_result.get("should_stop_iteration") is True
 
             # API 호출이 끝난 후 처리하는 로직
+            # tool 실행 직전에도 요청 단위 workspace context를 복구합니다.
+            self._configure_workspace_local_storage(
+                workspace_id=workspace_id,
+                workspace_local_path=workspace_local_path,
+            )
             new_input_items, function_events = self._handle_after_call_completion(
                 stream_result=stream_result,
                 output=output,
@@ -124,6 +166,173 @@ class ChatStreamingAgent(BaseAgent):
 
         output["input_items"] = output_input_items
         return output
+
+    def _build_input_debug_context(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        event: str,
+    ) -> LlmInputDebugContext:
+        """chat streaming 디버그 파일을 요청/턴/반복 단위로 식별합니다."""
+        return {
+            "event": event,
+            "session_id": invoke_input.get("session_id"),
+            "user_message_id": invoke_input.get("user_message_id"),
+            "agent_run_id": invoke_input.get("agent_run_id"),
+            "iteration": iteration,
+        }
+
+    def _write_input_items_debug(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        input_items: list[dict[str, object]],
+    ) -> None:
+        """chat streaming LLM 호출 직전 input item payload를 JSON으로 저장합니다."""
+        context = self._build_input_debug_context(
+            invoke_input=invoke_input,
+            iteration=iteration,
+            event="input-items",
+        )
+        debug_file_path = write_llm_input_debug_file(
+            context=context,
+            payload={
+                "input_item_count": len(input_items),
+                "input_items": input_items,
+            },
+        )
+        if debug_file_path is not None:
+            logger.info(
+                "Saved chat streaming input item debug file=%s", debug_file_path
+            )
+
+    def _write_context_window_error_debug(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        input_items: list[dict[str, object]],
+        exc: Exception,
+    ) -> None:
+        """context window 초과 시 원인 추적용 input item 원본과 크기 요약을 저장합니다."""
+        context = self._build_input_debug_context(
+            invoke_input=invoke_input,
+            iteration=iteration,
+            event="context-window-error",
+        )
+        debug_file_path = write_llm_input_debug_file(
+            context=context,
+            payload={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "input_summary": self._summarize_input_items(
+                    input_items,
+                    truncate_preview=False,
+                ),
+                "input_items": input_items,
+            },
+        )
+        if debug_file_path is not None:
+            logger.warning(
+                "Saved context window input debug file=%s",
+                debug_file_path,
+            )
+
+    def _read_request_input_items(
+        self, request_kwargs: dict[str, object]
+    ) -> list[dict[str, object]]:
+        """LLM request kwargs에서 실제 호출에 사용될 input item 목록만 추출합니다."""
+        input_items = request_kwargs.get("input")
+        if not isinstance(input_items, list):
+            return []
+        return [item for item in input_items if isinstance(item, dict)]
+
+    def _summarize_input_items(
+        self,
+        input_items: list[dict[str, object]],
+        *,
+        truncate_preview: bool = True,
+    ) -> dict[str, object]:
+        """context 초과 원인을 찾기 위한 item별 크기와 입력 종류를 요약합니다."""
+        summaries = [
+            self._summarize_input_item(
+                index=index,
+                item=item,
+                truncate_preview=truncate_preview,
+            )
+            for index, item in enumerate(input_items)
+        ]
+        total_tokens = sum(
+            summary["estimated_tokens"]
+            for summary in summaries
+            if isinstance(summary.get("estimated_tokens"), int)
+        )
+        total_chars = sum(
+            summary["estimated_chars"]
+            for summary in summaries
+            if isinstance(summary.get("estimated_chars"), int)
+        )
+        return {
+            "count": len(input_items),
+            "estimated_tokens": total_tokens,
+            "estimated_chars": total_chars,
+            "items": summaries,
+            "largest_items": sorted(
+                summaries,
+                key=lambda summary: int(summary.get("estimated_tokens") or 0),
+                reverse=True,
+            )[:INPUT_DEBUG_LARGEST_ITEM_COUNT],
+        }
+
+    def _summarize_input_item(
+        self,
+        *,
+        index: int,
+        item: dict[str, object],
+        truncate_preview: bool,
+    ) -> dict[str, object]:
+        """단일 input item의 식별 정보와 대략적인 크기를 기록합니다."""
+        preview = self._extract_input_item_preview(item)
+        return {
+            "index": index,
+            "type": item.get("type"),
+            "role": item.get("role"),
+            "name": item.get("name"),
+            "call_id": item.get("call_id"),
+            "status": item.get("status"),
+            "phase": item.get("phase"),
+            "estimated_tokens": estimate_input_tokens(item),
+            "estimated_chars": len(json.dumps(item, ensure_ascii=False, default=str)),
+            "preview": self._truncate_preview(preview) if truncate_preview else preview,
+        }
+
+    def _extract_input_item_preview(self, value: object) -> str:
+        """중첩 input item에서 어떤 입력인지 판단할 짧은 문자열을 추출합니다."""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            for key in ("text", "output", "arguments", "content"):
+                child = value.get(key)
+                if isinstance(child, str):
+                    return child
+                if isinstance(child, list):
+                    preview = self._extract_input_item_preview(child)
+                    if preview:
+                        return preview
+            return ""
+        if isinstance(value, list):
+            previews = [self._extract_input_item_preview(child) for child in value[:3]]
+            return " | ".join(preview for preview in previews if preview)
+        return ""
+
+    def _truncate_preview(self, value: str) -> str:
+        """큰 입력 원인을 식별할 수 있을 정도로만 preview를 제한합니다."""
+        normalized = " ".join(value.split())
+        if len(normalized) <= INPUT_DEBUG_PREVIEW_CHARS:
+            return normalized
+        return f"{normalized[:INPUT_DEBUG_PREVIEW_CHARS]}..."
 
     def _build_initial_output(self) -> AgentInvokeOutput:
         """invoke 입력과 분리된 agent 출력 기본값을 생성합니다."""
@@ -259,13 +468,24 @@ class ChatStreamingAgent(BaseAgent):
 
     def _format_llm_stream_error(self, exc: Exception) -> str:
         """LLM 스트리밍 예외를 사용자에게 전달 가능한 메시지로 정규화합니다."""
-        message = str(exc)
-        if "context window" in message.lower() or "input exceeds" in message.lower():
+        if self._is_context_window_error(exc):
             return (
                 "LLM 입력이 모델 context window를 초과했습니다. "
                 "이전 대화 또는 tool 결과가 너무 커서 최근 대화만 다시 시도해 주세요."
             )
-        return f"LLM streaming request failed: {message}"
+        return f"LLM streaming request failed: {str(exc)}"
+
+    def _is_context_window_error(self, exc: Exception) -> bool:
+        """provider별 context window 초과 메시지를 공통 조건으로 판별합니다."""
+        message = str(exc)
+        normalized_message = message.lower()
+        return (
+            "context window" in normalized_message
+            or "input exceeds" in normalized_message
+            or "context_length_exceeded" in normalized_message
+            or "maximum context length" in normalized_message
+            or "too many tokens" in normalized_message
+        )
 
     def _handle_after_call_completion(
         self,

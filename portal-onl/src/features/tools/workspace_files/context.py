@@ -1,8 +1,11 @@
 from contextvars import ContextVar
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 from core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,11 +29,24 @@ def set_workspace_file_context(
 ) -> None:
     """현재 agent 실행에서 사용할 워크스페이스 로컬 저장소를 설정합니다."""
     if workspace_id is None or local_path is None:
+        logger.debug(
+            "Clearing workspace file context workspace_id=%s local_path_present=%s",
+            workspace_id,
+            local_path is not None,
+        )
         _workspace_file_context.set(None)
         return
 
+    path = Path(local_path)
+    logger.debug(
+        "Setting workspace file context workspace_id=%s local_path=%s exists=%s is_dir=%s",
+        workspace_id,
+        path,
+        path.exists(),
+        path.is_dir(),
+    )
     _workspace_file_context.set(
-        WorkspaceFileContext(workspace_id=workspace_id, local_path=Path(local_path))
+        WorkspaceFileContext(workspace_id=workspace_id, local_path=path)
     )
 
 
@@ -43,6 +59,7 @@ def require_workspace_file_context() -> WorkspaceFileContext:
     """워크스페이스 로컬 저장소 컨텍스트를 반환하거나 명확한 오류를 발생시킵니다."""
     context = _workspace_file_context.get()
     if context is None:
+        logger.warning("Workspace file context is missing for current tool execution.")
         raise ValueError("Workspace local storage is not available for this session.")
     return context
 

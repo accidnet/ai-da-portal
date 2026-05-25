@@ -79,6 +79,12 @@ class MessageStreamService:
             if workspace_id is not None
             else None
         )
+        logger.info(
+            "Prepared chat workspace local storage session_id=%s workspace_id=%s local_path=%s",
+            session_id,
+            workspace_id,
+            workspace_local_path,
+        )
 
         # 사용자 입력 메세지는 바로 저장
         user_message_id = self._message_repository.record_user_message(
@@ -146,9 +152,18 @@ class MessageStreamService:
                 session_id,
                 len(input_items),
             )
+            logger.debug(
+                "Invoking chat agent session_id=%s workspace_id=%s workspace_local_path=%s dataset_count=%s",
+                session_id,
+                workspace_id,
+                workspace_local_path,
+                len(dataset_ids),
+            )
             agent_events = agent_runtime.invoke(
                 {
                     "session_id": session_id,
+                    "user_message_id": user_message_id,
+                    "agent_run_id": agent_run_id,
                     "workspace_id": workspace_id,
                     "workspace_local_path": workspace_local_path,
                     "message": message,
@@ -161,9 +176,7 @@ class MessageStreamService:
                 try:
                     event = next(agent_events)
                 except StopIteration as exc:
-                    output, _agent_results = self._unpack_agent_invoke_result(
-                        exc.value
-                    )
+                    output, _agent_results = self._unpack_agent_invoke_result(exc.value)
                     break
 
                 sse_event = self._coerce_sse_event(event)
@@ -218,10 +231,6 @@ class MessageStreamService:
         finally:
             # 스트리밍 정상 종료, 오류, 클라이언트 연결 종료 모두 요청 단위 메모리를 정리합니다.
             agent_runtime.cleanup_runtime_resources()
-            logger.debug(
-                "Cleaned agent runtime resources session_id=%s",
-                session_id,
-            )
 
     def _record_chat_snapshot(
         self,
@@ -309,7 +318,9 @@ class MessageStreamService:
 
         return cast(AgentInvokeOutput, invoke_result), {}
 
-    def _extract_input_items(self, output: AgentInvokeOutput) -> list[dict[str, object]]:
+    def _extract_input_items(
+        self, output: AgentInvokeOutput
+    ) -> list[dict[str, object]]:
         """agent output에서 timeline에 저장할 input item 목록을 정규화합니다."""
         input_items = output.get("input_items", [])
         if not isinstance(input_items, list):
@@ -474,9 +485,7 @@ class MessageStreamService:
             "used_tools": [
                 tool for tool in output.get("used_tools", []) if isinstance(tool, str)
             ],
-            "plan": [
-                step for step in output.get("plan", []) if isinstance(step, dict)
-            ],
+            "plan": [step for step in output.get("plan", []) if isinstance(step, dict)],
             "plan_explanation": (
                 output.get("plan_explanation")
                 if isinstance(output.get("plan_explanation"), str)

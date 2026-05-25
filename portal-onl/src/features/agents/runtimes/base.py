@@ -7,6 +7,7 @@ from typing import cast
 from core.config import get_settings
 from features.agents.prompt_loader import load_prompt
 from features.agents.runtime_resources import collect_runtime_resource_payload
+from features.agents.skill_loader import load_agent_skills
 from features.agents.state import (
     AgentInvokeOutput,
     AgentState,
@@ -41,9 +42,6 @@ from features.tools.workspace_files.context import (
 )
 
 logger = logging.getLogger(__name__)
-INPUT_DEBUG_EDGE_ITEM_COUNT = 10
-INPUT_DEBUG_LARGEST_ITEM_COUNT = 8
-INPUT_DEBUG_PREVIEW_CHARS = 240
 
 
 class BaseAgent:
@@ -98,14 +96,21 @@ class BaseAgent:
         workspace_local_path: str | None,
     ) -> None:
         """agent tool 실행에서 사용할 워크스페이스 로컬 저장소 컨텍스트를 설정합니다."""
+        logger.debug(
+            "Configuring agent workspace local storage workspace_id=%s local_path=%s",
+            workspace_id,
+            workspace_local_path,
+        )
         set_workspace_file_context(
             workspace_id=workspace_id,
             local_path=workspace_local_path,
         )
 
-    def _build_developer_input(self, *, dataset_ids: list[str]) -> Message:
+    def _build_developer_input(
+        self, *, workspace_id: str | None, dataset_ids: list[str]
+    ) -> Message:
         """업로드 데이터셋 정보를 모델 입력용 개발자 메시지로 활용합니다."""
-        payload = self._build_dataset_context_payload(dataset_ids)
+        payload = self._build_dataset_context_payload(dataset_ids, workspace_id)
         return Message(
             role="developer",
             content=(
@@ -119,8 +124,7 @@ class BaseAgent:
         )
 
     def _build_dataset_context_payload(
-        self,
-        dataset_ids: list[str],
+        self, dataset_ids: list[str], workspace_id: str | None
     ) -> dict[str, object]:
         """dataset_id 목록을 DB 기준 dataset/source 메타데이터로 확장합니다."""
         datasets: list[DatasetRecord] = []
@@ -135,6 +139,7 @@ class BaseAgent:
 
         source_items = self._load_source_items_by_id(datasets)
         return {
+            "workspace_id": workspace_id,
             "datasets": [
                 self._build_dataset_context(dataset, source_items)
                 for dataset in datasets
@@ -215,18 +220,25 @@ class BaseAgent:
         self,
         *,
         message: str,
+        workspace_id: str | None,
         dataset_ids: list[str],
         input_items: list[dict[str, object]] | None = None,
     ) -> list[dict[str, object]]:
         """초기 LLM 요청 input 목록을 구성합니다."""
         inputs = []
         if dataset_ids:
-            inputs.append(self._build_developer_input(dataset_ids=dataset_ids))
+            inputs.append(
+                self._build_developer_input(
+                    workspace_id=workspace_id, dataset_ids=dataset_ids
+                )
+            )
 
         if input_items:
             inputs.extend(input_items)
         else:
-            inputs.append(Message(role="user", content=(ResponseInputText(text=message),)))
+            inputs.append(
+                Message(role="user", content=(ResponseInputText(text=message),))
+            )
 
         return InputItemList(items=inputs).to_payload()
 
@@ -275,15 +287,26 @@ class BaseAgent:
         self, input_items: list[dict[str, object]]
     ) -> dict[str, object]:
         input_payload = self._build_model_limited_input(input_items)
+        instructions = self._build_instructions()
         # 외부 LLM API 호출에 필요한 요청 파라미터를 구성합니다.
         return {
-            "instructions": load_prompt("base.md"),
+            "instructions": instructions,
             "input": input_payload,
             "tools": registry.get_tool_definitions(),
             "tool_choice": "auto",
             "parallel_tool_calls": False,
             "reasoning": {"effort": "medium"},
         }
+
+    def _build_instructions(self) -> str:
+        """기본 프롬프트와 프로젝트 skill 문서를 LLM instructions로 합성합니다."""
+        base_prompt = load_prompt("base.md")
+        skills = load_agent_skills()
+        if not skills:
+            return base_prompt
+
+        # skill은 실행 정책이므로 기본 프롬프트 뒤에 고정 지침으로 붙입니다.
+        return f"{base_prompt}\n\n# 프로젝트 Skills\n\n{skills}"
 
     def _build_model_limited_input(
         self, input_items: list[dict[str, object]]
@@ -301,13 +324,6 @@ class BaseAgent:
             max_input_tokens=max_input_tokens,
             reserved_tokens=reserved_tokens,
         )
-        self._log_llm_input_debug(
-            model=settings.llm_model,
-            max_input_tokens=max_input_tokens,
-            reserved_tokens=reserved_tokens,
-            before_items=injected_input,
-            after_items=trimmed_input,
-        )
         if len(trimmed_input) != len(injected_input):
             logger.info(
                 "Trimmed LLM input items by model token limit model=%s before=%s after=%s max_input_tokens=%s",
@@ -320,121 +336,9 @@ class BaseAgent:
 
     def _estimate_non_input_request_tokens(self) -> int:
         """instructions와 tool definition이 차지하는 대략적인 input token을 예약합니다."""
-        return estimate_input_tokens(load_prompt("base.md")) + estimate_input_tokens(
-            registry.get_tool_definitions()
-        )
-
-    def _log_llm_input_debug(
-        self,
-        *,
-        model: str,
-        max_input_tokens: int,
-        reserved_tokens: int,
-        before_items: list[dict[str, object]],
-        after_items: list[dict[str, object]],
-    ) -> None:
-        """LLM input 크기 원인을 추적할 수 있게 compact preview 로그를 남깁니다."""
-        payload = {
-            "model": model,
-            "max_input_tokens": max_input_tokens,
-            "reserved_tokens": reserved_tokens,
-            "available_input_tokens": max(max_input_tokens - reserved_tokens, 1),
-            "before": self._summarize_input_items(before_items),
-            "after": self._summarize_input_items(after_items),
-        }
-        logger.info(
-            "LLM input items debug preview=%s",
-            json.dumps(payload, ensure_ascii=False),
-        )
-
-    def _summarize_input_items(
-        self, input_items: list[dict[str, object]]
-    ) -> dict[str, object]:
-        """input item 목록을 로그용 크기/preview 정보로 요약합니다."""
-        summaries = [
-            self._summarize_input_item(index=index, item=item)
-            for index, item in enumerate(input_items)
-        ]
-        total_tokens = sum(
-            summary["estimated_tokens"]
-            for summary in summaries
-            if isinstance(summary.get("estimated_tokens"), int)
-        )
-        return {
-            "count": len(input_items),
-            "estimated_tokens": total_tokens,
-            "items": self._select_edge_summaries(summaries),
-            "largest_items": sorted(
-                summaries,
-                key=lambda summary: int(summary.get("estimated_tokens") or 0),
-                reverse=True,
-            )[:INPUT_DEBUG_LARGEST_ITEM_COUNT],
-        }
-
-    def _select_edge_summaries(
-        self, summaries: list[dict[str, object]]
-    ) -> list[dict[str, object]]:
-        """긴 item 목록은 앞/뒤 일부만 보여줘 로그 크기를 제한합니다."""
-        edge_count = INPUT_DEBUG_EDGE_ITEM_COUNT
-        if len(summaries) <= edge_count * 2:
-            return summaries
-        return [
-            *summaries[:edge_count],
-            {
-                "omitted_items": len(summaries) - edge_count * 2,
-            },
-            *summaries[-edge_count:],
-        ]
-
-    def _summarize_input_item(
-        self,
-        *,
-        index: int,
-        item: dict[str, object],
-    ) -> dict[str, object]:
-        """단일 Responses input item의 로그용 preview를 생성합니다."""
-        preview = self._extract_input_item_preview(item)
-        return {
-            "index": index,
-            "type": item.get("type"),
-            "role": item.get("role"),
-            "name": item.get("name"),
-            "call_id": item.get("call_id"),
-            "status": item.get("status"),
-            "phase": item.get("phase"),
-            "estimated_tokens": estimate_input_tokens(item),
-            "estimated_chars": len(json.dumps(item, ensure_ascii=False, default=str)),
-            "preview": self._truncate_preview(preview),
-        }
-
-    def _extract_input_item_preview(self, value: object) -> str:
-        """중첩 payload에서 사람이 볼 만한 짧은 문자열 후보를 추출합니다."""
-        if isinstance(value, str):
-            return value
-        if isinstance(value, dict):
-            for key in ("text", "output", "arguments", "content"):
-                child = value.get(key)
-                if isinstance(child, str):
-                    return child
-                if isinstance(child, list):
-                    preview = self._extract_input_item_preview(child)
-                    if preview:
-                        return preview
-            return ""
-        if isinstance(value, list):
-            previews = [
-                self._extract_input_item_preview(child)
-                for child in value[:3]
-            ]
-            return " | ".join(preview for preview in previews if preview)
-        return ""
-
-    def _truncate_preview(self, value: str) -> str:
-        """로그 preview 문자열 길이를 제한합니다."""
-        normalized = " ".join(value.split())
-        if len(normalized) <= INPUT_DEBUG_PREVIEW_CHARS:
-            return normalized
-        return f"{normalized[:INPUT_DEBUG_PREVIEW_CHARS]}..."
+        return estimate_input_tokens(
+            self._build_instructions()
+        ) + estimate_input_tokens(registry.get_tool_definitions())
 
     def _inject_runtime_resource_input(
         self, input_items: list[dict[str, object]]
@@ -444,7 +348,7 @@ class BaseAgent:
         workspace_input = self._build_workspace_local_storage_input()
         if workspace_input is not None:
             developer_inputs.append(workspace_input)
-        logger.debug("Built runtime developer inputs=%s", developer_inputs)
+
         insert_index = 0
         for item in input_items:
             if item.get("role") != "developer":
