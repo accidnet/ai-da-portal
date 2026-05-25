@@ -39,7 +39,7 @@ const emit = defineEmits<{
   disconnectOpenAi: []
   openHelp: []
 }>()
-const accountLabel = computed(() => props.authStatus.accountEmail ?? '로그인 후 계정 정보가 표시됩니다.')
+const accountLabel = computed(() => props.authStatus.accountEmail ?? '로그인')
 const connectButtonLabel = computed(() => {
   if (props.isConnecting || props.authStatus.pending) return '연결 중...'
   if (props.isDisconnecting) return '로그아웃 중...'

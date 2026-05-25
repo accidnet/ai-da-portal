@@ -5,26 +5,28 @@ import type {
   MessageAttachmentPreview,
   SessionItem,
   WorkspacePayload,
-} from '../types'
-import { DEFAULT_SESSION_TITLE } from '../constants/analysisPage'
-import type { SessionRuntimeState } from './sessionState'
+} from "../types";
+import { DEFAULT_SESSION_TITLE } from "../constants/analysisPage";
+import type { SessionRuntimeState } from "./sessionState";
 import type {
   DatasetLibraryResponse,
   DatasetSourceTreeNodeResponse,
   OpenAiAuthStatusResponse,
   SessionSummaryResponse,
-} from '@/features/data-analysis/api/analysisApi'
-import type { DatasetSourceTreeItem } from '@/features/data-source/types'
+} from "@/features/data-analysis/api/analysisApi";
+import type { DatasetSourceTreeItem } from "@/features/data-source/types";
 
 export function clampAnalyticsPaneWidth(width: number): number {
-  return Math.min(Math.max(width, 320), 720)
+  return Math.min(Math.max(width, 320), 720);
 }
 
 export function clampSidebarWidth(width: number): number {
-  return Math.min(Math.max(width, 248), 420)
+  return Math.min(Math.max(width, 248), 420);
 }
 
-export function mapSessionSummary(session: SessionSummaryResponse): SessionItem {
+export function mapSessionSummary(
+  session: SessionSummaryResponse,
+): SessionItem {
   return {
     id: session.id,
     workspaceId: session.workspace_id ?? null,
@@ -35,10 +37,12 @@ export function mapSessionSummary(session: SessionSummaryResponse): SessionItem 
     datasetCount: session.dataset_count ?? 0,
     preferredDatasetId: session.preferred_dataset_id ?? null,
     lastDataset: session.last_dataset ?? null,
-  }
+  };
 }
 
-export function mapDatasetLibraryItem(dataset: DatasetLibraryResponse): DatasetLibraryItem {
+export function mapDatasetLibraryItem(
+  dataset: DatasetLibraryResponse,
+): DatasetLibraryItem {
   return {
     id: dataset.id,
     filename: dataset.filename,
@@ -54,10 +58,12 @@ export function mapDatasetLibraryItem(dataset: DatasetLibraryResponse): DatasetL
     preview: null,
     profile: null,
     sourceTree: null,
-  }
+  };
 }
 
-export function mapDatasetSourceTreeItem(source: DatasetSourceTreeNodeResponse): DatasetSourceTreeItem {
+export function mapDatasetSourceTreeItem(
+  source: DatasetSourceTreeNodeResponse,
+): DatasetSourceTreeItem {
   return {
     id: source.id,
     sourceRefId: source.source_ref_id,
@@ -71,7 +77,7 @@ export function mapDatasetSourceTreeItem(source: DatasetSourceTreeNodeResponse):
     columnCount: source.column_count,
     fileCount: source.file_count,
     children: source.children.map(mapDatasetSourceTreeItem),
-  }
+  };
 }
 
 export function mapOpenAiAuthStatus(status: OpenAiAuthStatusResponse) {
@@ -83,34 +89,38 @@ export function mapOpenAiAuthStatus(status: OpenAiAuthStatusResponse) {
     accountId: status.account_id,
     expiresAt: status.expires_at,
     scopes: status.scopes,
-  }
+  };
 }
 
 export function createWelcomeMessages(): ChatMessage[] {
   return [
     {
-      role: 'assistant',
-      author: 'AI 데이터 분석가',
-      text: '데이터셋을 업로드하면 바로 분석을 시작할 수 있어요.',
+      role: "assistant",
+      author: "AI 데이터 분석가",
+      text: "데이터와 함께 모든 분석이 가능한 AI 에이전트입니다.",
       bullets: [
-        { text: 'CSV 또는 스프레드시트 파일 업로드하기' },
-        { text: '추세, 상관관계, 이상치 분석 요청하기' },
-        { text: '간단한 그래프 시각화 요청하기' },
+        {
+          text: "대용량 데이터와 한정된 컴퓨팅 자원에서도 문제 없이 처리",
+        },
+        { text: "정해진 워크스페이스 내에서 데이터 전처리/가공" },
+        { text: "기초 통계부터 고급 통계 기법까지 제공" },
+        { text: "분석된 결과를 중점으로 유의미한 시각화" },
+        { text: "지도/비지도 머신러닝 모델도 설계하고 학습" },
       ],
     },
-  ]
+  ];
 }
 
 export function normalizeAssistantMessage(message: string): string {
-  let normalizedMessage = message.trim()
-  normalizedMessage = normalizedMessage.replace(/^\[(?:Pasted?|Past)\s*/i, '')
+  let normalizedMessage = message.trim();
+  normalizedMessage = normalizedMessage.replace(/^\[(?:Pasted?|Past)\s*/i, "");
   return normalizedMessage
     .split(/\r?\n/)
-    .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    .map((line) => line.replace(/^[-*]\s+/, "").trim())
     .filter(Boolean)
-    .join('\n')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
+    .join("\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 export function createSessionState(title: string): SessionRuntimeState {
@@ -121,36 +131,45 @@ export function createSessionState(title: string): SessionRuntimeState {
     workspacePayload: null,
     datasets: [],
     preferredDatasetId: null,
-  }
+  };
 }
 
 export function resolvePreferredDatasetId(
   state: SessionRuntimeState | null | undefined,
 ): string | null {
-  if (!state) return null
-  if (state.preferredDatasetId && state.datasets.some((dataset) => dataset.id === state.preferredDatasetId)) {
-    return state.preferredDatasetId
+  if (!state) return null;
+  if (
+    state.preferredDatasetId &&
+    state.datasets.some((dataset) => dataset.id === state.preferredDatasetId)
+  ) {
+    return state.preferredDatasetId;
   }
 
-  return state.datasets[0]?.id ?? null
+  return state.datasets[0]?.id ?? null;
 }
 
 export function sanitizeFileNameSegment(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9가-힣]+/g, '-').replace(/^-+|-+$/g, '') || 'analysis-report'
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "analysis-report"
+  );
 }
 
 export function formatFileSize(size: number): string {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function createAttachmentPreview(
   filename: string,
   size: number,
   preview: {
-    columns: string[]
-    rows: Array<Record<string, string | number | null>>
+    columns: string[];
+    rows: Array<Record<string, string | number | null>>;
   },
 ): MessageAttachmentPreview {
   return {
@@ -158,92 +177,118 @@ export function createAttachmentPreview(
     meta: `${formatFileSize(size)} · ${preview.rows.length}행 미리보기`,
     columns: preview.columns,
     rows: preview.rows,
-  }
+  };
 }
 
 export function buildReportContent(payload: {
-  sessionState: SessionRuntimeState | null
-  dataset: SessionRuntimeState['datasets'][number] | null
-  analytics: AnalyticsPayload | null
-  workspace: WorkspacePayload | null
+  sessionState: SessionRuntimeState | null;
+  dataset: SessionRuntimeState["datasets"][number] | null;
+  analytics: AnalyticsPayload | null;
+  workspace: WorkspacePayload | null;
 }): string {
-  const { sessionState, dataset, analytics, workspace } = payload
-  const lines: string[] = []
-  lines.push(`# ${workspace?.title ?? sessionState?.title ?? DEFAULT_SESSION_TITLE}`)
+  const { sessionState, dataset, analytics, workspace } = payload;
+  const lines: string[] = [];
+  lines.push(
+    `# ${workspace?.title ?? sessionState?.title ?? DEFAULT_SESSION_TITLE}`,
+  );
   if (workspace?.description) {
-    lines.push('', workspace.description)
+    lines.push("", workspace.description);
   }
   if (dataset) {
-    lines.push('', '## 데이터셋', `- 파일명: ${dataset.filename}`, `- 생성 시각: ${dataset.createdAt}`)
+    lines.push(
+      "",
+      "## 데이터셋",
+      `- 파일명: ${dataset.filename}`,
+      `- 생성 시각: ${dataset.createdAt}`,
+    );
     if (dataset.profile) {
-      lines.push(`- 행/열: ${dataset.profile.rowCount}행 / ${dataset.profile.columnCount}열`)
+      lines.push(
+        `- 행/열: ${dataset.profile.rowCount}행 / ${dataset.profile.columnCount}열`,
+      );
     }
   }
   if (analytics?.summary_cards?.length) {
-    lines.push('', '## 핵심 지표')
+    lines.push("", "## 핵심 지표");
     for (const card of analytics.summary_cards) {
-      lines.push(`- ${card.label}: ${card.value}${card.detail ? ` (${card.detail})` : ''}`)
+      lines.push(
+        `- ${card.label}: ${card.value}${card.detail ? ` (${card.detail})` : ""}`,
+      );
     }
   }
   if (analytics?.insights?.length) {
-    lines.push('', '## 인사이트')
+    lines.push("", "## 인사이트");
     for (const insight of analytics.insights) {
-      lines.push(`### ${insight.title}`, insight.body)
+      lines.push(`### ${insight.title}`, insight.body);
       if (insight.action_label) {
-        lines.push(`- 제안 액션: ${insight.action_label}`)
+        lines.push(`- 제안 액션: ${insight.action_label}`);
       }
-      lines.push('')
+      lines.push("");
     }
-    while (lines.at(-1) === '') lines.pop()
+    while (lines.at(-1) === "") lines.pop();
   }
   if (analytics?.charts?.length) {
-    lines.push('', '## 차트')
+    lines.push("", "## 차트");
     for (const chart of analytics.charts) {
-      lines.push(`### ${chart.title}`)
+      lines.push(`### ${chart.title}`);
       for (const series of chart.series) {
         lines.push(
-          `- ${series.name}: ${series.data.map((value, index) => `${chart.x[index] ?? index}=${value ?? '-'}`).join(', ')}`,
-        )
+          `- ${series.name}: ${series.data.map((value, index) => `${chart.x[index] ?? index}=${value ?? "-"}`).join(", ")}`,
+        );
       }
     }
   }
   if (analytics?.tables?.length) {
-    lines.push('', '## 표')
+    lines.push("", "## 표");
     for (const table of analytics.tables) {
-      lines.push(`### ${table.title}`, table.columns.map((column) => column.label).join(' | '), table.columns.map(() => '---').join(' | '))
+      lines.push(
+        `### ${table.title}`,
+        table.columns.map((column) => column.label).join(" | "),
+        table.columns.map(() => "---").join(" | "),
+      );
       for (const row of table.rows) {
-        lines.push(table.columns.map((column) => String(row[column.key] ?? '-')).join(' | '))
+        lines.push(
+          table.columns
+            .map((column) => String(row[column.key] ?? "-"))
+            .join(" | "),
+        );
       }
-      lines.push('')
+      lines.push("");
     }
-    while (lines.at(-1) === '') lines.pop()
+    while (lines.at(-1) === "") lines.pop();
   }
   if (dataset?.profile?.columns?.length) {
-    lines.push('', '## 컬럼 프로파일')
+    lines.push("", "## 컬럼 프로파일");
     for (const column of dataset.profile.columns) {
-      const samples = column.sampleValues.length ? ` / 예시: ${column.sampleValues.join(', ')}` : ''
-      lines.push(`- ${column.name}: ${column.dtype} / 결측 ${Math.round(column.nullRatio * 100)}%${samples}`)
+      const samples = column.sampleValues.length
+        ? ` / 예시: ${column.sampleValues.join(", ")}`
+        : "";
+      lines.push(
+        `- ${column.name}: ${column.dtype} / 결측 ${Math.round(column.nullRatio * 100)}%${samples}`,
+      );
     }
   }
   if (sessionState?.messages?.length) {
-    lines.push('', '## 최근 대화')
+    lines.push("", "## 최근 대화");
     for (const message of sessionState.messages.slice(-6)) {
-      const speaker = message.role === 'assistant' ? (message.author ?? 'AI 데이터 분석가') : '사용자'
-      lines.push(`- ${speaker}: ${message.text}`)
+      const speaker =
+        message.role === "assistant"
+          ? (message.author ?? "AI 데이터 분석가")
+          : "사용자";
+      lines.push(`- ${speaker}: ${message.text}`);
     }
   }
-  return lines.join('\n')
+  return lines.join("\n");
 }
 
 export function isUploadableDatasetFile(file: File): boolean {
-  const name = file.name.toLowerCase()
+  const name = file.name.toLowerCase();
   return (
-    name.endsWith('.csv') ||
-    file.type.includes('csv') ||
-    file.type.startsWith('text/') ||
-    name.endsWith('.tsv') ||
-    name.endsWith('.xls') ||
-    name.endsWith('.xlsx') ||
-    name.endsWith('.json')
-  )
+    name.endsWith(".csv") ||
+    file.type.includes("csv") ||
+    file.type.startsWith("text/") ||
+    name.endsWith(".tsv") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".xlsx") ||
+    name.endsWith(".json")
+  );
 }
