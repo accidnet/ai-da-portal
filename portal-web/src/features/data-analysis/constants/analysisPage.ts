@@ -13,8 +13,8 @@ export const LOCAL_SESSION_ID = 'local-session'
 export const DRAFT_SESSION_ID = 'draft-analysis-session'
 
 export const shellSidebar: PortalSidebarData = {
-  productName: 'AI 데이터 분석',
-  productTagline: 'AI 데이터 분석 포탈',
+  productName: 'AI Data Analysis',
+  productTagline: 'AI 기반 데이터 처리, 가공, 모델링, 시각화',
   primaryNav: [
     { label: '새로운 분석', icon: 'add_chart', screen: 'dashboard', action: 'create-session' },
     { label: '데이터 소스', icon: 'database', screen: 'datasets' },

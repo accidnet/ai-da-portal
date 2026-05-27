@@ -98,7 +98,7 @@ export function createWelcomeMessages(): ChatMessage[] {
   return [
     {
       role: "assistant",
-      author: "AI 데이터 분석가",
+      author: "AI 데이터 에이전트",
       text: "데이터와 함께 모든 분석이 가능한 AI 에이전트입니다.",
       bullets: [
         {
@@ -274,7 +274,7 @@ export function buildReportContent(payload: {
     for (const message of sessionState.messages.slice(-6)) {
       const speaker =
         message.role === "assistant"
-          ? (message.author ?? "AI 데이터 분석가")
+          ? (message.author ?? "AI 데이터 에이전트")
           : "사용자";
       lines.push(`- ${speaker}: ${message.text}`);
     }

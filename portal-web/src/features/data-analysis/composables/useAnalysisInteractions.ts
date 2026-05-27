@@ -253,7 +253,7 @@ export function useAnalysisInteractions(options: {
       ...sessionState.messages,
       {
         role: 'assistant',
-        author: 'AI 데이터 분석가',
+        author: 'AI 데이터 에이전트',
         text: '',
         subMessages: [],
       },
@@ -332,7 +332,7 @@ export function useAnalysisInteractions(options: {
 
       const assistantMessage = {
         role: 'assistant' as const,
-        author: 'AI 데이터 분석가',
+        author: 'AI 데이터 에이전트',
         // 완료 이벤트의 assistant_message는 마지막 중복 출력이므로 화면 본문에 반영하지 않습니다.
         text: resolveStreamedAssistantText(streamedAssistantText),
         subMessages:
@@ -426,7 +426,7 @@ export function useAnalysisInteractions(options: {
         ...sessionState.messages,
         {
           role: 'assistant',
-          author: 'AI 데이터 분석가',
+          author: 'AI 데이터 에이전트',
           text:
             normalizeAssistantMessage(response.assistant_message)
             || '분석이 완료되어 실시간 분석 패널을 업데이트했어요.',

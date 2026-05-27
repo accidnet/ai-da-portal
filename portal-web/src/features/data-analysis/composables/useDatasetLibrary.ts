@@ -138,7 +138,7 @@ export function useDatasetLibrary(options: {
         ...sessionState.messages,
         {
           role: 'assistant',
-          author: 'AI 데이터 분석가',
+          author: 'AI 데이터 에이전트',
           text: `${dataset.filename} 업로드를 완료했어요. 이제 같은 데이터셋 ID로 채팅과 분석을 이어서 실행할 수 있어요.`,
           bullets: [
             {
