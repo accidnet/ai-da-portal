@@ -19,6 +19,10 @@ type ChartGridLayout = {
   bottom: number
   left: number
 }
+type ValueAxisLayout = ChartGridLayout & {
+  xNameGap: number
+  yNameGap: number
+}
 
 use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
@@ -226,11 +230,10 @@ function buildBarLineOption(chart: AnalyticsChartPayload): EChartsOption {
 }
 
 function buildScatterOption(chart: AnalyticsChartPayload): EChartsOption {
+  const axisLayout = resolveValueAxisLayout(chart)
+
   return {
-    ...buildBaseOption({
-      bottom: chart.meta?.x_label ? 72 : 48,
-      left: chart.meta?.y_label ? 92 : 44,
-    }),
+    ...buildBaseOption(axisLayout),
     tooltip: {
       trigger: 'item',
       confine: true,
@@ -247,7 +250,7 @@ function buildScatterOption(chart: AnalyticsChartPayload): EChartsOption {
     xAxis: {
       type: 'value',
       name: chart.meta?.x_label ?? undefined,
-      nameGap: 42,
+      nameGap: axisLayout.xNameGap,
       nameLocation: 'middle',
       nameTextStyle: { color: '#475569', fontWeight: 700 },
       splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
@@ -256,7 +259,7 @@ function buildScatterOption(chart: AnalyticsChartPayload): EChartsOption {
     yAxis: {
       type: 'value',
       name: chart.meta?.y_label ?? undefined,
-      nameGap: 82,
+      nameGap: axisLayout.yNameGap,
       nameLocation: 'middle',
       nameRotate: 90,
       nameTextStyle: { color: '#475569', fontWeight: 700 },
@@ -278,12 +281,10 @@ function buildBubbleOption(chart: AnalyticsChartPayload): EChartsOption {
   const points = chart.points ?? []
   const maxSize = Math.max(...points.map((point) => normalizeBubbleSizeValue(point.size)), 1)
   const groupedPoints = groupBubblePoints(points)
+  const axisLayout = resolveValueAxisLayout(chart)
 
   return {
-    ...buildBaseOption({
-      bottom: chart.meta?.x_label ? 72 : 48,
-      left: chart.meta?.y_label ? 92 : 44,
-    }),
+    ...buildBaseOption(axisLayout),
     legend: {
       type: 'scroll',
       top: 0,
@@ -307,7 +308,7 @@ function buildBubbleOption(chart: AnalyticsChartPayload): EChartsOption {
     xAxis: {
       type: 'value',
       name: chart.meta?.x_label ?? undefined,
-      nameGap: 42,
+      nameGap: axisLayout.xNameGap,
       nameLocation: 'middle',
       nameTextStyle: { color: '#475569', fontWeight: 700 },
       splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.2)' } },
@@ -316,7 +317,7 @@ function buildBubbleOption(chart: AnalyticsChartPayload): EChartsOption {
     yAxis: {
       type: 'value',
       name: chart.meta?.y_label ?? undefined,
-      nameGap: 82,
+      nameGap: axisLayout.yNameGap,
       nameLocation: 'middle',
       nameRotate: 90,
       nameTextStyle: { color: '#475569', fontWeight: 700 },
@@ -337,6 +338,19 @@ function buildBubbleOption(chart: AnalyticsChartPayload): EChartsOption {
         return 14 + Math.sqrt(size / maxSize) * 34
       },
     })),
+  }
+}
+
+function resolveValueAxisLayout(chart: AnalyticsChartPayload): ValueAxisLayout {
+  const hasXAxisName = Boolean(chart.meta?.x_label)
+  const hasYAxisName = Boolean(chart.meta?.y_label)
+
+  return {
+    // 값 축 차트는 축 제목을 플롯에서 조금 떼고, 카드 바깥 여백은 과하게 쓰지 않도록 균형을 맞춥니다.
+    bottom: hasXAxisName ? 60 : 44,
+    left: hasYAxisName ? 30 : 40,
+    xNameGap: hasXAxisName ? 50 : 32,
+    yNameGap: hasYAxisName ? 92 : 56,
   }
 }
 
