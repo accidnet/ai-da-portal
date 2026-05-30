@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 
-from api.v1.auth import router as auth_router
 from api.v1.chat import router as chat_router
-from features.datasets.api.router import router as datasets_router
 from api.v1.health import router as health_router
 from api.v1.sessions import router as sessions_router
+from features.auth.api.router import router as auth_router
 from features.data_sources.api.router import router as data_sources_router
+from features.datasets.api.router import router as datasets_router
 from features.workspaces.api.router import router as workspaces_router
 
 api_router = APIRouter()

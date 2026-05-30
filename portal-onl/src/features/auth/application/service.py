@@ -6,45 +6,32 @@ import socket
 import threading
 import secrets
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
 from core.config import Settings
-from domain.auth.schemas import (
+from .dto import (
+    OpenAiAuthStatusResult,
+    OpenAiAuthorizeResult,
+)
+from features.auth.domain.models import (
     OpenAiAuthState,
-    OpenAiAuthStatusResponse,
-    OpenAiAuthorizeResponse,
     OpenAiTokenBundle,
     PendingOpenAiAuth,
 )
+from features.auth.infrastructure.store import OpenAiAuthStore
 
 
 class OpenAiAuthError(RuntimeError):
+    """OpenAI OAuth 처리 중 복구 가능한 인증 오류입니다."""
+
     pass
 
 
-class OpenAiAuthStore:
-    def __init__(self, storage_path: str) -> None:
-        self._path = Path(storage_path)
-
-    def load(self) -> OpenAiAuthState:
-        if not self._path.exists():
-            return OpenAiAuthState()
-        return OpenAiAuthState.model_validate_json(
-            self._path.read_text(encoding="utf-8")
-        )
-
-    def save(self, state: OpenAiAuthState) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            state.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
-
-
 class OpenAiAuthService:
+    """OpenAI OAuth 시작, 콜백 완료, 토큰 갱신을 담당합니다."""
+
     def __init__(
         self,
         settings: Settings,
@@ -55,13 +42,14 @@ class OpenAiAuthService:
         self._store = store
         self._http_client = http_client
 
-    def get_status(self) -> OpenAiAuthStatusResponse:
+    def get_status(self) -> OpenAiAuthStatusResult:
+        """현재 OpenAI OAuth 연결 상태를 반환합니다."""
         state = self._cleanup_expired_pending(self._store.load())
         connection = state.connection
         pending = state.pending
 
         if connection:
-            return OpenAiAuthStatusResponse(
+            return OpenAiAuthStatusResult(
                 state="connected",
                 connected=True,
                 pending=False,
@@ -72,20 +60,21 @@ class OpenAiAuthService:
             )
 
         if pending:
-            return OpenAiAuthStatusResponse(
+            return OpenAiAuthStatusResult(
                 state="pending",
                 connected=False,
                 pending=True,
                 expires_at=pending.expires_at,
             )
 
-        return OpenAiAuthStatusResponse(
+        return OpenAiAuthStatusResult(
             state="disconnected",
             connected=False,
             pending=False,
         )
 
-    def build_authorize_url(self, redirect_uri: str) -> OpenAiAuthorizeResponse:
+    def build_authorize_url(self, redirect_uri: str) -> OpenAiAuthorizeResult:
+        """PKCE 상태를 저장하고 OpenAI OAuth authorize URL을 생성합니다."""
         existing = self._cleanup_expired_pending(self._store.load())
         now = datetime.now(UTC)
         code_verifier = self._urlsafe_token(64)
@@ -122,15 +111,16 @@ class OpenAiAuthService:
             "originator": self._settings.openai_auth_originator,
         }
 
-        return OpenAiAuthorizeResponse(
+        return OpenAiAuthorizeResult(
             authorization_url=f"{self._settings.openai_auth_issuer}/oauth/authorize?{urlencode(params)}",
             expires_at=expires_at,
         )
 
-    def logout(self) -> OpenAiAuthStatusResponse:
+    def logout(self) -> OpenAiAuthStatusResult:
+        """저장된 OpenAI OAuth 연결과 대기 상태를 제거합니다."""
         state = self._cleanup_expired_pending(self._store.load())
         if state.pending is None and state.connection is None:
-            return OpenAiAuthStatusResponse(
+            return OpenAiAuthStatusResult(
                 state="disconnected",
                 connected=False,
                 pending=False,
@@ -139,13 +129,14 @@ class OpenAiAuthService:
         state.pending = None
         state.connection = None
         self._store.save(state)
-        return OpenAiAuthStatusResponse(
+        return OpenAiAuthStatusResult(
             state="disconnected",
             connected=False,
             pending=False,
         )
 
     def complete_callback(self, code: str, state_value: str) -> OpenAiTokenBundle:
+        """OAuth callback code를 토큰으로 교환하고 연결 상태를 저장합니다."""
         auth_state = self._cleanup_expired_pending(self._store.load())
         pending = auth_state.pending
 
@@ -169,6 +160,7 @@ class OpenAiAuthService:
         return token_bundle
 
     def get_access_token(self) -> str | None:
+        """LLM 요청에 사용할 access token을 반환하고 만료 시 갱신합니다."""
         auth_state = self._store.load()
         connection = auth_state.connection
         if connection is None:
@@ -186,6 +178,7 @@ class OpenAiAuthService:
         return connection.access_token
 
     def get_account_id(self) -> str | None:
+        """ChatGPT 계정 헤더에 사용할 account id를 반환합니다."""
         auth_state = self._store.load()
         if auth_state.connection is None:
             return None

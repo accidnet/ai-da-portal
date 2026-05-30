@@ -3,16 +3,19 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from fastapi.testclient import TestClient
 
-from api.deps import get_openai_auth_service
 from core.config import Settings
-from domain.auth.schemas import (
-    OpenAiAuthState,
+from features.auth.api.deps import get_openai_auth_service
+from features.auth.api.schemas import (
     OpenAiAuthStatusResponse,
     OpenAiAuthorizeResponse,
+)
+from features.auth.application.service import OpenAiAuthError, OpenAiAuthService
+from features.auth.domain.models import (
+    OpenAiAuthState,
     PendingOpenAiAuth,
     OpenAiTokenBundle,
 )
-from domain.auth.service import OpenAiAuthError, OpenAiAuthService, OpenAiAuthStore
+from features.auth.infrastructure.store import OpenAiAuthStore
 from main import app
 
 

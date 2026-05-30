@@ -4,10 +4,9 @@ from api.deps import (
     get_analysis_service,
     get_dataset_service,
     get_message_service,
-    get_openai_auth_service,
-    get_openai_auth_store,
     get_session_service,
 )
+from features.auth.api.deps import get_openai_auth_service, get_openai_auth_store
 from infrastructure.db.base import Base
 from infrastructure.db.session import engine, init_database
 from main import app

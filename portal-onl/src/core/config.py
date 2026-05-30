@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     openai_auth_scope: str = "openid profile email offline_access"
     openai_auth_redirect_uri: str = "http://localhost:1455/auth/callback"
     openai_auth_originator: str = "portal-onl"
-    openai_auth_storage_path: str = "storage/openai_auth.json"
+    openai_auth_storage_path: str = (DATA_DIR / "openai_auth.json").as_posix()
     openai_auth_pending_ttl_seconds: int = 600
     openai_codex_api_endpoint: str = "https://chatgpt.com/backend-api/codex/responses"
 

@@ -5,7 +5,7 @@ from features.agents.runtimes import (
     build_chat_streaming_agent,
 )
 from core.config import Settings, get_settings
-from domain.auth.service import OpenAiAuthService, OpenAiAuthStore
+from features.auth.api.deps import get_openai_auth_service
 from features.datasets.application.service import DatasetApplicationService
 from domain.messages.stream_service import MessageStreamService
 from features.workspaces.application.local_storage import WorkspaceLocalStorage
@@ -75,17 +75,6 @@ def get_workspace_usecase() -> WorkspaceUsecase:
         repository=get_workspace_repository(),
         local_storage=get_workspace_local_storage(),
     )
-
-
-@lru_cache
-def get_openai_auth_store() -> OpenAiAuthStore:
-    settings = get_settings()
-    return OpenAiAuthStore(settings.openai_auth_storage_path)
-
-
-@lru_cache
-def get_openai_auth_service() -> OpenAiAuthService:
-    return OpenAiAuthService(settings=get_settings(), store=get_openai_auth_store())
 
 
 @lru_cache

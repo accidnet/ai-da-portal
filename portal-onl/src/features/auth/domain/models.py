@@ -1,28 +1,11 @@
 from datetime import datetime
-from typing import Literal
 
-from pydantic import BaseModel, Field
-
-
-OpenAiAuthStatus = Literal["disconnected", "pending", "connected"]
-
-
-class OpenAiAuthorizeResponse(BaseModel):
-    authorization_url: str
-    expires_at: datetime
-
-
-class OpenAiAuthStatusResponse(BaseModel):
-    state: OpenAiAuthStatus
-    connected: bool
-    pending: bool
-    account_email: str | None = None
-    account_id: str | None = None
-    expires_at: datetime | None = None
-    scopes: list[str] = Field(default_factory=list)
+from pydantic import BaseModel
 
 
 class PendingOpenAiAuth(BaseModel):
+    """OpenAI OAuth 완료 전 검증해야 하는 PKCE 상태입니다."""
+
     state: str
     code_verifier: str
     redirect_uri: str
@@ -31,6 +14,8 @@ class PendingOpenAiAuth(BaseModel):
 
 
 class OpenAiTokenBundle(BaseModel):
+    """OpenAI OAuth 토큰과 계정 식별 정보를 함께 보관합니다."""
+
     access_token: str
     refresh_token: str | None = None
     token_type: str = "Bearer"
@@ -43,5 +28,7 @@ class OpenAiTokenBundle(BaseModel):
 
 
 class OpenAiAuthState(BaseModel):
+    """로컬 파일에 저장되는 OpenAI 인증 상태입니다."""
+
     pending: PendingOpenAiAuth | None = None
     connection: OpenAiTokenBundle | None = None

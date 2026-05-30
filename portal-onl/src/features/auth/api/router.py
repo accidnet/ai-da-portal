@@ -4,9 +4,10 @@ from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import HTMLResponse
 
-from api.deps import get_openai_auth_service
-from domain.auth.schemas import OpenAiAuthStatusResponse, OpenAiAuthorizeResponse
-from domain.auth.service import OpenAiAuthError, OpenAiAuthService
+from .deps import get_openai_auth_service
+from .schemas import OpenAiAuthStatusResponse, OpenAiAuthorizeResponse
+from features.auth.application.dto import OpenAiAuthStatusResult, OpenAiAuthorizeResult
+from features.auth.application.service import OpenAiAuthError, OpenAiAuthService
 
 router = APIRouter()
 
@@ -101,7 +102,8 @@ def _build_callback_html(
 def get_openai_auth_status(
     service: OpenAiAuthService = Depends(get_openai_auth_service),
 ) -> OpenAiAuthStatusResponse:
-    return service.get_status()
+    """OpenAI OAuth 연결 상태를 조회합니다."""
+    return _to_status_response(service.get_status())
 
 
 @router.post("/openai/authorize", response_model=OpenAiAuthorizeResponse)
@@ -109,15 +111,17 @@ def authorize_openai(
     request: Request,
     service: OpenAiAuthService = Depends(get_openai_auth_service),
 ) -> OpenAiAuthorizeResponse:
+    """OpenAI OAuth 로그인을 시작할 authorize URL을 반환합니다."""
     callback_url = _normalize_callback_url(str(request.url_for("openai_auth_callback")))
-    return service.build_authorize_url(callback_url)
+    return _to_authorize_response(service.build_authorize_url(callback_url))
 
 
 @router.post("/openai/logout", response_model=OpenAiAuthStatusResponse)
 def logout_openai(
     service: OpenAiAuthService = Depends(get_openai_auth_service),
 ) -> OpenAiAuthStatusResponse:
-    return service.logout()
+    """저장된 OpenAI OAuth 연결 상태를 제거합니다."""
+    return _to_status_response(service.logout())
 
 
 @router.get(
@@ -130,6 +134,7 @@ def openai_auth_callback(
     error_description: str | None = Query(default=None),
     service: OpenAiAuthService = Depends(get_openai_auth_service),
 ) -> HTMLResponse:
+    """OpenAI OAuth callback을 처리하고 opener 창에 결과를 전달합니다."""
     if error:
         description = error_description or error
         return _build_callback_html(
@@ -183,3 +188,15 @@ def openai_auth_callback(
         },
         status_code=status.HTTP_200_OK,
     )
+
+
+def _to_status_response(result: OpenAiAuthStatusResult) -> OpenAiAuthStatusResponse:
+    """Application DTO를 FastAPI 응답 모델로 변환합니다."""
+    return OpenAiAuthStatusResponse.model_validate(result.model_dump())
+
+
+def _to_authorize_response(
+    result: OpenAiAuthorizeResult,
+) -> OpenAiAuthorizeResponse:
+    """Application DTO를 FastAPI 응답 모델로 변환합니다."""
+    return OpenAiAuthorizeResponse.model_validate(result.model_dump())

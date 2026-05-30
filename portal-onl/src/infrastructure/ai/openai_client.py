@@ -5,7 +5,7 @@ import httpx
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from core.config import Settings
-from domain.auth.service import OpenAiAuthService
+from features.auth.application.service import OpenAiAuthService
 from infrastructure.ai.client import AiClientError
 
 
