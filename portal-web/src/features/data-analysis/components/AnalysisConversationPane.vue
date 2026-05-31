@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ComposerData, ConversationData } from "../types";
 
@@ -24,6 +24,8 @@ const recommendedQuestions = [
 
 const draft = ref("");
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const conversationScrollRef = ref<HTMLDivElement | null>(null);
+const shouldFollowStreamingResponse = ref(false);
 
 const canSend = computed(
   () => draft.value.trim().length > 0 && !props.sendDisabled,
@@ -152,6 +154,8 @@ function submit() {
   if (!message || props.sendDisabled) {
     return;
   }
+  shouldFollowStreamingResponse.value = true;
+  scrollConversationToBottom();
   emit("send", message);
   draft.value = "";
   nextTick(syncTextareaHeight);
@@ -186,18 +190,53 @@ function syncTextareaHeight() {
     textarea.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
+/** 응답 스트리밍 중 새 버블 높이에 맞춰 대화 영역 하단을 유지합니다. */
+function scrollConversationToBottom() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const scrollContainer = conversationScrollRef.value;
+      if (!scrollContainer || !shouldFollowStreamingResponse.value) return;
+
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    });
+  });
+}
+
+/** 사용자가 화면 어디든 직접 누르면 다음 전송 전까지 자동 추적을 멈춥니다. */
+function stopFollowingOnUserClick() {
+  if (!shouldFollowStreamingResponse.value) return;
+  shouldFollowStreamingResponse.value = false;
+}
+
 watch(draft, () => {
   nextTick(syncTextareaHeight);
 });
 
+watch(
+  () => props.conversation.messages,
+  () => {
+    scrollConversationToBottom();
+  },
+  { deep: true },
+);
+
 onMounted(() => {
   syncTextareaHeight();
+  document.addEventListener("pointerdown", stopFollowingOnUserClick, {
+    capture: true,
+  });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", stopFollowingOnUserClick, {
+    capture: true,
+  });
 });
 </script>
 
 <template>
   <section class="conversation-shell">
-    <div class="conversation-scroll">
+    <div ref="conversationScrollRef" class="conversation-scroll">
       <article
         v-for="(message, index) in conversation.messages"
         :key="`${message.role}-${index}`"
