@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import DOMPurify from "dompurify";
+import MarkdownIt from "markdown-it";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ComposerData, ConversationData } from "../types";
@@ -27,6 +29,33 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const conversationScrollRef = ref<HTMLDivElement | null>(null);
 const shouldFollowStreamingResponse = ref(false);
 
+const markdownRenderer = new MarkdownIt({
+  breaks: true,
+  html: false,
+  linkify: true,
+  typographer: true,
+});
+const defaultLinkOpenRenderer =
+  markdownRenderer.renderer.rules.link_open ??
+  ((tokens, index, options, _env, self) =>
+    self.renderToken(tokens, index, options));
+
+markdownRenderer.renderer.rules.link_open = (
+  tokens,
+  index,
+  options,
+  env,
+  self,
+) => {
+  const token = tokens[index];
+
+  // AI 응답 링크는 현재 작업 흐름을 유지하도록 새 탭으로 열고 referrer를 넘기지 않습니다.
+  token.attrSet("target", "_blank");
+  token.attrSet("rel", "noreferrer");
+
+  return defaultLinkOpenRenderer(tokens, index, options, env, self);
+};
+
 const canSend = computed(
   () => draft.value.trim().length > 0 && !props.sendDisabled,
 );
@@ -49,88 +78,9 @@ function shouldRenderThinking(index: number): boolean {
   return thinkingMessageIndex.value === index;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function applyInlineMarkdown(value: string): string {
-  return value
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, "$1<em>$2</em>")
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
-    );
-}
-
+/** AI 응답 Markdown을 표준 파서로 렌더링하고 v-html 주입 전에 정화합니다. */
 function renderMarkdown(value: string): string {
-  const lines = value.split(/\r?\n/);
-  const blocks: string[] = [];
-  let paragraph: string[] = [];
-  let listItems: string[] = [];
-
-  const flushParagraph = () => {
-    if (!paragraph.length) {
-      return;
-    }
-
-    blocks.push(`<p>${applyInlineMarkdown(paragraph.join("<br />"))}</p>`);
-    paragraph = [];
-  };
-
-  const flushList = () => {
-    if (!listItems.length) {
-      return;
-    }
-
-    blocks.push(
-      `<ul>${listItems.map((item) => `<li>${applyInlineMarkdown(item)}</li>`).join("")}</ul>`,
-    );
-    listItems = [];
-  };
-
-  for (const rawLine of lines) {
-    const line = escapeHtml(rawLine.trimEnd());
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      const level = headingMatch[1].length;
-      blocks.push(
-        `<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`,
-      );
-      continue;
-    }
-
-    const listMatch = trimmed.match(/^[-*]\s+(.*)$/);
-    if (listMatch) {
-      flushParagraph();
-      listItems.push(listMatch[1]);
-      continue;
-    }
-
-    flushList();
-    paragraph.push(trimmed);
-  }
-
-  flushParagraph();
-  flushList();
-
-  return blocks.join("");
+  return DOMPurify.sanitize(markdownRenderer.render(value));
 }
 
 function formatPlanStepStatus(
@@ -149,6 +99,7 @@ function formatPlanStepMarker(
   return "radio_button_unchecked";
 }
 
+/** 사용자 전송 직후 응답 스트리밍 자동 추적을 다시 활성화합니다. */
 function submit() {
   const message = draft.value.trim();
   if (!message || props.sendDisabled) {
@@ -503,22 +454,37 @@ onBeforeUnmount(() => {
 
 .message-text :deep(p),
 .message-text :deep(ul),
+.message-text :deep(ol),
 .message-text :deep(h1),
 .message-text :deep(h2),
 .message-text :deep(h3),
-.message-text :deep(blockquote) {
+.message-text :deep(blockquote),
+.message-text :deep(pre),
+.message-text :deep(table) {
   margin: 0;
 }
 
 .message-text :deep(p + p),
 .message-text :deep(p + ul),
+.message-text :deep(p + ol),
 .message-text :deep(ul + p),
+.message-text :deep(ol + p),
+.message-text :deep(ul + ul),
+.message-text :deep(ol + ol),
+.message-text :deep(ul + ol),
+.message-text :deep(ol + ul),
 .message-text :deep(h1 + p),
 .message-text :deep(h2 + p),
 .message-text :deep(h3 + p),
 .message-text :deep(p + h1),
 .message-text :deep(p + h2),
-.message-text :deep(p + h3) {
+.message-text :deep(p + h3),
+.message-text :deep(p + blockquote),
+.message-text :deep(blockquote + p),
+.message-text :deep(p + pre),
+.message-text :deep(pre + p),
+.message-text :deep(p + table),
+.message-text :deep(table + p) {
   margin-top: 12px;
 }
 
@@ -534,6 +500,10 @@ onBeforeUnmount(() => {
   padding-left: 18px;
 }
 
+.message-text :deep(ol) {
+  padding-left: 20px;
+}
+
 .message-text :deep(li + li) {
   margin-top: 6px;
 }
@@ -546,6 +516,49 @@ onBeforeUnmount(() => {
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     monospace;
   font-size: 0.82em;
+}
+
+.message-text :deep(pre) {
+  overflow-x: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.message-text :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.message-text :deep(blockquote) {
+  padding-left: 12px;
+  border-left: 3px solid rgba(24, 74, 140, 0.28);
+  color: var(--color-text-muted);
+}
+
+.message-text :deep(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.message-text :deep(th),
+.message-text :deep(td) {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.message-text :deep(th) {
+  background: rgba(24, 74, 140, 0.08);
+  color: var(--color-text);
+  font-weight: 700;
 }
 
 .message-text :deep(a) {
