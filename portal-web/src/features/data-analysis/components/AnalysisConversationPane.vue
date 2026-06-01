@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
+import markdownItKatex from "markdown-it-katex";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ComposerData, ConversationData } from "../types";
@@ -34,6 +35,10 @@ const markdownRenderer = new MarkdownIt({
   html: false,
   linkify: true,
   typographer: true,
+}).use(markdownItKatex, {
+  throwOnError: false,
+  strict: "ignore",
+  trust: false,
 });
 const defaultLinkOpenRenderer =
   markdownRenderer.renderer.rules.link_open ??
@@ -80,7 +85,22 @@ function shouldRenderThinking(index: number): boolean {
 
 /** AI 응답 Markdown을 표준 파서로 렌더링하고 v-html 주입 전에 정화합니다. */
 function renderMarkdown(value: string): string {
-  return DOMPurify.sanitize(markdownRenderer.render(value));
+  return DOMPurify.sanitize(
+    markdownRenderer.render(normalizeMathDelimiters(value)),
+    {
+      ADD_ATTR: ["aria-hidden", "class", "style"],
+      USE_PROFILES: { html: true, mathMl: true },
+    },
+  );
+}
+
+/** AI가 자주 쓰는 LaTeX delimiter를 KaTeX 플러그인이 처리하는 형식으로 맞춥니다. */
+function normalizeMathDelimiters(value: string): string {
+  return value
+    .replace(/\\\[/g, "$$")
+    .replace(/\\\]/g, "$$")
+    .replace(/\\\(/g, "$")
+    .replace(/\\\)/g, "$");
 }
 
 function formatPlanStepStatus(
