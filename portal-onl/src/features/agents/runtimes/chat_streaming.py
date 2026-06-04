@@ -3,6 +3,11 @@ import logging
 from collections.abc import Generator, Iterable
 from typing import cast
 
+import httpx
+from openai import APIConnectionError, APITimeoutError
+
+from core.config import get_settings
+from core.sse import SseEvent
 from features.agents.llm_input_debug import (
     LlmInputDebugContext,
     write_llm_input_debug_file,
@@ -10,10 +15,14 @@ from features.agents.llm_input_debug import (
 from features.agents.runtimes.base import BaseAgent
 from features.agents.state import AgentInvokeInput, AgentInvokeOutput, PlanStep
 from features.agents.stream_event_handlers import handle_stream_event
-from core.sse import SseEvent
 from features.tools.charts.dto import ChartPayload
 from features.datasets.application.service import DatasetApplicationService
-from infrastructure.ai.client import AiClient, AiClientError, coerce_optional_dict
+from infrastructure.ai.client import (
+    AiClient,
+    AiClientError,
+    AiClientTransientError,
+    coerce_optional_dict,
+)
 from infrastructure.ai.model_catalog import estimate_input_tokens
 from shared.integrations.ai.contracts import (
     FunctionCall,
@@ -24,6 +33,8 @@ from shared.integrations.ai.contracts import (
 logger = logging.getLogger(__name__)
 INPUT_DEBUG_LARGEST_ITEM_COUNT = 8
 INPUT_DEBUG_PREVIEW_CHARS = 240
+STREAM_RECOVERY_TEXT_CHARS = 4000
+STREAM_RECOVERY_EVENT_LIMIT = 30
 AgentStreamEvent = dict[str, object] | SseEvent
 CHART_FUNCTION_NAMES = {
     "build_trend_chart",
@@ -59,6 +70,7 @@ class ChatStreamingAgent(BaseAgent):
         # TODO: 개발중에만 일시적으로 정해두고, 이후에는 사용자 설정에서 가능하도록 할 예정.
         max_iterations = 20
         iteration_count = 0
+        stream_recovery_count = 0
         plan_completion_requested = False
         while True:
             if iteration_count >= max_iterations:
@@ -94,6 +106,13 @@ class ChatStreamingAgent(BaseAgent):
                         stream=True,
                     ),
                 )
+            except AiClientTransientError as exc:
+                stream_result = self._build_interrupted_stream_result(
+                    exc=exc,
+                    partial_text="",
+                    event_log=[],
+                    completed_output_items=[],
+                )
             except AiClientError as exc:
                 if self._is_context_window_error(exc):
                     self._write_context_window_error_debug(
@@ -112,6 +131,36 @@ class ChatStreamingAgent(BaseAgent):
                         exc=exc,
                     )
                 raise AiClientError(self._format_llm_stream_error(exc)) from exc
+            if stream_result.get("interrupted") is True:
+                stream_recovery_count += 1
+                yield SseEvent(
+                    event_type="agent.iteration.interrupted",
+                    data={
+                        "iteration": iteration_count,
+                        "attempt": stream_recovery_count,
+                        "max_attempts": self._max_stream_recovery_attempts(),
+                    },
+                )
+                yield SseEvent(
+                    event_type="agent.iteration.done",
+                    data={
+                        "iteration": iteration_count,
+                    },
+                )
+                if stream_recovery_count > self._max_stream_recovery_attempts():
+                    raise AiClientError(
+                        "LLM streaming request was interrupted repeatedly. "
+                        "Please retry the message."
+                    )
+                input_items.append(
+                    self._build_stream_interruption_recovery_input(
+                        iteration=iteration_count,
+                        stream_result=stream_result,
+                    )
+                )
+                continue
+
+            stream_recovery_count = 0
             function_call_items = cast(
                 list[FunctionCall],
                 stream_result.get("function_call_items", []),
@@ -354,39 +403,63 @@ class ChatStreamingAgent(BaseAgent):
         # streaming 중에 생성되는 input을 순차적으로 적재하여, 다음 step input에 추가하여 활용하기 위함
         input_items: list[ResponseOutputMessage | FunctionCall] = []
         function_call_items: list[FunctionCall] = []
+        partial_text_parts: list[str] = []
+        event_log: list[dict[str, object]] = []
         should_stop_iteration = False
 
         close = getattr(stream, "close", None)
         try:
-            for event in cast(Iterable[object], stream):
-                # TODO: 해당 부분은 AI Client 부분에서 처리되어서 넘어올수있게끔 가능한 지 확인 후 수정
-                payload = coerce_optional_dict(event)
+            try:
+                for event in cast(Iterable[object], stream):
+                    # TODO: 해당 부분은 AI Client 부분에서 처리되어서 넘어올수있게끔 가능한 지 확인 후 수정
+                    payload = coerce_optional_dict(event)
 
-                if payload is None:
-                    self._log_unhandled_stream_event(event)
-                    continue
+                    if payload is None:
+                        self._log_unhandled_stream_event(event)
+                        continue
 
-                # streaming의 각 type별로 처리
-                processed_event = handle_stream_event(payload=payload)
+                    self._append_stream_event_log(event_log, payload)
+                    partial_delta = self._extract_stream_delta(payload)
+                    if partial_delta:
+                        partial_text_parts.append(partial_delta)
 
-                # 바로 프론트로 전달해야하는 경우
-                yielded_event = processed_event.yielded_event
-                if isinstance(yielded_event, SseEvent):
-                    yield yielded_event
+                    # streaming의 각 type별로 처리
+                    processed_event = handle_stream_event(payload=payload)
 
-                # input에 넣을 item이 있을 경우 추가
-                input_item = processed_event.input_item
-                if input_item:
-                    input_items.append(input_item)
+                    # 바로 프론트로 전달해야하는 경우
+                    yielded_event = processed_event.yielded_event
+                    if isinstance(yielded_event, SseEvent):
+                        yield yielded_event
 
-                # 실행해야할 function call이 있을 경우 추가
-                function_call_item = processed_event.function_call_item
-                if function_call_item:
-                    function_call_items.append(function_call_item)
+                    # input에 넣을 item이 있을 경우 추가
+                    input_item = processed_event.input_item
+                    if input_item:
+                        input_items.append(input_item)
 
-                # message output item 완료 여부를 iteration 종료 조건에 활용합니다.
-                if processed_event.should_stop_iteration:
-                    should_stop_iteration = True
+                    # 실행해야할 function call이 있을 경우 추가
+                    function_call_item = processed_event.function_call_item
+                    if function_call_item:
+                        function_call_items.append(function_call_item)
+
+                    # message output item 완료 여부를 iteration 종료 조건에 활용합니다.
+                    if processed_event.should_stop_iteration:
+                        should_stop_iteration = True
+            except Exception as exc:
+                if not self._is_recoverable_stream_error(exc):
+                    raise
+                logger.warning(
+                    "LLM stream interrupted; continuing with recovery input error_type=%s error=%s",
+                    type(exc).__name__,
+                    exc,
+                )
+                return self._build_interrupted_stream_result(
+                    exc=exc,
+                    partial_text="".join(partial_text_parts),
+                    event_log=event_log,
+                    completed_output_items=self._build_stream_input_item_payloads(
+                        {"input_items": input_items}
+                    ),
+                )
 
         finally:
             if callable(close):
@@ -397,6 +470,152 @@ class ChatStreamingAgent(BaseAgent):
             "function_call_items": function_call_items,
             "should_stop_iteration": should_stop_iteration,
         }
+
+    def _build_interrupted_stream_result(
+        self,
+        *,
+        exc: Exception,
+        partial_text: str,
+        event_log: list[dict[str, object]],
+        completed_output_items: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """중단된 LLM 호출을 다음 iteration에서 복구할 수 있는 결과로 정규화합니다."""
+        return {
+            "input_items": [],
+            "function_call_items": [],
+            "should_stop_iteration": False,
+            "interrupted": True,
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "partial_text": self._truncate_recovery_text(partial_text),
+            "event_log": event_log,
+            "completed_output_items": completed_output_items,
+        }
+
+    def _build_stream_interruption_recovery_input(
+        self,
+        *,
+        iteration: int,
+        stream_result: dict[str, object],
+    ) -> dict[str, object]:
+        """중단된 LLM 스트림의 진행 로그를 다음 iteration용 developer input으로 만듭니다."""
+        payload = {
+            "iteration": iteration,
+            "error_type": stream_result.get("error_type"),
+            "error_message": stream_result.get("error_message"),
+            "partial_text_sent_to_user": stream_result.get("partial_text") or "",
+            "recent_stream_events": stream_result.get("event_log") or [],
+            "completed_output_items": stream_result.get("completed_output_items") or [],
+        }
+        text = (
+            "이전 LLM 스트림이 네트워크 또는 타임아웃 문제로 중단되었습니다. "
+            "사용자 요청은 실패한 것이 아니며, 다음 로그를 바탕으로 같은 요청 처리를 이어가세요. "
+            "이미 사용자에게 스트리밍된 텍스트는 반복하지 말고, 필요한 tool 호출이나 최종 답변 생성을 계속하세요.\n"
+            f"{json.dumps(payload, ensure_ascii=False, default=str)}"
+        )
+        return {
+            "type": "message",
+            "role": "developer",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": text,
+                }
+            ],
+        }
+
+    def _append_stream_event_log(
+        self,
+        event_log: list[dict[str, object]],
+        payload: dict[str, object],
+    ) -> None:
+        """복구 입력에 쓸 최근 스트림 이벤트 요약을 제한된 크기로 유지합니다."""
+        event_log.append(self._summarize_stream_event(payload))
+        if len(event_log) > STREAM_RECOVERY_EVENT_LIMIT:
+            del event_log[: len(event_log) - STREAM_RECOVERY_EVENT_LIMIT]
+
+    def _summarize_stream_event(self, payload: dict[str, object]) -> dict[str, object]:
+        """중단 지점 재현에 필요한 스트림 이벤트 핵심 필드만 남깁니다."""
+        summary: dict[str, object] = {"type": payload.get("type")}
+        for key in ("item_id", "output_index", "content_index", "sequence_number"):
+            value = payload.get(key)
+            if value is not None:
+                summary[key] = value
+
+        delta = self._extract_stream_delta(payload)
+        if delta:
+            summary["delta_preview"] = self._truncate_preview(delta)
+
+        item = coerce_optional_dict(payload.get("item"))
+        if item is not None:
+            summary["item"] = self._summarize_stream_item(item)
+        return summary
+
+    def _summarize_stream_item(self, item: dict[str, object]) -> dict[str, object]:
+        """완료된 output item을 복구 판단에 충분한 수준으로 요약합니다."""
+        summary: dict[str, object] = {
+            "type": item.get("type"),
+            "role": item.get("role"),
+            "status": item.get("status"),
+            "phase": item.get("phase"),
+            "name": item.get("name"),
+            "call_id": item.get("call_id"),
+        }
+        arguments = item.get("arguments")
+        if isinstance(arguments, str):
+            summary["arguments_preview"] = self._truncate_preview(arguments)
+        preview = self._extract_input_item_preview(item)
+        if preview:
+            summary["preview"] = self._truncate_preview(preview)
+        return {key: value for key, value in summary.items() if value is not None}
+
+    def _extract_stream_delta(self, payload: dict[str, object]) -> str | None:
+        """텍스트 delta 이벤트에서 복구용 문자열 조각을 추출합니다."""
+        delta = payload.get("delta")
+        return delta if isinstance(delta, str) and delta else None
+
+    def _truncate_recovery_text(self, value: str) -> str:
+        """복구 입력이 과도하게 커지지 않도록 partial text를 제한합니다."""
+        normalized = value.strip()
+        if len(normalized) <= STREAM_RECOVERY_TEXT_CHARS:
+            return normalized
+        return normalized[-STREAM_RECOVERY_TEXT_CHARS:]
+
+    def _max_stream_recovery_attempts(self) -> int:
+        """설정값이 잘못되어도 최소 0 이상의 복구 횟수로 정규화합니다."""
+        return max(0, int(get_settings().llm_stream_recovery_attempts))
+
+    def _is_recoverable_stream_error(self, exc: Exception) -> bool:
+        """스트림 중단 후 같은 요청을 이어가도 되는 일시적 네트워크 오류를 판별합니다."""
+        if self._is_context_window_error(exc):
+            return False
+        if isinstance(
+            exc,
+            (
+                APIConnectionError,
+                APITimeoutError,
+                TimeoutError,
+                ConnectionError,
+                httpx.NetworkError,
+                httpx.TimeoutException,
+            ),
+        ):
+            return True
+
+        normalized_message = str(exc).lower()
+        return any(
+            marker in normalized_message
+            for marker in (
+                "timed out",
+                "timeout",
+                "connection reset",
+                "connection aborted",
+                "network",
+                "server disconnected",
+                "incomplete chunk",
+                "peer closed",
+            )
+        )
 
     def _build_stream_input_item_payloads(
         self, stream_result: dict[str, object]

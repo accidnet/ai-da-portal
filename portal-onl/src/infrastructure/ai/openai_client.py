@@ -6,7 +6,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from core.config import Settings
 from features.auth.application.service import OpenAiAuthService
-from infrastructure.ai.client import AiClientError
+from infrastructure.ai.client import AiClientError, AiClientTransientError
 
 
 class OpenAiProvider:
@@ -68,6 +68,7 @@ class OpenAiProvider:
             self._openai_client = OpenAI(
                 api_key=self._settings.openai_api_key,
                 http_client=self._http_client,
+                timeout=self._settings.llm_request_timeout_seconds,
             )
             return self._openai_client
 
@@ -89,6 +90,7 @@ class OpenAiProvider:
             ),
             default_headers=default_headers or None,
             http_client=self._http_client,
+            timeout=self._settings.llm_request_timeout_seconds,
         )
         return self._openai_client
 
@@ -98,11 +100,11 @@ class OpenAiProvider:
             return cast(Any, client).responses.create(**payload, stream=stream)
         except APIStatusError as exc:
             detail = self._extract_api_error_detail(exc)
-            raise AiClientError(
-                f"OpenAI request failed: {detail or str(exc)}"
-            ) from exc
-        except (APIConnectionError, APITimeoutError) as exc:
-            raise AiClientError("OpenAI response could not be processed.") from exc
+            raise AiClientError(f"OpenAI request failed: {detail or str(exc)}") from exc
+        except APITimeoutError as exc:
+            raise AiClientTransientError("OpenAI request timed out.") from exc
+        except APIConnectionError as exc:
+            raise AiClientTransientError("OpenAI connection failed.") from exc
         except Exception as exc:  # pragma: no cover - SDK-specific fallback
             raise AiClientError("OpenAI response could not be processed.") from exc
 

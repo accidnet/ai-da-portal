@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     openai_auth_storage_path: str = (DATA_DIR / "openai_auth.json").as_posix()
     openai_auth_pending_ttl_seconds: int = 600
     openai_codex_api_endpoint: str = "https://chatgpt.com/backend-api/codex/responses"
+    llm_request_timeout_seconds: float = 180.0
+    llm_stream_recovery_attempts: int = 3
 
 
 def resolve_env_files() -> tuple[str, ...]:

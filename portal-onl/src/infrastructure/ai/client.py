@@ -14,6 +14,10 @@ class AiClientError(RuntimeError):
     pass
 
 
+class AiClientTransientError(AiClientError):
+    pass
+
+
 class AiProvider(Protocol):
     def create_response(
         self,

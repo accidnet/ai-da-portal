@@ -373,6 +373,23 @@ class MessageStreamService:
             )
             return should_separate_next_text
 
+        if event_type == "agent.iteration.interrupted":
+            iteration = data.get("iteration")
+            sub_message_id = f"agent.iteration:{iteration}"
+            attempt = data.get("attempt")
+            max_attempts = data.get("max_attempts")
+            self._upsert_sub_message(
+                sub_messages,
+                sub_message_id=sub_message_id,
+                event_type=event_type,
+                text=(
+                    "LLM 스트림이 중단되어 partial stream log 기준으로 이어서 진행합니다 "
+                    f"({attempt}/{max_attempts})."
+                ),
+                is_streaming=False,
+            )
+            return should_separate_next_text
+
         if event_type == "agent.iteration.plan":
             self._upsert_sub_message(
                 sub_messages,
