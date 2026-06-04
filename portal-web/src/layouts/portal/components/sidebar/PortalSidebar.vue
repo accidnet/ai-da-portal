@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 import WorkspaceCreateDialog from './WorkspaceCreateDialog.vue'
+import WorkspaceFileExplorerDialog from './WorkspaceFileExplorerDialog.vue'
 import {
   createWorkspace as createWorkspaceRequest,
   deleteWorkspace as deleteWorkspaceRequest,
@@ -50,6 +51,7 @@ const isWorkspaceExpanded = ref(false)
 const isWorkspaceDialogOpen = ref(false)
 const workspaceDialogMode = ref<'create' | 'edit'>('create')
 const editingWorkspace = ref<WorkspaceItem | null>(null)
+const exploringWorkspace = ref<WorkspaceItem | null>(null)
 const openWorkspaceMenuId = ref<string | null>(null)
 const workspaceError = ref<string | null>(null)
 const isWorkspaceMutating = ref(false)
@@ -133,6 +135,17 @@ function openWorkspaceRenameDialog(workspace: WorkspaceItem) {
   editingWorkspace.value = workspace
   openWorkspaceMenuId.value = null
   isWorkspaceDialogOpen.value = true
+}
+
+/** 선택한 워크스페이스의 read-only 파일 탐색 다이얼로그를 엽니다. */
+function openWorkspaceFileExplorer(workspace: WorkspaceItem) {
+  exploringWorkspace.value = workspace
+  openWorkspaceMenuId.value = null
+}
+
+/** 파일 탐색 다이얼로그를 닫고 선택 상태를 정리합니다. */
+function closeWorkspaceFileExplorer() {
+  exploringWorkspace.value = null
 }
 
 /** 워크스페이스를 서버와 화면 목록에서 삭제합니다. */
@@ -239,6 +252,7 @@ onMounted(() => {
             </button>
             <div v-if="openWorkspaceMenuId === workspace.id" class="workspace-menu">
               <button type="button" @click="openWorkspaceRenameDialog(workspace)">이름 변경</button>
+              <button type="button" @click="openWorkspaceFileExplorer(workspace)">파일 탐색</button>
               <button type="button" class="workspace-menu__danger" @click="deleteWorkspace(workspace.id)">삭제</button>
             </div>
           </div>
@@ -331,6 +345,11 @@ onMounted(() => {
     :is-submitting="isWorkspaceMutating"
     @close="closeWorkspaceDialog"
     @create="saveWorkspace"
+  />
+  <WorkspaceFileExplorerDialog
+    :open="exploringWorkspace !== null"
+    :workspace="exploringWorkspace"
+    @close="closeWorkspaceFileExplorer"
   />
 </template>
 

@@ -36,6 +36,11 @@ class WorkspaceRepository:
             )
             return [self._to_domain(workspace) for workspace in workspaces]
 
+    def get(self, workspace_id: str) -> Workspace:
+        """워크스페이스 단건을 조회하고 domain 모델을 반환합니다."""
+        with SessionLocal() as db:
+            return self._to_domain(self._get_workspace_or_raise(db, workspace_id))
+
     def update(self, *, workspace_id: str, name: str) -> Workspace:
         """워크스페이스 이름을 수정하고 갱신된 domain 모델을 반환합니다."""
         with SessionLocal() as db:

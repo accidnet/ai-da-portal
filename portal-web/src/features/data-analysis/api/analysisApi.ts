@@ -85,6 +85,31 @@ export interface WorkspaceDeleteResponse {
   deleted: boolean
 }
 
+export interface WorkspaceFileEntryResponse {
+  path: string
+  name: string
+  kind: 'directory' | 'file'
+  size_bytes: number | null
+  updated_at: string
+}
+
+export interface WorkspaceFileListResponse {
+  workspace_id: string
+  path: string
+  entries: WorkspaceFileEntryResponse[]
+  has_more: boolean
+}
+
+export interface WorkspaceFileContentResponse {
+  workspace_id: string
+  path: string
+  name: string
+  size_bytes: number
+  content: string | null
+  is_binary: boolean
+  truncated: boolean
+}
+
 export interface DatasetLibraryResponse {
   id: string
   filename: string
@@ -578,6 +603,72 @@ export async function deleteWorkspace(
   }
 
   return (await response.json()) as WorkspaceDeleteResponse
+}
+
+export async function fetchWorkspaceFiles(
+  workspaceId: string,
+  path = '',
+  signal?: AbortSignal,
+): Promise<WorkspaceFileListResponse> {
+  // 파일 탐색 UI는 현재 폴더만 조회해 큰 워크스페이스에서도 응답 시간을 제한합니다.
+  const params = new URLSearchParams()
+  if (path) {
+    params.set('path', path)
+  }
+  params.set('max_entries', '200')
+
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}/files?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace file list failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceFileListResponse
+}
+
+export async function readWorkspaceFile(
+  workspaceId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceFileContentResponse> {
+  // 미리보기는 서버 기본 제한 안에서 텍스트 파일만 read-only로 읽습니다.
+  const params = new URLSearchParams({ path })
+
+  const response = await fetch(`${getPortalApiBaseUrl()}/api/v1/workspaces/${workspaceId}/files/content?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail?.trim() ?? ''
+    } catch {
+      detail = ''
+    }
+
+    throw new Error(detail || `Workspace file read failed with status ${response.status}`)
+  }
+
+  return (await response.json()) as WorkspaceFileContentResponse
 }
 
 export async function deleteSession(

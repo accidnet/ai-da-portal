@@ -14,6 +14,10 @@ class WorkspaceRepository(Protocol):
         """저장된 워크스페이스 목록을 반환합니다."""
         ...
 
+    def get(self, workspace_id: str) -> Workspace:
+        """워크스페이스를 조회하고 없으면 KeyError를 발생시킵니다."""
+        ...
+
     def update(self, *, workspace_id: str, name: str) -> Workspace:
         """워크스페이스 이름을 수정하고 domain 모델을 반환합니다."""
         ...

@@ -42,3 +42,34 @@ class WorkspaceDatasetLinkResponse(BaseModel):
 
     workspace_id: str
     dataset_ids: list[str]
+
+
+class WorkspaceFileEntryResponse(BaseModel):
+    """워크스페이스 로컬 저장소의 파일/폴더 항목 응답입니다."""
+
+    path: str
+    name: str
+    kind: str
+    size_bytes: int | None
+    updated_at: datetime
+
+
+class WorkspaceFileListResponse(BaseModel):
+    """워크스페이스 로컬 저장소 목록 조회 응답입니다."""
+
+    workspace_id: str
+    path: str
+    entries: list[WorkspaceFileEntryResponse]
+    has_more: bool
+
+
+class WorkspaceFileContentResponse(BaseModel):
+    """워크스페이스 로컬 텍스트 파일 내용 응답입니다."""
+
+    workspace_id: str
+    path: str
+    name: str
+    size_bytes: int
+    content: str | None
+    is_binary: bool
+    truncated: bool
