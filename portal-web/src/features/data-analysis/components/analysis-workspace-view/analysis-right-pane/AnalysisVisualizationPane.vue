@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import { resolveVisualizationComponent } from '../../visualizations'
 
@@ -30,6 +30,7 @@ const emit = defineEmits<{
   shareReport: []
 }>()
 
+const analyticsShell = ref<HTMLElement | null>(null)
 const backendCharts = computed(() => props.analyticsPayload?.charts ?? [])
 const chartSections = computed<ChartWorkspaceSection[]>(() => {
   const workspaceChartSections = props.workspacePayload?.sections.filter(
@@ -57,6 +58,7 @@ const chartSections = computed<ChartWorkspaceSection[]>(() => {
   }))
 })
 const hasChartData = computed(() => chartSections.value.some((section) => Boolean(chartForSection(section))))
+const renderedChartCount = computed(() => chartSections.value.filter((section) => Boolean(chartForSection(section))).length)
 const shareTooltip = '공유 링크 복사'
 const exportTooltip = '리포트 미리보기'
 const fullscreenTooltip = computed(() => (props.isFullscreen ? '전체 화면 종료' : '전체 화면 보기'))
@@ -68,10 +70,27 @@ function chartForSection(section: ChartWorkspaceSection): AnalyticsChartPayload 
 function visualizationComponent(section: ChartWorkspaceSection) {
   return resolveVisualizationComponent(chartForSection(section))
 }
+
+/** 실시간으로 추가된 차트가 바로 보이도록 시각화 패널을 최신 위치로 이동합니다. */
+async function scrollToLatestChart() {
+  await nextTick()
+
+  // DOM 업데이트 이후 계산된 높이를 사용해야 마지막 카드까지 정확히 이동합니다.
+  analyticsShell.value?.scrollTo({
+    top: analyticsShell.value.scrollHeight,
+    behavior: 'smooth',
+  })
+}
+
+watch(renderedChartCount, (chartCount, previousChartCount) => {
+  if (chartCount > previousChartCount) {
+    void scrollToLatestChart()
+  }
+})
 </script>
 
 <template>
-  <aside class="analytics-shell" :class="props.workspacePayload ? `analytics-shell--${props.workspacePayload.template_id}` : null">
+  <aside ref="analyticsShell" class="analytics-shell" :class="props.workspacePayload ? `analytics-shell--${props.workspacePayload.template_id}` : null">
     <header class="analytics-header">
       <div>
         <h2>시각화</h2>
