@@ -18,66 +18,57 @@ def tool_definition() -> dict[str, object]:
     definition = Function(
         name="build_trend_chart",
         description=(
-            "DuckDB에서 실행할 읽기 전용 SQL을 기반으로 추세 차트 렌더링에 필요한 "
-            "데이터와 차트 메타데이터를 생성합니다. 시간 흐름에 따른 값의 증가/감소, "
-            "월별/일별/분기별 추세 분석에 사용합니다."
+            "시간 흐름에 따른 값의 증가/감소, 월별/일별/분기별 추세 분석에 사용하는 "
+            "line chart payload를 생성합니다. x축 라벨과 series 값을 직접 전달합니다."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "source_id": {
-                    "type": "string",
-                    "description": "대상 원천 데이터 파일 ID입니다.",
-                },
-                "sql": {
-                    "type": "string",
-                    "description": (
-                        "DuckDB에서 실행할 SELECT 전용 SQL입니다. "
-                        "반드시 시각화에 필요한 컬럼만 조회하고, "
-                        "시간 축 컬럼과 값 컬럼을 포함해야 합니다. "
-                        "예: SELECT date_trunc('month', order_date) AS period, "
-                        "SUM(sales) AS value FROM dataset "
-                        "WHERE region = 'Seoul' GROUP BY 1 ORDER BY 1 LIMIT 500"
-                    ),
-                },
-                "chart_type": {
-                    "type": "string",
-                    "enum": ["line"],
-                    "description": "추세 분석용 차트 타입입니다. 추세 차트는 line만 사용합니다.",
-                },
-                "x_axis": {
-                    "type": "string",
-                    "description": "x축으로 사용할 컬럼명입니다. 보통 날짜/시간 컬럼입니다.",
-                },
-                "y_axis": {
-                    "type": "string",
-                    "description": "y축으로 사용할 컬럼명입니다. 보통 집계된 수치 컬럼입니다.",
-                },
                 "title": {
                     "type": "string",
                     "description": "차트 제목입니다.",
                 },
-                "description": {
+                "x_label": {
                     "type": "string",
-                    "description": "차트에 대한 간단한 설명입니다.",
+                    "description": "x축 제목입니다. 보통 날짜/기간/순서 기준입니다.",
                 },
-                "limit": {
-                    "type": "integer",
-                    "description": "반환할 최대 행 수입니다.",
-                    "minimum": 1,
-                    "maximum": 5000,
+                "y_label": {
+                    "type": "string",
+                    "description": "y축 제목입니다. 보통 집계된 수치 지표명입니다.",
+                },
+                "x": {
+                    "type": "array",
+                    "description": "x축에 표시할 라벨 목록입니다.",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 500,
+                },
+                "series": {
+                    "type": "array",
+                    "description": "라인으로 표시할 series 목록입니다.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "series 이름입니다.",
+                            },
+                            "data": {
+                                "type": "array",
+                                "description": "x 라벨과 같은 순서의 숫자 값 목록입니다.",
+                                "items": {"type": ["number", "null"]},
+                                "minItems": 1,
+                                "maxItems": 500,
+                            },
+                        },
+                        "required": ["name", "data"],
+                        "additionalProperties": False,
+                    },
+                    "minItems": 1,
+                    "maxItems": 8,
                 },
             },
-            "required": [
-                "source_id",
-                "sql",
-                "chart_type",
-                "x_axis",
-                "y_axis",
-                "title",
-                "description",
-                "limit",
-            ],
+            "required": ["title", "x_label", "y_label", "x", "series"],
             "additionalProperties": False,
         },
     )
@@ -86,6 +77,35 @@ def tool_definition() -> dict[str, object]:
 
 def execute(arguments: dict[str, object]) -> dict[str, object]:
     """LLM function_call arguments만 받아 trend chart를 생성합니다."""
+    if "x" in arguments or "series" in arguments:
+        return _execute_direct(arguments)
+    return _execute_sql(arguments)
+
+
+def _execute_direct(arguments: dict[str, object]) -> dict[str, object]:
+    """직접 전달된 x/series 값으로 trend chart를 생성합니다."""
+    try:
+        title = read_required_string(arguments, "title")
+        x_label = read_required_string(arguments, "x_label")
+        y_label = read_required_string(arguments, "y_label")
+        x_values = _read_x_labels(arguments.get("x"))
+        series = _read_series(arguments.get("series"), expected_length=len(x_values))
+    except ValueError as exc:
+        return tool_error(str(exc))
+
+    chart = ChartPayload(
+        id="trend_line",
+        type="line",
+        title=title,
+        x=x_values,
+        series=series,
+        meta=ChartMeta(x_label=x_label, y_label=y_label),
+    )
+    return tool_success({"chart": chart.model_dump(mode="json")})
+
+
+def _execute_sql(arguments: dict[str, object]) -> dict[str, object]:
+    """기존 SQL 기반 호출과의 호환성을 유지해 trend chart를 생성합니다."""
     try:
         source_id = read_required_string(arguments, "source_id")
         sql = read_required_string(arguments, "sql")
@@ -110,6 +130,54 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
     return tool_success(
         {"source_id": source_id, "chart": chart.model_dump(mode="json")}
     )
+
+
+def _read_x_labels(value: object) -> list[str]:
+    """x축 라벨 목록을 프론트 표시 가능한 문자열로 정규화합니다."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("x must be a non-empty array.")
+    labels: list[str] = []
+    for item in value:
+        label = read_string(item)
+        if label is None:
+            raise ValueError("each x label must be a non-empty string.")
+        labels.append(label)
+    return labels
+
+
+def _read_series(value: object, *, expected_length: int) -> list[ChartSeries]:
+    """series 값을 차트 축 길이에 맞춰 검증하고 정규화합니다."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("series must be a non-empty array.")
+
+    series_list: list[ChartSeries] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("each series must be an object.")
+        name = read_string(item.get("name"))
+        if name is None:
+            raise ValueError("each series needs a name.")
+        data = _read_series_data(item.get("data"), expected_length=expected_length)
+        series_list.append(ChartSeries(name=name, data=data))
+    return series_list
+
+
+def _read_series_data(value: object, *, expected_length: int) -> list[float | None]:
+    """라인 렌더러가 안정적으로 처리할 수 있도록 숫자/null만 허용합니다."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("series data must be a non-empty array.")
+    if len(value) != expected_length:
+        raise ValueError("each series data length must match x length.")
+
+    data: list[float | None] = []
+    for item in value:
+        if item is None:
+            data.append(None)
+            continue
+        if not isinstance(item, int | float):
+            raise ValueError("series data values must be numbers or null.")
+        data.append(float(item))
+    return data
 
 
 def _build_sql_trend_chart(
