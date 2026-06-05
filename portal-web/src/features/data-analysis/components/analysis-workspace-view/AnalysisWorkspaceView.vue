@@ -15,6 +15,7 @@ defineProps<{
   conversation: ConversationData
   composer: ComposerData
   shellAnalytics: AnalyticsData
+  activeSessionId: string | null
   activeWorkspaceId: string | null
   analyticsPayload: AnalyticsPayload | null
   workspacePayload: WorkspacePayload | null
@@ -62,6 +63,7 @@ const emit = defineEmits<{
     :style="{ '--analytics-pane-width': `${analyticsPaneWidth}px` }"
   >
     <AnalysisConversationPane
+      :active-session-id="activeSessionId"
       :conversation="conversation"
       :composer="composer"
       :send-disabled="isSending || isRunningAnalysis"

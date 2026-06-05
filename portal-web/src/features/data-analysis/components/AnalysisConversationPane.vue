@@ -7,6 +7,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { ComposerData, ConversationData } from "../types";
 
 const props = defineProps<{
+  activeSessionId: string | null;
   conversation: ConversationData;
   composer: ComposerData;
   sendDisabled?: boolean;
@@ -29,6 +30,7 @@ const draft = ref("");
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const conversationScrollRef = ref<HTMLDivElement | null>(null);
 const shouldFollowStreamingResponse = ref(false);
+const shouldScrollSessionMessagesToBottom = ref(false);
 
 const markdownRenderer = new MarkdownIt({
   breaks: true,
@@ -161,15 +163,31 @@ function syncTextareaHeight() {
     textarea.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
-/** 응답 스트리밍 중 새 버블 높이에 맞춰 대화 영역 하단을 유지합니다. */
-function scrollConversationToBottom() {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      const scrollContainer = conversationScrollRef.value;
-      if (!scrollContainer || !shouldFollowStreamingResponse.value) return;
+/** 세션의 실제 대화가 로딩되었는지 판별해 임시 안내 메시지에서 스크롤 처리를 끝내지 않습니다. */
+function hasLoadedSessionMessages(): boolean {
+  return (
+    props.conversation.messages.length > 1 ||
+    props.conversation.messages.some((message) => message.role === "user")
+  );
+}
 
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-    });
+/** 응답 스트리밍과 세션 전환 시 대화 영역 하단을 유지합니다. */
+async function scrollConversationToBottom(force = false) {
+  await nextTick();
+
+  // DOM 업데이트 이후 계산된 높이를 사용해야 마지막 메시지까지 정확히 이동합니다.
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
+  const scrollContainer = conversationScrollRef.value;
+  if (!scrollContainer || (!force && !shouldFollowStreamingResponse.value)) {
+    return;
+  }
+
+  scrollContainer.scrollTo({
+    top: scrollContainer.scrollHeight,
+    behavior: force ? "smooth" : "auto",
   });
 }
 
@@ -185,14 +203,29 @@ watch(draft, () => {
 
 watch(
   () => props.conversation.messages,
-  () => {
-    scrollConversationToBottom();
+  async () => {
+    const shouldForceScroll = shouldScrollSessionMessagesToBottom.value;
+    await scrollConversationToBottom(shouldForceScroll);
+    if (shouldForceScroll && hasLoadedSessionMessages()) {
+      shouldScrollSessionMessagesToBottom.value = false;
+    }
   },
   { deep: true },
 );
 
+watch(
+  () => props.activeSessionId,
+  () => {
+    // 세션 진입 직후 서버 메시지가 늦게 갱신되어도 마지막 대화부터 보이게 합니다.
+    shouldScrollSessionMessagesToBottom.value = true;
+    void scrollConversationToBottom(true);
+  },
+);
+
 onMounted(() => {
   syncTextareaHeight();
+  shouldScrollSessionMessagesToBottom.value = true;
+  void scrollConversationToBottom(true);
   document.addEventListener("pointerdown", stopFollowingOnUserClick, {
     capture: true,
   });

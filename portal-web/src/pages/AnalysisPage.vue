@@ -20,6 +20,7 @@ defineProps<{
   isAnalyticsPanelOpen: boolean
   shellAnalytics: AnalyticsData
   analysisViewMode?: PortalAnalysisViewMode
+  activeSessionId?: string | null
   activeWorkspaceId?: string | null
   conversation: ConversationData
   composer: ComposerData
@@ -59,6 +60,7 @@ const emit = defineEmits<{
     :conversation="conversation"
     :composer="composer"
     :shell-analytics="shellAnalytics"
+    :active-session-id="activeSessionId ?? null"
     :active-workspace-id="null"
     :analytics-payload="analyticsPayload"
     :workspace-payload="workspacePayload"
@@ -95,6 +97,7 @@ const emit = defineEmits<{
     :conversation="conversation"
     :composer="composer"
     :shell-analytics="shellAnalytics"
+    :active-session-id="activeSessionId ?? null"
     :active-workspace-id="activeWorkspaceId ?? null"
     :analytics-payload="analyticsPayload"
     :workspace-payload="workspacePayload"
