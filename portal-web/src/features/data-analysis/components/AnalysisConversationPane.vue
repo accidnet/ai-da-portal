@@ -135,12 +135,11 @@ function submit() {
 }
 
 function selectRecommendedQuestion(question: string) {
-  // 추천 질문 클릭 시 사용자가 전송 전 수정할 수 있도록 입력창에만 반영합니다.
+  // 추천 질문도 일반 전송과 같은 스트리밍 추적 흐름을 사용합니다.
+  if (props.sendDisabled) return;
+
   draft.value = question;
-  nextTick(() => {
-    syncTextareaHeight();
-    textareaRef.value?.focus();
-  });
+  submit();
 }
 
 function onKeydown(event: KeyboardEvent) {
