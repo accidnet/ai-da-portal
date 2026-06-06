@@ -116,3 +116,20 @@ def workspace_usage_payload() -> dict[str, object] | None:
             "이 저장소는 주기적으로 비워질 수 있으므로 영구 보관이 필요한 결과는 최종 답변에 요약하세요."
         ),
     }
+
+
+def workspace_dataset_file_payloads() -> list[dict[str, object]]:
+    """현재 워크스페이스 dataset 파일 별칭 목록을 모델 입력용 payload로 반환합니다."""
+    context = _workspace_file_context.get()
+    if context is None:
+        return []
+
+    return [
+        {
+            "dataset_id": dataset_file.dataset_id,
+            "source_path": dataset_file.source_path,
+            "workspace_path": dataset_file.workspace_path,
+            "size_bytes": dataset_file.size_bytes,
+        }
+        for dataset_file in context.dataset_files
+    ]

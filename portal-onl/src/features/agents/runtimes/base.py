@@ -38,6 +38,7 @@ from shared.integrations.ai.contracts import (
 from features.tools import registry
 from features.tools.workspace_files.context import (
     set_workspace_file_context,
+    workspace_dataset_file_payloads,
     workspace_usage_payload,
 )
 from features.workspaces.application.dataset_materializer import WorkspaceDatasetFile
@@ -142,10 +143,15 @@ class BaseAgent:
                 missing_dataset_ids.append(dataset_id)
 
         source_items = self._load_source_items_by_id(datasets)
+        workspace_files = self._load_workspace_files_by_dataset_id()
         return {
             "workspace_id": workspace_id,
             "datasets": [
-                self._build_dataset_context(dataset, source_items)
+                self._build_dataset_context(
+                    dataset,
+                    source_items,
+                    workspace_files.get(dataset.id, []),
+                )
                 for dataset in datasets
             ],
             "missing_dataset_ids": missing_dataset_ids,
@@ -170,10 +176,21 @@ class BaseAgent:
         source_items = DataSourceRepository().list_items_by_ids(unique_source_ref_ids)
         return {item.id: item for item in source_items}
 
+    def _load_workspace_files_by_dataset_id(self) -> dict[str, list[dict[str, object]]]:
+        """워크스페이스 내부 dataset 별칭 경로를 dataset_id 기준으로 묶습니다."""
+        workspace_files_by_dataset_id: dict[str, list[dict[str, object]]] = {}
+        for file_payload in workspace_dataset_file_payloads():
+            dataset_id = self._read_string(file_payload.get("dataset_id"))
+            if dataset_id is None:
+                continue
+            workspace_files_by_dataset_id.setdefault(dataset_id, []).append(file_payload)
+        return workspace_files_by_dataset_id
+
     def _build_dataset_context(
         self,
         dataset: DatasetRecord,
         source_items: dict[str, DataSourceItem],
+        workspace_files: list[dict[str, object]],
     ) -> dict[str, object]:
         """단일 dataset의 기본 정보와 원천 source 목록을 모델 입력용으로 변환합니다."""
         return {
@@ -186,6 +203,7 @@ class BaseAgent:
                 self._build_source_context(source, source_items)
                 for source in dataset.sources
             ],
+            "workspace_files": workspace_files,
         }
 
     def _build_source_context(
