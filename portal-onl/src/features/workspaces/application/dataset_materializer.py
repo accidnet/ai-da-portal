@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -22,7 +23,7 @@ class WorkspaceDatasetFile:
 
 
 class WorkspaceDatasetMaterializer:
-    """dataset 원본 파일을 워크스페이스 내부 상대 경로로 노출합니다."""
+    """dataset 원본 파일을 워크스페이스 내부 상대 경로 hardlink로 노출합니다."""
 
     def __init__(
         self,
@@ -39,7 +40,7 @@ class WorkspaceDatasetMaterializer:
         workspace_root: Path,
         dataset_ids: list[str],
     ) -> list[WorkspaceDatasetFile]:
-        """연결 dataset 파일을 워크스페이스 내부 datasets 디렉터리에 복사합니다."""
+        """연결 dataset 파일을 워크스페이스 내부 datasets 디렉터리에 hardlink로 배치합니다."""
         workspace_root = workspace_root.resolve()
         unique_dataset_ids = list(dict.fromkeys(dataset_ids))
         self._cleanup_unlinked_dataset_dirs(workspace_root, unique_dataset_ids)
@@ -75,7 +76,7 @@ class WorkspaceDatasetMaterializer:
                     used_paths,
                 )
                 target_path = dataset_dir / relative_source_path
-                self._copy_source_file(actual_path, target_path)
+                self._link_source_file(actual_path, target_path)
                 dataset_files.append(
                     WorkspaceDatasetFile(
                         dataset_id=dataset_id,
@@ -110,23 +111,26 @@ class WorkspaceDatasetMaterializer:
             elif child.is_file():
                 child.unlink(missing_ok=True)
 
-    def _copy_source_file(self, source_path: Path, target_path: Path) -> None:
-        """절대 원본 경로가 노출되지 않도록 워크스페이스 내부 파일로 복사합니다."""
+    def _link_source_file(self, source_path: Path, target_path: Path) -> None:
+        """절대 원본 경로를 담지 않는 hardlink로 workspace 별칭 파일을 만듭니다."""
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        if self._is_current_copy(source_path, target_path):
+        if self._is_current_link(source_path, target_path):
             return
-        shutil.copy2(source_path, target_path)
+        target_path.unlink(missing_ok=True)
+        try:
+            os.link(source_path, target_path)
+        except OSError as exc:
+            raise ValueError(
+                "Dataset file cannot be exposed in the workspace without copying. "
+                "Hardlink creation failed, likely because the source and workspace "
+                "storage are on different filesystems."
+            ) from exc
 
-    def _is_current_copy(self, source_path: Path, target_path: Path) -> bool:
-        """이미 복사된 파일이 원본과 같은 크기/수정시각이면 재복사를 피합니다."""
+    def _is_current_link(self, source_path: Path, target_path: Path) -> bool:
+        """이미 같은 inode를 가리키는 hardlink면 재생성을 피합니다."""
         if not target_path.is_file():
             return False
-        source_stat = source_path.stat()
-        target_stat = target_path.stat()
-        return (
-            source_stat.st_size == target_stat.st_size
-            and int(source_stat.st_mtime) == int(target_stat.st_mtime)
-        )
+        return source_path.samefile(target_path)
 
     def _safe_relative_path(self, value: str) -> Path:
         """원천 파일 표시 경로를 workspace 내부에서만 쓰는 안전한 상대 경로로 정규화합니다."""
