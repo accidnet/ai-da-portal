@@ -133,6 +133,9 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
         )
         stdout, stdout_truncated = _decode_output(exc.stdout, max_output_bytes)
         stderr, stderr_truncated = _decode_output(exc.stderr, max_output_bytes)
+        if "context" in locals():
+            stdout = _sanitize_workspace_output(stdout, context)
+            stderr = _sanitize_workspace_output(stderr, context)
         return ToolExecutionResult[dict[str, object]](
             ok=False,
             data={
@@ -175,6 +178,8 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
 
     stdout, stdout_truncated = _decode_output(completed.stdout, max_output_bytes)
     stderr, stderr_truncated = _decode_output(completed.stderr, max_output_bytes)
+    stdout = _sanitize_workspace_output(stdout, context)
+    stderr = _sanitize_workspace_output(stderr, context)
     logger.info(
         "Workspace CLI command completed workspace_id=%s cwd=%s command=%s exit_code=%s stdout_bytes=%s stderr_bytes=%s",
         workspace_id,
@@ -290,6 +295,12 @@ def _decode_output(value: bytes | str | None, max_bytes: int) -> tuple[str, bool
     truncated = len(raw) > max_bytes
     content = raw[:max_bytes].decode("utf-8", errors="replace")
     return content, truncated
+
+
+def _sanitize_workspace_output(value: str, context: WorkspaceFileContext) -> str:
+    """CLI 출력에서 서버 절대 경로 대신 워크스페이스 별칭만 노출합니다."""
+    workspace_root = str(context.local_path.resolve())
+    return value.replace(workspace_root, "<workspace>")
 
 
 def _format_command_for_log(command: list[str]) -> list[str]:

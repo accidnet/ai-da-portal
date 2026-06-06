@@ -1,5 +1,7 @@
 from typing import Literal, TypedDict
 
+from features.workspaces.application.dataset_materializer import WorkspaceDatasetFile
+
 
 class PlanStep(TypedDict):
     step: str
@@ -14,6 +16,7 @@ class AgentInvokeInput(TypedDict, total=False):
     agent_run_id: str | None
     workspace_id: str | None
     workspace_local_path: str | None
+    workspace_dataset_files: list[WorkspaceDatasetFile]
     message: str
     dataset_ids: list[str]
     input_items: list[dict[str, object]]

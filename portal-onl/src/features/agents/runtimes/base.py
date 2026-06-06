@@ -40,6 +40,7 @@ from features.tools.workspace_files.context import (
     set_workspace_file_context,
     workspace_usage_payload,
 )
+from features.workspaces.application.dataset_materializer import WorkspaceDatasetFile
 
 logger = logging.getLogger(__name__)
 
@@ -94,16 +95,19 @@ class BaseAgent:
         *,
         workspace_id: str | None,
         workspace_local_path: str | None,
+        workspace_dataset_files: list[WorkspaceDatasetFile] | None = None,
     ) -> None:
         """agent tool 실행에서 사용할 워크스페이스 로컬 저장소 컨텍스트를 설정합니다."""
         logger.debug(
-            "Configuring agent workspace local storage workspace_id=%s local_path=%s",
+            "Configuring agent workspace local storage workspace_id=%s local_path=%s dataset_file_count=%s",
             workspace_id,
             workspace_local_path,
+            len(workspace_dataset_files or []),
         )
         set_workspace_file_context(
             workspace_id=workspace_id,
             local_path=workspace_local_path,
+            dataset_files=workspace_dataset_files,
         )
 
     def _build_developer_input(

@@ -8,7 +8,12 @@ from fastapi.responses import StreamingResponse
 
 from features.agents.runtimes import ChatStreamingAgent
 from features.agents.state import AgentInvokeOutput
+from features.workspaces.application.dataset_materializer import (
+    WorkspaceDatasetFile,
+    WorkspaceDatasetMaterializer,
+)
 from features.workspaces.application.local_storage import WorkspaceLocalStorage
+from features.workspaces.domain.repositories import WorkspaceRepository
 from core.sse import SseEvent
 from domain.messages.schemas import (
     MessageStreamRequest,
@@ -35,10 +40,14 @@ class MessageStreamService:
         session_service: SessionService,
         message_repository: MessageRepository,
         workspace_local_storage: WorkspaceLocalStorage,
+        workspace_dataset_materializer: WorkspaceDatasetMaterializer,
+        workspace_repository: WorkspaceRepository,
     ) -> None:
         self._session_service = session_service
         self._message_repository = message_repository
         self._workspace_local_storage = workspace_local_storage
+        self._workspace_dataset_materializer = workspace_dataset_materializer
+        self._workspace_repository = workspace_repository
 
     async def create_streaming_response(
         self,
@@ -79,18 +88,31 @@ class MessageStreamService:
             if workspace_id is not None
             else None
         )
+        effective_dataset_ids = self._resolve_effective_dataset_ids(
+            workspace_id=workspace_id,
+            request_dataset_ids=stream_request.dataset_ids,
+        )
+        workspace_dataset_files: list[WorkspaceDatasetFile] = []
+        if workspace_id is not None and workspace_local_path is not None:
+            workspace_dataset_files = self._workspace_dataset_materializer.materialize(
+                workspace_root=self._workspace_local_storage.ensure_workspace(
+                    workspace_id
+                ),
+                dataset_ids=effective_dataset_ids,
+            )
         logger.info(
-            "Prepared chat workspace local storage session_id=%s workspace_id=%s local_path=%s",
+            "Prepared chat workspace local storage session_id=%s workspace_id=%s local_path=%s dataset_file_count=%s",
             session_id,
             workspace_id,
             workspace_local_path,
+            len(workspace_dataset_files),
         )
 
         # 사용자 입력 메세지는 바로 저장
         user_message_id = self._message_repository.record_user_message(
             session_id=session_id,
             user_message=stream_request.message,
-            dataset_ids=stream_request.dataset_ids,
+            dataset_ids=effective_dataset_ids,
         )
 
         # 스트리밍 시작
@@ -100,8 +122,9 @@ class MessageStreamService:
                 user_message_id=user_message_id,
                 workspace_id=workspace_id,
                 workspace_local_path=workspace_local_path,
+                workspace_dataset_files=workspace_dataset_files,
                 message=stream_request.message,
-                dataset_ids=stream_request.dataset_ids,
+                dataset_ids=effective_dataset_ids,
                 agent_runtime=agent_runtime,
             ),
             media_type="text/event-stream",
@@ -116,6 +139,30 @@ class MessageStreamService:
         normalized = workspace_id.strip()
         return normalized or None
 
+    def _resolve_effective_dataset_ids(
+        self,
+        *,
+        workspace_id: str | None,
+        request_dataset_ids: list[str],
+    ) -> list[str]:
+        """요청 dataset과 워크스페이스 연결 dataset을 합쳐 agent 컨텍스트로 사용합니다."""
+        dataset_ids = [
+            dataset_id
+            for dataset_id in request_dataset_ids
+            if isinstance(dataset_id, str) and dataset_id.strip()
+        ]
+        if workspace_id is not None:
+            try:
+                dataset_ids.extend(
+                    self._workspace_repository.list_dataset_ids(workspace_id)
+                )
+            except KeyError:
+                logger.warning(
+                    "Workspace dataset links were not found workspace_id=%s",
+                    workspace_id,
+                )
+        return list(dict.fromkeys(dataset_ids))
+
     def _generate_stream_events(
         self,
         *,
@@ -123,6 +170,7 @@ class MessageStreamService:
         user_message_id: str | None,
         workspace_id: str | None,
         workspace_local_path: str | None,
+        workspace_dataset_files: list[WorkspaceDatasetFile],
         message: str,
         dataset_ids: list[str],
         agent_runtime: ChatStreamingAgent,
@@ -166,6 +214,7 @@ class MessageStreamService:
                     "agent_run_id": agent_run_id,
                     "workspace_id": workspace_id,
                     "workspace_local_path": workspace_local_path,
+                    "workspace_dataset_files": workspace_dataset_files,
                     "message": message,
                     "dataset_ids": dataset_ids,
                     "input_items": input_items,

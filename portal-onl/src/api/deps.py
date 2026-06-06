@@ -9,6 +9,9 @@ from features.auth.api.deps import get_openai_auth_service
 from features.datasets.application.service import DatasetApplicationService
 from domain.messages.stream_service import MessageStreamService
 from features.workspaces.application.local_storage import WorkspaceLocalStorage
+from features.workspaces.application.dataset_materializer import (
+    WorkspaceDatasetMaterializer,
+)
 from domain.sessions.service import SessionService
 from domain.sessions.title_service import SessionTitleService
 from features.workspaces.application.usecase import WorkspaceUsecase
@@ -62,6 +65,14 @@ def get_data_source_repository() -> DataSourceRepository:
 
 
 @lru_cache
+def get_workspace_dataset_materializer() -> WorkspaceDatasetMaterializer:
+    return WorkspaceDatasetMaterializer(
+        dataset_repository=get_dataset_repository(),
+        data_source_repository=get_data_source_repository(),
+    )
+
+
+@lru_cache
 def get_session_service() -> SessionService:
     return SessionService(
         repository=get_session_repository(),
@@ -101,6 +112,8 @@ def get_message_stream_service() -> MessageStreamService:
         session_service=get_session_service(),
         message_repository=get_message_repository(),
         workspace_local_storage=get_workspace_local_storage(),
+        workspace_dataset_materializer=get_workspace_dataset_materializer(),
+        workspace_repository=get_workspace_repository(),
     )
 
 

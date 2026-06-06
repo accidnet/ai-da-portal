@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from core.config import get_settings
+from features.workspaces.application.dataset_materializer import WorkspaceDatasetFile
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ class WorkspaceFileContext:
 
     workspace_id: str
     local_path: Path
+    dataset_files: tuple[WorkspaceDatasetFile, ...] = ()
 
 
 _workspace_file_context: ContextVar[WorkspaceFileContext | None] = ContextVar(
@@ -26,6 +28,7 @@ def set_workspace_file_context(
     *,
     workspace_id: str | None,
     local_path: str | None,
+    dataset_files: list[WorkspaceDatasetFile] | None = None,
 ) -> None:
     """현재 agent 실행에서 사용할 워크스페이스 로컬 저장소를 설정합니다."""
     if workspace_id is None or local_path is None:
@@ -46,7 +49,11 @@ def set_workspace_file_context(
         path.is_dir(),
     )
     _workspace_file_context.set(
-        WorkspaceFileContext(workspace_id=workspace_id, local_path=path)
+        WorkspaceFileContext(
+            workspace_id=workspace_id,
+            local_path=path,
+            dataset_files=tuple(dataset_files or []),
+        )
     )
 
 
@@ -84,8 +91,17 @@ def workspace_usage_payload() -> dict[str, object] | None:
     settings = get_settings()
     return {
         "workspace_id": context.workspace_id,
-        "local_path": str(context.local_path),
+        "root": "workspace root",
         "retention_seconds": settings.workspace_storage_ttl_seconds,
+        "datasets": [
+            {
+                "dataset_id": dataset_file.dataset_id,
+                "source_path": dataset_file.source_path,
+                "workspace_path": dataset_file.workspace_path,
+                "size_bytes": dataset_file.size_bytes,
+            }
+            for dataset_file in context.dataset_files
+        ],
         "tools": [
             "list_workspace_files",
             "read_workspace_file",
@@ -94,7 +110,9 @@ def workspace_usage_payload() -> dict[str, object] | None:
             "run_workspace_cli_command",
         ],
         "usage_note": (
-            "생성한 중간 데이터, 메모, 결과 파일은 워크스페이스 로컬 저장소 내부 상대 경로로만 관리하세요. "
+            "모든 path/cwd는 워크스페이스 루트 기준 상대 경로만 사용하세요. "
+            "datasets 항목의 workspace_path는 CLI에서 바로 읽을 수 있는 dataset 파일 경로입니다. "
+            "절대 경로를 추측하거나 요청하지 말고, 생성한 중간 데이터와 결과 파일도 상대 경로로만 관리하세요. "
             "이 저장소는 주기적으로 비워질 수 있으므로 영구 보관이 필요한 결과는 최종 답변에 요약하세요."
         ),
     }

@@ -52,9 +52,11 @@ class ChatStreamingAgent(BaseAgent):
     ) -> Generator[AgentStreamEvent, None, AgentInvokeOutput]:
         workspace_id = invoke_input.get("workspace_id")
         workspace_local_path = invoke_input.get("workspace_local_path")
+        workspace_dataset_files = invoke_input.get("workspace_dataset_files", [])
         self._configure_workspace_local_storage(
             workspace_id=workspace_id,
             workspace_local_path=workspace_local_path,
+            workspace_dataset_files=workspace_dataset_files,
         )
         output = self._build_initial_output()
         output_input_items: list[dict[str, object]] = []
@@ -92,6 +94,7 @@ class ChatStreamingAgent(BaseAgent):
                 self._configure_workspace_local_storage(
                     workspace_id=workspace_id,
                     workspace_local_path=workspace_local_path,
+                    workspace_dataset_files=workspace_dataset_files,
                 )
                 request_kwargs = self._build_llm_request_kwargs(input_items)
                 request_input_items = self._read_request_input_items(request_kwargs)
@@ -172,6 +175,7 @@ class ChatStreamingAgent(BaseAgent):
             self._configure_workspace_local_storage(
                 workspace_id=workspace_id,
                 workspace_local_path=workspace_local_path,
+                workspace_dataset_files=workspace_dataset_files,
             )
             new_input_items, function_events = self._handle_after_call_completion(
                 stream_result=stream_result,

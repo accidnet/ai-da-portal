@@ -1,6 +1,9 @@
 from core.utils import read_string
 from features.tools.dto import ToolExecutionResult
-from features.tools.workspace_files.context import resolve_workspace_path
+from features.tools.workspace_files.context import (
+    require_workspace_file_context,
+    resolve_workspace_path,
+)
 from shared.integrations.ai.contracts import Function
 
 DEFAULT_MAX_BYTES = 200_000
@@ -46,6 +49,7 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
             raise ValueError("Path must be an existing file.")
         content_bytes = target_path.read_bytes()[:max_bytes]
         content = content_bytes.decode("utf-8")
+        content = _sanitize_workspace_content(content)
     except UnicodeDecodeError:
         return ToolExecutionResult[object](
             ok=False,
@@ -79,3 +83,9 @@ def _read_max_bytes(value: object) -> int:
     if isinstance(value, int):
         return min(max(value, 1), MAX_READ_BYTES)
     return DEFAULT_MAX_BYTES
+
+
+def _sanitize_workspace_content(value: str) -> str:
+    """파일 내용에 포함된 워크스페이스 절대 경로를 별칭으로 치환합니다."""
+    workspace_root = str(require_workspace_file_context().local_path.resolve())
+    return value.replace(workspace_root, "<workspace>")
