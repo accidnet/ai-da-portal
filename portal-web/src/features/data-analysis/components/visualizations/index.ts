@@ -7,10 +7,11 @@ const AreaTrend = defineAsyncComponent(() => import('./AreaTrend.vue'))
 const BarChart = defineAsyncComponent(() => import('./BarChart.vue'))
 const BarLine = defineAsyncComponent(() => import('./BarLine.vue'))
 const DonutShare = defineAsyncComponent(() => import('./DonutShare.vue'))
+const HistogramChart = defineAsyncComponent(() => import('./HistogramChart.vue'))
 const LineTrend = defineAsyncComponent(() => import('./LineTrend.vue'))
 const ScatterPlot = defineAsyncComponent(() => import('./ScatterPlot.vue'))
 
-export { AreaTrend, BarChart, BarLine, DonutShare, LineTrend, ScatterPlot }
+export { AreaTrend, BarChart, BarLine, DonutShare, HistogramChart, LineTrend, ScatterPlot }
 
 const visualizationById: Record<string, Component> = {
   trend_line: LineTrend,
@@ -18,6 +19,7 @@ const visualizationById: Record<string, Component> = {
   category_area: AreaTrend,
   correlation_scatter: ScatterPlot,
   segment_bubble: ScatterPlot,
+  distribution_histogram: HistogramChart,
   share_donut: DonutShare,
 }
 
@@ -27,6 +29,7 @@ const visualizationByType: Record<string, Component> = {
   area: AreaTrend,
   scatter: ScatterPlot,
   bubble: ScatterPlot,
+  histogram: HistogramChart,
   donut: DonutShare,
 }
 

@@ -182,8 +182,8 @@ export interface AnalyticsPayloadResponse {
     tone?: 'primary' | 'warning' | 'neutral'
   }>
   charts: Array<{
-    id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'segment_bubble' | 'share_donut' | null
-    type: 'line' | 'bar' | 'area' | 'scatter' | 'bubble' | 'donut' | 'table' | 'metric'
+    id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'segment_bubble' | 'distribution_histogram' | 'share_donut' | null
+    type: 'line' | 'bar' | 'area' | 'scatter' | 'bubble' | 'histogram' | 'donut' | 'table' | 'metric'
     title: string
     x: string[]
     series: Array<{ name: string; data: Array<number | string | null> }>

@@ -4,8 +4,12 @@ from typing import Protocol
 
 from features.tools.analysis import dataframe_context
 from features.tools.charts import (
+    build_category_area,
+    build_category_bar,
     build_correlation_scatter,
+    build_distribution_histogram,
     build_segment_bubble_chart,
+    build_share_donut,
     build_trend_chart,
 )
 from features.tools.datasets import (
@@ -37,14 +41,22 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     update_plan,
     get_dataset_info,
     build_trend_chart,
+    build_category_bar,
+    build_category_area,
     build_correlation_scatter,
     build_segment_bubble_chart,
+    build_distribution_histogram,
+    build_share_donut,
     run_cli_command,
 )
 _TOOL_ALIASES: dict[str, ToolModule] = {
     "build_trend_chart": build_trend_chart,
+    "build_category_bar": build_category_bar,
+    "build_category_area": build_category_area,
     "build_correlation_scatter": build_correlation_scatter,
     "build_segment_bubble_chart": build_segment_bubble_chart,
+    "build_distribution_histogram": build_distribution_histogram,
+    "build_share_donut": build_share_donut,
 }
 
 

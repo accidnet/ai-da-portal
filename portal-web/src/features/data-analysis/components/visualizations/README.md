@@ -1,6 +1,6 @@
 # visualizations
 
-`AnalysisVisualizationPane.vue`에서 사용하는 차트 컴포넌트입니다. 실제 렌더링은 모두 ECharts 기반 `EChartRenderer.vue`가 담당하고, `LineTrend.vue`, `BarChart.vue`, `AreaTrend.vue`, `ScatterPlot.vue`, `DonutShare.vue`, `BarLine.vue`는 chart id/type에 맞는 얇은 래퍼입니다.
+`AnalysisVisualizationPane.vue`에서 사용하는 차트 컴포넌트입니다. ECharts 인스턴스 생명주기는 `EChartRenderer.vue`가 담당하고, 차트별 option 생성은 `chartOptions.ts`가 담당합니다. `LineTrend.vue`, `BarChart.vue`, `AreaTrend.vue`, `ScatterPlot.vue`, `HistogramChart.vue`, `DonutShare.vue`, `BarLine.vue`는 chart id/type에 맞는 얇은 래퍼입니다.
 
 ## 선택 규칙
 
@@ -10,9 +10,11 @@
   - `category_bar` -> `BarChart.vue`
   - `category_area` -> `AreaTrend.vue`
   - `correlation_scatter` -> `ScatterPlot.vue`
+  - `segment_bubble` -> `ScatterPlot.vue`
+  - `distribution_histogram` -> `HistogramChart.vue`
   - `share_donut` -> `DonutShare.vue`
 - 지원 type:
-  - `line`, `bar`, `area`, `scatter`, `donut`
+  - `line`, `bar`, `area`, `scatter`, `bubble`, `histogram`, `donut`
 - id/type이 매칭되지 않으면 `BarLine.vue`가 fallback으로 렌더링됩니다.
 
 ## 백엔드 chart payload
@@ -21,8 +23,8 @@
 
 ```ts
 interface AnalyticsChartPayload {
-  id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'share_donut' | null
-  type: 'line' | 'bar' | 'area' | 'scatter' | 'donut' | 'table' | 'metric'
+  id?: 'trend_line' | 'category_bar' | 'category_area' | 'correlation_scatter' | 'segment_bubble' | 'distribution_histogram' | 'share_donut' | null
+  type: 'line' | 'bar' | 'area' | 'scatter' | 'bubble' | 'histogram' | 'donut' | 'table' | 'metric'
   title: string
   x: string[]
   series: Array<{
@@ -33,6 +35,8 @@ interface AnalyticsChartPayload {
     x: number
     y: number
     label?: string | null
+    size?: number | null
+    category?: string | null
   }>
   meta?: {
     x_label?: string | null
@@ -83,6 +87,49 @@ interface AnalyticsChartPayload {
     { "x": 18000, "y": 0.31, "label": "B" }
   ],
   "meta": { "x_label": "avg_order_value", "y_label": "repurchase_rate" }
+}
+```
+
+### Bubble
+
+- `points`를 사용합니다.
+- `points[].x`, `points[].y`는 좌표이고, `points[].size`는 버블 크기입니다.
+- `points[].category`가 있으면 category별 series와 legend로 나뉩니다.
+- ECharts에서는 scatter series의 `symbolSize`로 버블 크기를 표현합니다.
+
+예시:
+
+```json
+{
+  "id": "segment_bubble",
+  "type": "bubble",
+  "title": "세그먼트 규모와 전환율",
+  "x": [],
+  "series": [],
+  "points": [
+    { "x": 12000, "y": 0.24, "size": 340, "label": "A", "category": "신규" },
+    { "x": 18000, "y": 0.31, "size": 520, "label": "B", "category": "기존" }
+  ],
+  "meta": { "x_label": "avg_order_value", "y_label": "conversion_rate" }
+}
+```
+
+### Histogram
+
+- `x`는 bin label 배열입니다.
+- `series[0].data`는 각 bin의 빈도입니다.
+- 프론트는 histogram 전용 option을 사용해 bin 간격을 좁힌 bar 형태로 렌더링합니다.
+
+예시:
+
+```json
+{
+  "id": "distribution_histogram",
+  "type": "histogram",
+  "title": "매출 분포",
+  "x": ["0 - 100", "100 - 200", "200 - 300"],
+  "series": [{ "name": "frequency", "data": [4, 12, 6] }],
+  "meta": { "x_label": "sales", "y_label": "frequency" }
 }
 ```
 

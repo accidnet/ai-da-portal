@@ -6,7 +6,15 @@ from features.datasets.application.dto import DatasetProfilePayload
 
 
 ChartType = Literal[
-    "line", "bar", "area", "scatter", "bubble", "donut", "table", "metric"
+    "line",
+    "bar",
+    "area",
+    "scatter",
+    "bubble",
+    "histogram",
+    "donut",
+    "table",
+    "metric",
 ]
 ChartId = Literal[
     "trend_line",
@@ -14,6 +22,7 @@ ChartId = Literal[
     "category_area",
     "correlation_scatter",
     "segment_bubble",
+    "distribution_histogram",
     "share_donut",
 ]
 

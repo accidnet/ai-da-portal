@@ -38,9 +38,12 @@ STREAM_RECOVERY_EVENT_LIMIT = 30
 AgentStreamEvent = dict[str, object] | SseEvent
 CHART_FUNCTION_NAMES = {
     "build_trend_chart",
+    "build_category_bar",
+    "build_category_area",
     "build_correlation_scatter",
     "build_segment_bubble_chart",
-    "render_trend_chart",
+    "build_distribution_histogram",
+    "build_share_donut",
 }
 
 

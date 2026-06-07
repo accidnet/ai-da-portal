@@ -107,6 +107,8 @@ def build_chart(
         return build_trend_chart(dataframe, chart_id=spec.id, chart_type=spec.type)
     if spec.id == "share_donut":
         return build_share_donut(dataframe)
+    if spec.id == "distribution_histogram":
+        return build_distribution_histogram(dataframe)
     return build_category_bar(dataframe)
 
 
@@ -123,6 +125,17 @@ def select_chart_spec(
 
     if analysis_type == "correlation" and len(numeric) > 1:
         return ChartSpec(id="correlation_scatter", type="scatter")
+    if contains_any(
+        lowered,
+        "분포",
+        "히스토그램",
+        "histogram",
+        "distribution",
+        "frequency",
+        "빈도",
+    ):
+        if numeric:
+            return ChartSpec(id="distribution_histogram", type="histogram")
     if analysis_type == "trend":
         if contains_any(lowered, "누적", "volume", "cumulative", "total volume", "총량"):
             return ChartSpec(id="category_area", type="area")
@@ -139,7 +152,7 @@ def select_chart_spec(
     if numeric and categoricals:
         return ChartSpec(id="category_bar", type="bar")
     if numeric:
-        return ChartSpec(id="category_area", type="area")
+        return ChartSpec(id="distribution_histogram", type="histogram")
     return ChartSpec(id="category_bar", type="bar")
 
 
@@ -293,6 +306,36 @@ def build_category_bar(dataframe: pd.DataFrame) -> ChartPayload:
     )
 
 
+def build_distribution_histogram(dataframe: pd.DataFrame) -> ChartPayload:
+    """첫 번째 숫자형 컬럼의 분포를 histogram chart로 생성합니다."""
+    numeric = numeric_columns(dataframe)
+    if not numeric:
+        return build_category_bar(dataframe)
+
+    metric = numeric[0]
+    values = pd.to_numeric(dataframe[metric], errors="coerce").dropna()
+    if values.empty:
+        return build_category_bar(dataframe)
+
+    bin_count = min(max(int(values.count() ** 0.5), 5), 20)
+    if values.min() == values.max():
+        labels = [str(round(float(values.iloc[0]), 4))]
+        counts = [int(values.count())]
+    else:
+        counts_series = pd.cut(values, bins=bin_count).value_counts(sort=False)
+        labels = [_format_histogram_interval(interval) for interval in counts_series.index]
+        counts = [int(value) for value in counts_series.to_list()]
+
+    return ChartPayload(
+        id="distribution_histogram",
+        type="histogram",
+        title=f"{metric.title()} Distribution",
+        x=labels,
+        series=[ChartSeries(name="frequency", data=counts)],
+        meta=ChartMeta(x_label=metric, y_label="frequency"),
+    )
+
+
 def build_table(dataframe: pd.DataFrame, analysis_type: str) -> TablePayload:
     """분석 유형에 맞는 표 payload를 생성합니다."""
     numeric = numeric_columns(dataframe)
@@ -416,6 +459,15 @@ def to_serializable(value: object) -> str | int | float | None:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def _format_histogram_interval(interval: object) -> str:
+    """pandas interval을 프론트 x축에 표시할 짧은 bin label로 변환합니다."""
+    if hasattr(interval, "left") and hasattr(interval, "right"):
+        left = round(float(interval.left), 4)
+        right = round(float(interval.right), 4)
+        return f"{left} - {right}"
+    return str(interval)
 
 
 def _build_anomaly_table(dataframe: pd.DataFrame, column: str) -> TablePayload:

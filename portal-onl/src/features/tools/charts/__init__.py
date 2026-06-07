@@ -2,9 +2,11 @@
 
 __all__ = [
     "build_category_bar",
+    "build_category_area",
     "build_chart",
     "build_chart_analytics",
     "build_correlation_scatter",
+    "build_distribution_histogram",
     "build_segment_bubble_chart",
     "build_insight",
     "build_share_donut",
