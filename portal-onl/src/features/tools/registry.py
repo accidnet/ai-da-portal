@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Protocol
 
+from features.tools.agent_skills import load_agent_skill
 from features.tools.analysis import dataframe_context
 from features.tools.charts import (
     build_category_area,
@@ -38,6 +39,7 @@ class ToolModule(Protocol):
 
 
 _TOOL_MODULES: tuple[ToolModule, ...] = (
+    load_agent_skill,
     update_plan,
     get_dataset_info,
     build_trend_chart,

@@ -7,7 +7,7 @@ from typing import cast
 from core.config import get_settings
 from features.agents.prompt_loader import load_prompt
 from features.agents.runtime_resources import collect_runtime_resource_payload
-from features.agents.skill_loader import load_agent_skills
+from features.agents.skill_loader import load_agent_skill_catalog
 from features.agents.state import (
     AgentInvokeOutput,
     AgentState,
@@ -321,14 +321,11 @@ class BaseAgent:
         }
 
     def _build_instructions(self) -> str:
-        """기본 프롬프트와 프로젝트 skill 문서를 LLM instructions로 합성합니다."""
+        """기본 프롬프트에 프로젝트 skill catalog를 주입합니다."""
         base_prompt = load_prompt("base.md")
-        skills = load_agent_skills()
-        if not skills:
-            return base_prompt
-
-        # skill은 실행 정책이므로 기본 프롬프트 뒤에 고정 지침으로 붙입니다.
-        return f"{base_prompt}\n\n# 프로젝트 Skills\n\n{skills}"
+        skill_catalog = load_agent_skill_catalog()
+        # skill 전문은 token 절약을 위해 필요 시 tool로 로드하도록 catalog만 노출합니다.
+        return base_prompt.replace("{{PROJECT_SKILL_CATALOG}}", skill_catalog)
 
     def _build_model_limited_input(
         self, input_items: list[dict[str, object]]
