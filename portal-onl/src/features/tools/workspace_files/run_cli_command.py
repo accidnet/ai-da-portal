@@ -139,7 +139,6 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
         return ToolExecutionResult[dict[str, object]](
             ok=False,
             data={
-                "command": command if "command" in locals() else [],
                 "workspace_id": workspace_id if "workspace_id" in locals() else None,
                 "cwd": cwd if "cwd" in locals() else "",
                 "timed_out": True,
@@ -192,7 +191,6 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
     return ToolExecutionResult[dict[str, object]](
         ok=completed.returncode == 0,
         data={
-            "command": command,
             "workspace_id": workspace_id,
             "cwd": cwd,
             "exit_code": completed.returncode,
