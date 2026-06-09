@@ -18,6 +18,7 @@ from features.tools.datasets import (
     inspect_dataset_context,
 )
 from features.tools.planning import update_plan
+from features.tools.runtime_resources import get_runtime_resources
 from features.tools.workspace_files import (
     run_cli_command,
 )
@@ -49,6 +50,7 @@ _TOOL_MODULES: tuple[ToolModule, ...] = (
     build_segment_bubble_chart,
     build_distribution_histogram,
     build_share_donut,
+    get_runtime_resources,
     run_cli_command,
 )
 _TOOL_ALIASES: dict[str, ToolModule] = {

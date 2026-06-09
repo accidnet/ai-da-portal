@@ -22,7 +22,7 @@ class RuntimeResourceSnapshot:
 
 
 def collect_runtime_resource_payload() -> dict[str, object]:
-    """LLM developer message에 넣을 리소스 상태를 생성합니다."""
+    """agent tool 응답에 넣을 리소스 상태를 생성합니다."""
     snapshot = collect_runtime_resource_snapshot()
     return {
         "runtime_resources": asdict(snapshot),

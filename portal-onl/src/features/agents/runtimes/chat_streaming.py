@@ -106,12 +106,20 @@ class ChatStreamingAgent(BaseAgent):
                     iteration=iteration_count,
                     input_items=request_input_items,
                 )
-                stream_result = yield from self._parse_stream_events(
-                    self._llm_client.create_response(
-                        **request_kwargs,
-                        stream=True,
-                    ),
+                stream = self._llm_client.create_response(
+                    **request_kwargs,
+                    stream=True,
                 )
+                self._write_response_state_debug(
+                    invoke_input=invoke_input,
+                    iteration=iteration_count,
+                    event="response-started",
+                    payload={
+                        "input_item_count": len(request_input_items),
+                        "stream_created": True,
+                    },
+                )
+                stream_result = yield from self._parse_stream_events(stream)
             except AiClientTransientError as exc:
                 stream_result = self._build_interrupted_stream_result(
                     exc=exc,
@@ -127,6 +135,12 @@ class ChatStreamingAgent(BaseAgent):
                         input_items=request_input_items,
                         exc=exc,
                     )
+                else:
+                    self._write_response_error_debug(
+                        invoke_input=invoke_input,
+                        iteration=iteration_count,
+                        exc=exc,
+                    )
                 raise
             except Exception as exc:
                 if self._is_context_window_error(exc):
@@ -136,7 +150,25 @@ class ChatStreamingAgent(BaseAgent):
                         input_items=request_input_items,
                         exc=exc,
                     )
+                else:
+                    self._write_response_error_debug(
+                        invoke_input=invoke_input,
+                        iteration=iteration_count,
+                        exc=exc,
+                    )
                 raise AiClientError(self._format_llm_stream_error(exc)) from exc
+            if stream_result.get("interrupted") is True:
+                self._write_response_interrupted_debug(
+                    invoke_input=invoke_input,
+                    iteration=iteration_count,
+                    stream_result=stream_result,
+                )
+            else:
+                self._write_response_completed_debug(
+                    invoke_input=invoke_input,
+                    iteration=iteration_count,
+                    stream_result=stream_result,
+                )
             if stream_result.get("interrupted") is True:
                 stream_recovery_count += 1
                 yield SseEvent(
@@ -295,6 +327,95 @@ class ChatStreamingAgent(BaseAgent):
                 "Saved context window input debug file=%s",
                 debug_file_path,
             )
+
+    def _write_response_state_debug(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        event: str,
+        payload: dict[str, object],
+    ) -> None:
+        """LLM 응답 흐름의 주요 상태를 input 로그와 같은 식별자로 저장합니다."""
+        context = self._build_input_debug_context(
+            invoke_input=invoke_input,
+            iteration=iteration,
+            event=event,
+        )
+        debug_file_path = write_llm_input_debug_file(
+            context=context,
+            payload=payload,
+        )
+        if debug_file_path is not None:
+            logger.info("Saved chat streaming response debug file=%s", debug_file_path)
+
+    def _write_response_completed_debug(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        stream_result: dict[str, object],
+    ) -> None:
+        """LLM 스트림이 정상 완료된 즉시 생성된 output item을 저장합니다."""
+        stream_input_items = self._build_stream_input_item_payloads(stream_result)
+        function_call_items = cast(
+            list[FunctionCall],
+            stream_result.get("function_call_items", []),
+        )
+        self._write_response_state_debug(
+            invoke_input=invoke_input,
+            iteration=iteration,
+            event="response-completed",
+            payload={
+                "interrupted": False,
+                "should_stop_iteration": stream_result.get("should_stop_iteration")
+                is True,
+                "output_item_count": len(stream_input_items),
+                "function_call_count": len(function_call_items),
+                "output_items": stream_input_items,
+            },
+        )
+
+    def _write_response_interrupted_debug(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        stream_result: dict[str, object],
+    ) -> None:
+        """LLM 스트림 중단 시 부분 응답과 최근 event를 복구 입력과 동일하게 저장합니다."""
+        self._write_response_state_debug(
+            invoke_input=invoke_input,
+            iteration=iteration,
+            event="response-interrupted",
+            payload={
+                "interrupted": True,
+                "error_type": stream_result.get("error_type"),
+                "error_message": stream_result.get("error_message"),
+                "partial_text": stream_result.get("partial_text") or "",
+                "recent_stream_events": stream_result.get("event_log") or [],
+                "completed_output_items": stream_result.get("completed_output_items")
+                or [],
+            },
+        )
+
+    def _write_response_error_debug(
+        self,
+        *,
+        invoke_input: AgentInvokeInput,
+        iteration: int,
+        exc: Exception,
+    ) -> None:
+        """복구 불가 LLM 예외도 어떤 호출에서 터졌는지 식별 가능하게 남깁니다."""
+        self._write_response_state_debug(
+            invoke_input=invoke_input,
+            iteration=iteration,
+            event="response-error",
+            payload={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
 
     def _read_request_input_items(
         self, request_kwargs: dict[str, object]
@@ -719,7 +840,6 @@ class ChatStreamingAgent(BaseAgent):
         stream_result: dict[str, object],
         output: AgentInvokeOutput,
     ) -> tuple[list[dict[str, object]] | None, list[SseEvent]]:
-
         stream_input_items = self._build_stream_input_item_payloads(stream_result)
 
         # 실행해야 할 function call이 있는 지 확인 후 실행

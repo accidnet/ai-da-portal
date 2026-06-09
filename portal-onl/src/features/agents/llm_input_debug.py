@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,19 +37,22 @@ def write_llm_input_debug_file(
 
         # 한 사용자 턴 안의 반복 LLM 호출을 파일명에서 바로 구분할 수 있게 합니다.
         file_path = _build_unique_file_path(log_dir, now, context)
-        file_path.write_text(
-            json.dumps(
-                {
-                    "logged_at": now.isoformat(),
-                    "context": context,
-                    **payload,
-                },
-                ensure_ascii=False,
-                indent=2,
-                default=str,
-            ),
-            encoding="utf-8",
+        content = json.dumps(
+            {
+                "logged_at": now.isoformat(),
+                "context": context,
+                **payload,
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
         )
+        # LLM 호출 직후 프로세스가 종료되어도 어떤 입력이 전송됐는지 남기기 위해 동기화합니다.
+        with file_path.open("w", encoding="utf-8") as file:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        _fsync_directory(log_dir)
         return file_path
     except OSError:
         logger.exception("Failed to write LLM input debug file")
@@ -66,7 +70,9 @@ def _build_unique_file_path(
     user_message_id = _safe_part(context.get("user_message_id"), fallback="no-turn")
     agent_run_id = _safe_part(context.get("agent_run_id"), fallback="no-run")
     iteration = context.get("iteration")
-    iteration_part = f"iter-{int(iteration):02d}" if isinstance(iteration, int) else "iter-00"
+    iteration_part = (
+        f"iter-{int(iteration):02d}" if isinstance(iteration, int) else "iter-00"
+    )
     stem = (
         f"{timestamp}__{event}__turn-{user_message_id}"
         f"__run-{agent_run_id}__{iteration_part}"
@@ -84,3 +90,12 @@ def _safe_part(value: object, *, fallback: str) -> str:
     if not isinstance(value, str) or not value.strip():
         return fallback
     return _SAFE_PATH_CHARS.sub("-", value.strip())[:120] or fallback
+
+
+def _fsync_directory(path: Path) -> None:
+    """새 파일명이 crash 이후에도 보이도록 디렉터리 메타데이터를 동기화합니다."""
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)

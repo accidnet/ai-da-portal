@@ -6,7 +6,6 @@ from typing import cast
 
 from core.config import get_settings
 from features.agents.prompt_loader import load_prompt
-from features.agents.runtime_resources import collect_runtime_resource_payload
 from features.agents.skill_loader import load_agent_skill_catalog
 from features.agents.state import (
     AgentInvokeOutput,
@@ -331,7 +330,7 @@ class BaseAgent:
         self, input_items: list[dict[str, object]]
     ) -> list[dict[str, object]]:
         """현재 모델의 input token 한도에 맞게 최종 LLM input payload를 구성합니다."""
-        injected_input = self._inject_runtime_resource_input(input_items)
+        injected_input = self._inject_context_inputs(input_items)
         settings = get_settings()
         max_input_tokens = get_model_input_token_limit(
             provider=settings.llm_provider,
@@ -359,14 +358,16 @@ class BaseAgent:
             self._build_instructions()
         ) + estimate_input_tokens(registry.get_tool_definitions())
 
-    def _inject_runtime_resource_input(
+    def _inject_context_inputs(
         self, input_items: list[dict[str, object]]
     ) -> list[dict[str, object]]:
-        """LLM API 호출 직전 최신 컴퓨팅 리소스 상태를 developer input으로 추가합니다."""
-        developer_inputs = [self._build_runtime_resource_input()]
+        """LLM API 호출 직전 필요한 요청 맥락 developer input을 추가합니다."""
+        developer_inputs = []
         workspace_input = self._build_workspace_local_storage_input()
         if workspace_input is not None:
             developer_inputs.append(workspace_input)
+        if not developer_inputs:
+            return input_items
 
         insert_index = 0
         for item in input_items:
@@ -378,26 +379,6 @@ class BaseAgent:
             *developer_inputs,
             *input_items[insert_index:],
         ]
-
-    def _build_runtime_resource_input(self) -> dict[str, object]:
-        """현재 리소스 스냅샷을 모델 입력용 developer message로 변환합니다."""
-        payload = collect_runtime_resource_payload()
-        return InputItemList(
-            items=(
-                Message(
-                    role="developer",
-                    content=(
-                        ResponseInputText(
-                            text=(
-                                "현재 백엔드 컴퓨팅 리소스 상태입니다. "
-                                "데이터 로드, 전처리, 집계, 임시 파일 생성 방식을 결정할 때 참고하세요.\n"
-                                f"{json.dumps(payload, ensure_ascii=False)}"
-                            )
-                        ),
-                    ),
-                ),
-            )
-        ).to_payload()[0]
 
     def _build_workspace_local_storage_input(self) -> dict[str, object] | None:
         """워크스페이스 로컬 저장소 사용 안내를 모델 입력용 developer message로 변환합니다."""
