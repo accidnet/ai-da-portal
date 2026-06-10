@@ -6,6 +6,7 @@ from pathlib import Path
 from core.paths import ROOT_DIR
 
 _BYTES_PER_GB = 1024 * 1024 * 1024
+_MEMORY_SAFETY_MARGIN_GB = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,9 +34,10 @@ def collect_runtime_resource_snapshot() -> RuntimeResourceSnapshot:
     """현재 프로세스와 루트 디스크 기준의 리소스 스냅샷을 수집합니다."""
     memory = _read_memory_info()
     root_disk = shutil.disk_usage(ROOT_DIR)
+    available_memory_gb = _bytes_to_gb(memory.get("MemAvailable"))
     return RuntimeResourceSnapshot(
         total_memory_gb=_bytes_to_gb(memory.get("MemTotal")),
-        available_memory_gb=_bytes_to_gb(memory.get("MemAvailable")),
+        available_memory_gb=_apply_memory_safety_margin(available_memory_gb),
         process_memory_gb=_read_process_memory_gb(),
         root_disk_total_gb=_bytes_to_gb(root_disk.total) or 0,
         root_disk_free_gb=_bytes_to_gb(root_disk.free) or 0,
@@ -62,6 +64,15 @@ def _read_memory_info() -> dict[str, int]:
             continue
         memory[name] = value_kb * 1024
     return memory
+
+
+def _apply_memory_safety_margin(available_memory_gb: float | None) -> float | None:
+    """모델에 전달할 가용 메모리에서 작업 여유분을 차감합니다."""
+    if available_memory_gb is None:
+        return None
+
+    # 실제 OS/백엔드 사용량 변동을 고려해 모델에는 보수적인 가용치를 전달합니다.
+    return max(round(available_memory_gb - _MEMORY_SAFETY_MARGIN_GB, 2), 0)
 
 
 def _read_process_memory_gb() -> float | None:
