@@ -6,6 +6,7 @@ from typing import cast
 
 from core.config import get_settings
 from features.agents.prompt_loader import load_prompt
+from features.agents.runtime_resources import collect_runtime_resource_payload
 from features.agents.skill_loader import load_agent_skill_catalog
 from features.agents.state import (
     AgentInvokeOutput,
@@ -363,6 +364,9 @@ class BaseAgent:
     ) -> list[dict[str, object]]:
         """LLM API 호출 직전 필요한 요청 맥락 developer input을 추가합니다."""
         developer_inputs = []
+        settings = get_settings()
+        if settings.agent_include_runtime_resources:
+            developer_inputs.append(self._build_runtime_resource_input())
         workspace_input = self._build_workspace_local_storage_input()
         if workspace_input is not None:
             developer_inputs.append(workspace_input)
@@ -379,6 +383,26 @@ class BaseAgent:
             *developer_inputs,
             *input_items[insert_index:],
         ]
+
+    def _build_runtime_resource_input(self) -> dict[str, object]:
+        """현재 리소스 스냅샷을 모델 입력용 developer message로 변환합니다."""
+        payload = collect_runtime_resource_payload()
+        return InputItemList(
+            items=(
+                Message(
+                    role="developer",
+                    content=(
+                        ResponseInputText(
+                            text=(
+                                "현재 백엔드 컴퓨팅 리소스 상태입니다. "
+                                "데이터 로드, 전처리, 집계, 임시 파일 생성 방식을 결정할 때 참고하세요.\n"
+                                f"{json.dumps(payload, ensure_ascii=False)}"
+                            )
+                        ),
+                    ),
+                ),
+            )
+        ).to_payload()[0]
 
     def _build_workspace_local_storage_input(self) -> dict[str, object] | None:
         """워크스페이스 로컬 저장소 사용 안내를 모델 입력용 developer message로 변환합니다."""

@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     openai_codex_api_endpoint: str = "https://chatgpt.com/backend-api/codex/responses"
     llm_request_timeout_seconds: float = 180.0
     llm_stream_recovery_attempts: int = 3
+    agent_include_runtime_resources: bool = True
 
 
 def resolve_env_files() -> tuple[str, ...]:
