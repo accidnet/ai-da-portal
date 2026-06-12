@@ -1,9 +1,5 @@
-from features.tools.charts.common import (
-    build_distribution_histogram,
-    load_dataframe_from_arguments,
-    tool_error,
-    tool_success,
-)
+from features.tools.charts.common import tool_error, tool_success
+from features.tools.charts.sql_common import build_sql_axis_chart, sql_chart_parameters
 
 
 def tool_definition() -> dict[str, object]:
@@ -11,25 +7,24 @@ def tool_definition() -> dict[str, object]:
     return {
         "type": "function",
         "name": "build_distribution_histogram",
-        "description": "숫자형 컬럼의 분포와 빈도를 보여주는 histogram chart payload를 생성합니다.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "dataset_id": {"type": "string", "description": "대상 데이터셋 ID입니다."}
-            },
-            "required": ["dataset_id"],
-            "additionalProperties": False,
-        },
+        "description": (
+            "datafile_path를 DuckDB dataset view로 조회한 SQL 결과를 "
+            "분포와 빈도용 histogram chart payload로 생성합니다."
+        ),
+        "parameters": sql_chart_parameters(),
     }
 
 
 def execute(arguments: dict[str, object]) -> dict[str, object]:
     """LLM function_call arguments만 받아 distribution histogram chart를 생성합니다."""
     try:
-        dataset_id, dataframe = load_dataframe_from_arguments(arguments)
-        chart = build_distribution_histogram(dataframe)
-    except KeyError:
-        return tool_error("Dataset not found.")
+        datafile_path, chart = build_sql_axis_chart(
+            arguments,
+            chart_id="distribution_histogram",
+            chart_type="histogram",
+        )
     except ValueError as exc:
         return tool_error(str(exc))
-    return tool_success({"dataset_id": dataset_id, "chart": chart.model_dump(mode="json")})
+    return tool_success(
+        {"datafile_path": str(datafile_path), "chart": chart.model_dump(mode="json")}
+    )

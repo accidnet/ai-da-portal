@@ -14,6 +14,16 @@ def load_source_path(source_id: str) -> Path:
     return resolve_source_file_path(source_item)
 
 
+def read_datafile_path(arguments: dict[str, object]) -> Path:
+    """tool argument의 datafile_path를 DuckDB로 읽을 수 있는 파일 경로로 검증합니다."""
+    raw_path = read_required_string(arguments, "datafile_path")
+    datafile_path = Path(raw_path).expanduser()
+    # LLM이 전달한 경로가 디렉터리나 누락 파일이면 DuckDB 오류 전에 명확히 차단합니다.
+    if not datafile_path.is_file():
+        raise ValueError("datafile_path must point to a readable file.")
+    return datafile_path
+
+
 def get_source_item_or_raise(source_id: str) -> DataSourceItem:
     """source_id에 해당하는 원천 데이터 노드를 조회하고 없으면 KeyError를 발생시킵니다."""
     items = DataSourceRepository().list_items_by_ids([source_id])
