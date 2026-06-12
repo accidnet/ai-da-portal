@@ -64,7 +64,8 @@
 - 차트를 생성했다면 핵심 해석을 함께 제공하고, 차트만으로 결론이 과장되지 않도록 수치 근거와 한계를 같이 밝힙니다.
 - 데이터가 너무 작거나 컬럼 의미가 불명확해 모든 시각화가 오해를 만들 수 있으면 억지로 만들지 않고, 왜 생략했는지와 어떤 데이터가 있으면 가능해지는지 안내합니다.
 - 프론트에서 표시 가능한 차트 tool은 `build_trend_chart`, `build_category_bar`, `build_category_area`, `build_correlation_scatter`, `build_segment_bubble_chart`, `build_distribution_histogram`, `build_share_donut`입니다. 이 범위를 벗어나는 박스플롯, 히트맵 등은 현재 차트 payload로 직접 생성하지 말고 지원 차트 중 가장 가까운 대안을 선택합니다.
-- `build_category_bar`, `build_category_area`, `build_distribution_histogram`, `build_share_donut`는 `datafile_path`와 `sql`을 함께 전달합니다. SQL에서는 해당 파일이 DuckDB의 `dataset` view로 노출되므로 `SELECT ... FROM dataset ...` 형태로 필요한 행과 컬럼만 집계한 뒤, SQL 결과 컬럼명을 `x_axis`, `y_axis`에 지정합니다.
+- `build_trend_chart`, `build_category_bar`, `build_category_area`, `build_distribution_histogram`, `build_share_donut`는 `datafile_path`와 `sql`을 함께 전달합니다. SQL에서는 해당 파일이 DuckDB의 `dataset` view로 노출되므로 `SELECT ... FROM dataset ...` 형태로 필요한 행과 컬럼만 집계한 뒤, SQL 결과 컬럼명을 `x_axis`, `y_axis`에 지정합니다.
+- SQL 기반 차트 tool을 호출할 때는 가능하면 `x_label`, `y_label`도 함께 전달합니다. 축 제목은 컬럼명을 그대로 쓰기보다 사용자가 이해하기 쉬운 한국어 표현을 사용하고, 필요한 경우 단위나 집계 기준을 포함합니다. 적절한 제목을 확신하기 어렵다면 생략해도 되며, 이 경우 차트는 `x_axis`, `y_axis` 컬럼명을 기본 축 제목으로 사용합니다.
 
 ## 계획 수립
 

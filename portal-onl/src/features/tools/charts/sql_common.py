@@ -37,6 +37,14 @@ def sql_chart_parameters() -> dict[str, object]:
                 "type": "string",
                 "description": "SQL 결과에서 숫자 값으로 사용할 컬럼명입니다.",
             },
+            "x_label": {
+                "type": ["string", "null"],
+                "description": "차트에 표시할 x축 제목입니다. 가능하면 사용자가 이해하기 쉬운 한국어 제목을 전달합니다. 없으면 x_axis 컬럼명을 사용합니다.",
+            },
+            "y_label": {
+                "type": ["string", "null"],
+                "description": "차트에 표시할 y축 제목입니다. 가능하면 단위나 집계 기준을 포함한 한국어 제목을 전달합니다. 없으면 y_axis 컬럼명을 사용합니다.",
+            },
             "series_name": {
                 "type": ["string", "null"],
                 "description": "series 이름입니다. 없으면 y_axis를 사용합니다.",
@@ -63,6 +71,8 @@ def build_sql_axis_chart(
     title = read_required_string(arguments, "title")
     x_axis = read_required_string(arguments, "x_axis")
     y_axis = read_required_string(arguments, "y_axis")
+    x_label = read_string(arguments.get("x_label")) or x_axis
+    y_label = read_string(arguments.get("y_label")) or y_axis
     series_name = read_string(arguments.get("series_name")) or y_axis
     limit = read_limit(arguments.get("limit"))
 
@@ -74,6 +84,8 @@ def build_sql_axis_chart(
         title=title,
         x_axis=x_axis,
         y_axis=y_axis,
+        x_label=x_label,
+        y_label=y_label,
         series_name=series_name,
     )
     return datafile_path, chart
@@ -87,6 +99,8 @@ def _build_axis_chart_from_dataframe(
     title: str,
     x_axis: str,
     y_axis: str,
+    x_label: str,
+    y_label: str,
     series_name: str,
 ) -> ChartPayload:
     """SQL 결과 컬럼을 프론트 차트 축/series 형식으로 정규화합니다."""
@@ -114,7 +128,7 @@ def _build_axis_chart_from_dataframe(
                 ],
             )
         ],
-        meta=ChartMeta(x_label=x_axis, y_label=y_axis),
+        meta=ChartMeta(x_label=x_label, y_label=y_label),
     )
 
 
