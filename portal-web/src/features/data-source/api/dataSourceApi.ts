@@ -38,6 +38,7 @@ export interface DataSourceUploadProgressEvent {
 
 export interface DataSourceUploadOptions {
   signal?: AbortSignal
+  extractZip?: boolean
   onProgress?: (event: DataSourceUploadProgressEvent) => void
 }
 
@@ -62,6 +63,7 @@ export async function uploadDataSources(
     formData.append('files', file, uploadPath)
     formData.append('relative_paths', uploadPath)
   }
+  formData.append('extract_zip', String(options.extractZip ?? false))
 
   return new Promise<DataSourceUploadResponse>((resolve, reject) => {
     const xhr = new XMLHttpRequest()

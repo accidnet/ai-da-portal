@@ -1,6 +1,10 @@
 import { ref } from 'vue'
 
-import type { DataSourceItem, DataSourceUploadProgress } from '@/features/data-source/types'
+import type {
+  DataSourceItem,
+  DataSourceUploadProgress,
+  UploadPickerOptions,
+} from '@/features/data-source/types'
 import {
   deleteDataSourceItem,
   fetchDataSourceTree,
@@ -41,6 +45,22 @@ function createUploadProgress(): DataSourceUploadProgress {
   }
 }
 
+/** 파일 선택 결과에 zip이 있으면 트리 구성 여부를 사용자에게 확인합니다. */
+function resolveZipExtraction(files: File[], options: UploadPickerOptions): boolean {
+  if (options.extractZip !== undefined) return options.extractZip
+  if (!files.some(isZipFile) || typeof window === 'undefined') return false
+
+  return window.confirm(
+    '선택한 파일에 zip 파일이 포함되어 있습니다.\n압축 해제 후 내부 데이터로 폴더 트리를 구성할까요?',
+  )
+}
+
+/** 브라우저가 전달한 파일 메타데이터로 zip 파일 여부를 판단합니다. */
+function isZipFile(file: File): boolean {
+  const contentType = file.type.toLowerCase()
+  return file.name.toLowerCase().endsWith('.zip') || contentType === 'application/zip'
+}
+
 export function useDataSourceItems() {
   const dataSourceItems = ref<DataSourceItem[]>([])
   const dataSourceError = ref<string | null>(null)
@@ -60,13 +80,14 @@ export function useDataSourceItems() {
   }
 
   /** 파일 또는 폴더 선택 결과를 원천 데이터 저장소에 업로드합니다. */
-  async function handleDataSourceFileChange(event: Event) {
+  async function handleDataSourceFileChange(event: Event, options: UploadPickerOptions = {}) {
     const input = event.target as HTMLInputElement
     const files = Array.from(input.files ?? [])
     input.value = ''
     if (files.length === 0) return
 
     try {
+      const extractZip = resolveZipExtraction(files, options)
       isDataSourceUploading.value = true
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
       const now = new Date().toISOString()
@@ -81,6 +102,7 @@ export function useDataSourceItems() {
         updatedAt: now,
       }
       await uploadDataSources(files, {
+        extractZip,
         onProgress: ({ loadedBytes, totalBytes: progressTotalBytes, percent }) => {
           dataSourceUploadProgress.value = {
             ...dataSourceUploadProgress.value,
@@ -110,8 +132,8 @@ export function useDataSourceItems() {
         message: '업로드 완료',
         updatedAt: new Date().toISOString(),
       }
-    } catch {
-      dataSourceError.value = '원천 데이터 업로드에 실패했어요.'
+    } catch (error) {
+      dataSourceError.value = error instanceof Error ? error.message : '원천 데이터 업로드에 실패했어요.'
       dataSourceUploadProgress.value = {
         ...dataSourceUploadProgress.value,
         status: 'failed',

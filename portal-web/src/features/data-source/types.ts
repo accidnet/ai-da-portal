@@ -65,6 +65,9 @@ export interface DatasetAsset {
 
 export type UploadPickerMode = 'files' | 'folder'
 export type UploadPickerTarget = 'dataset' | 'data-source'
+export interface UploadPickerOptions {
+  extractZip?: boolean
+}
 export type DataSourceUploadStatus = 'idle' | 'queued' | 'uploading' | 'processing' | 'completed' | 'failed'
 
 export interface DataSourceUploadProgress {

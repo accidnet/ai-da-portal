@@ -289,6 +289,12 @@ function setActiveDetail(detail: SourceDetail) {
         <strong class="source-upload-progress__percent">
           {{ uploadProgress.percent }}%
         </strong>
+        <p
+          v-if="uploadProgress.status === 'failed' && errorMessage"
+          class="source-upload-progress__error"
+        >
+          {{ errorMessage }}
+        </p>
       </div>
 
       <div class="source-file-toolbar">
@@ -305,8 +311,6 @@ function setActiveDetail(detail: SourceDetail) {
           삭제
         </button>
       </div>
-
-      <p v-if="errorMessage" class="source-error-message">{{ errorMessage }}</p>
 
       <div class="source-file-browser">
         <div class="source-file-browser__head">
@@ -621,6 +625,15 @@ function setActiveDetail(detail: SourceDetail) {
   font-variant-numeric: tabular-nums;
 }
 
+.source-upload-progress__error {
+  grid-column: 1 / -1;
+  margin: -2px 0 0 34px;
+  color: #9b3b3b;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .source-upload-progress--completed {
   border-color: rgba(44, 139, 92, 0.24);
   background: rgba(240, 250, 245, 0.96);
@@ -668,16 +681,6 @@ function setActiveDetail(detail: SourceDetail) {
 
 .file-tool-button:disabled {
   opacity: 0.55;
-}
-
-.source-error-message {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(189, 73, 73, 0.22);
-  border-radius: 10px;
-  color: #9b3b3b;
-  background: #fff7f7;
-  font-size: 0.84rem;
 }
 
 .source-file-browser {
