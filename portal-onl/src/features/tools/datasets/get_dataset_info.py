@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from core.utils import read_string
 from features.data_sources.domain.models import DataSourceItem
 from features.data_sources.infrastructure.repositories import DataSourceRepository
@@ -8,6 +10,9 @@ from infrastructure.db.repositories.dataset_repository import (
     DatasetSourceRecord,
 )
 
+DEFAULT_FILE_LIMIT = 20
+MAX_FILE_LIMIT = 100
+
 
 def tool_definition() -> dict[str, object]:
     """dataset_id 기준 DB 저장 정보를 조회하는 agent tool 정의를 반환합니다."""
@@ -15,8 +20,8 @@ def tool_definition() -> dict[str, object]:
         "type": "function",
         "name": "get_dataset_info",
         "description": (
-            "dataset_id에 해당하는 데이터셋 DB 메타데이터와 연결된 원천 데이터 파일 경로를 조회합니다. "
-            "CLI로 데이터 파일을 다루기 전에 실제 파일 path가 필요할 때 사용합니다."
+            "dataset_id에 해당하는 데이터셋 DB 메타데이터와 필요한 범위의 원천 데이터 파일 경로를 조회합니다. "
+            "파일이 많을 수 있으므로 기본적으로 일부 파일만 반환하며, 필요한 범위만 file_offset/file_limit으로 나눠 조회합니다."
         ),
         "parameters": {
             "type": "object",
@@ -25,6 +30,20 @@ def tool_definition() -> dict[str, object]:
                     "type": ["string", "array"],
                     "items": {"type": "string"},
                     "description": "조회할 데이터셋 ID 또는 데이터셋 ID 배열입니다.",
+                },
+                "file_offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "반환할 파일 목록의 시작 위치입니다. 기본값은 0입니다.",
+                },
+                "file_limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": MAX_FILE_LIMIT,
+                    "description": (
+                        "반환할 파일 수입니다. 기본값은 20, 최대 100입니다. "
+                        "메타데이터만 필요하면 0으로 지정합니다."
+                    ),
                 },
             },
             "required": ["dataset_id"],
@@ -36,6 +55,8 @@ def tool_definition() -> dict[str, object]:
 def execute(arguments: dict[str, object]) -> dict[str, object]:
     """LLM function_call arguments만 받아 데이터셋 DB 정보를 조회합니다."""
     dataset_ids = _read_dataset_ids(arguments.get("dataset_id"))
+    file_offset = _read_non_negative_int(arguments.get("file_offset"), default=0)
+    file_limit = _read_file_limit(arguments.get("file_limit"))
     if not dataset_ids:
         return ToolExecutionResult[object](
             ok=False,
@@ -57,11 +78,23 @@ def execute(arguments: dict[str, object]) -> dict[str, object]:
             )
             continue
         source_items = _load_source_items(dataset)
-        datasets.append(_build_dataset_info(dataset, source_items))
+        datasets.append(
+            _build_dataset_info(
+                dataset,
+                source_items,
+                file_offset=file_offset,
+                file_limit=file_limit,
+            )
+        )
 
     data = {
         "dataset_ids": dataset_ids,
         "datasets": datasets,
+        "file_pagination": {
+            "offset": file_offset,
+            "limit": file_limit,
+            "max_limit": MAX_FILE_LIMIT,
+        },
     }
     if len(dataset_ids) == 1 and datasets and not errors:
         data.update(datasets[0])
@@ -87,6 +120,19 @@ def _read_dataset_ids(value: object) -> list[str]:
     return dataset_ids
 
 
+def _read_non_negative_int(value: object, *, default: int) -> int:
+    """tool argument의 음수가 아닌 정수 값을 안전하게 읽습니다."""
+    if isinstance(value, int) and value >= 0:
+        return value
+    return default
+
+
+def _read_file_limit(value: object) -> int:
+    """context 보호를 위해 파일 반환 개수를 최대치 안에서 정규화합니다."""
+    raw_limit = _read_non_negative_int(value, default=DEFAULT_FILE_LIMIT)
+    return min(raw_limit, MAX_FILE_LIMIT)
+
+
 def _load_source_items(dataset: DatasetRecord) -> dict[str, DataSourceItem]:
     """데이터셋 source_ref_id에 연결된 원천 데이터 노드를 한 번에 조회합니다."""
     source_ref_ids = [
@@ -104,22 +150,51 @@ def _load_source_items(dataset: DatasetRecord) -> dict[str, DataSourceItem]:
 def _build_dataset_info(
     dataset: DatasetRecord,
     source_items: dict[str, DataSourceItem],
+    *,
+    file_offset: int,
+    file_limit: int,
 ) -> dict[str, object]:
     """데이터셋 record와 원천 데이터 record를 tool 응답 payload로 변환합니다."""
-    files = [
-        _build_file_info(source, source_items)
-        for source in dataset.sources
-    ]
+    total_file_count = len(dataset.sources)
+    selected_sources = dataset.sources[file_offset : file_offset + file_limit]
+    files = [_build_file_info(source, source_items) for source in selected_sources]
+    next_file_offset = file_offset + len(files)
+    has_more_files = next_file_offset < total_file_count
     return {
         "dataset_id": dataset.id,
         "name": dataset.name,
         "description": dataset.description,
         "created_at": dataset.created_at.isoformat(),
         "updated_at": dataset.updated_at.isoformat(),
-        "file_count": len(files),
+        "file_count": total_file_count,
+        "returned_file_count": len(files),
+        "omitted_file_count": max(total_file_count - file_offset - len(files), 0),
+        "next_file_offset": next_file_offset if has_more_files else None,
+        "has_more_files": has_more_files,
+        "total_row_count": _sum_optional_int(
+            source.row_count for source in dataset.sources
+        ),
+        "total_column_count": _sum_optional_int(
+            source.column_count for source in dataset.sources
+        ),
+        # 파일이 많은 데이터셋은 필요한 page만 추가 조회하도록 안내해 context 사용량을 제한합니다.
+        "usage_note": (
+            "files는 file_offset/file_limit 범위만 포함합니다. "
+            "추가 파일 path가 필요할 때만 다음 file_offset으로 다시 호출하세요."
+        ),
         "files": files,
-        "sources": files,
     }
+
+
+def _sum_optional_int(values: Iterable[int | None]) -> int | None:
+    """row/column 통계가 없을 수 있으므로 정수 값만 합산합니다."""
+    total = 0
+    found = False
+    for value in values:
+        if isinstance(value, int):
+            total += value
+            found = True
+    return total if found else None
 
 
 def _build_file_info(
@@ -138,12 +213,10 @@ def _build_file_info(
         "source_ref_id": source.source_ref_id,
         "row_count": source.row_count,
         "column_count": source.column_count,
-        "created_at": source.created_at.isoformat(),
         # CLI 접근 가능성을 판단해야 하므로 path 키는 항상 포함합니다.
         "path": source_item.storage_path if source_item is not None else None,
         "relative_path": source_item.relative_path if source_item is not None else None,
         "source_name": source_item.name if source_item is not None else None,
-        "source_type": source_item.item_type if source_item is not None else None,
         "content_type": source_item.content_type if source_item is not None else None,
         "size_bytes": source_item.size_bytes if source_item is not None else None,
     }

@@ -19,7 +19,10 @@ def sql_chart_parameters() -> dict[str, object]:
         "properties": {
             "datafile_path": {
                 "type": "string",
-                "description": "DuckDB로 직접 읽을 CSV/TSV/JSON/Parquet 파일의 실제 경로입니다.",
+                "description": (
+                    "DuckDB로 직접 읽을 CSV/TSV/JSON/Parquet 파일의 워크스페이스 루트 기준 상대 경로입니다. "
+                    "workspace datasets 항목의 workspace_path 값을 사용하고 절대 경로는 사용하지 않습니다."
+                ),
             },
             "sql": {
                 "type": "string",

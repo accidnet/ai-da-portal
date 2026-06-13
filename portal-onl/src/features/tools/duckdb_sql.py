@@ -6,6 +6,7 @@ import pandas as pd
 from core.utils import read_string
 from features.data_sources.domain.models import DataSourceItem
 from features.data_sources.infrastructure.repositories import DataSourceRepository
+from features.tools.workspace_files.context import resolve_workspace_path
 
 
 def load_source_path(source_id: str) -> Path:
@@ -15,13 +16,26 @@ def load_source_path(source_id: str) -> Path:
 
 
 def read_datafile_path(arguments: dict[str, object]) -> Path:
-    """tool argument의 datafile_path를 DuckDB로 읽을 수 있는 파일 경로로 검증합니다."""
+    """tool argument의 datafile_path를 workspace 내부 파일 경로로 검증합니다."""
     raw_path = read_required_string(arguments, "datafile_path")
-    datafile_path = Path(raw_path).expanduser()
-    # LLM이 전달한 경로가 디렉터리나 누락 파일이면 DuckDB 오류 전에 명확히 차단합니다.
-    if not datafile_path.is_file():
-        raise ValueError("datafile_path must point to a readable file.")
-    return datafile_path
+    workspace_path = _resolve_workspace_datafile_path(raw_path)
+    if workspace_path is not None:
+        return workspace_path
+
+    raise ValueError("datafile_path must point to a readable workspace file.")
+
+
+def _resolve_workspace_datafile_path(raw_path: str) -> Path | None:
+    """chart tool은 CLI와 같은 workspace 상대 dataset 경로만 허용합니다."""
+    if Path(raw_path).expanduser().is_absolute():
+        return None
+
+    try:
+        workspace_path = resolve_workspace_path(raw_path)
+    except ValueError:
+        return None
+    # workspace 내부 hardlink 파일만 DuckDB에 전달해 절대 경로 추측을 피합니다.
+    return workspace_path if workspace_path.is_file() else None
 
 
 def get_source_item_or_raise(source_id: str) -> DataSourceItem:

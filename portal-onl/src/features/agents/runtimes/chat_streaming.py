@@ -35,6 +35,8 @@ INPUT_DEBUG_LARGEST_ITEM_COUNT = 8
 INPUT_DEBUG_PREVIEW_CHARS = 240
 STREAM_RECOVERY_TEXT_CHARS = 4000
 STREAM_RECOVERY_EVENT_LIMIT = 30
+CONTEXT_WINDOW_RECOVERY_OUTPUT_CHARS = 12000
+CONTEXT_WINDOW_RECOVERY_MAX_ATTEMPTS = 2
 AgentStreamEvent = dict[str, object] | SseEvent
 CHART_FUNCTION_NAMES = {
     "build_trend_chart",
@@ -76,6 +78,7 @@ class ChatStreamingAgent(BaseAgent):
         max_iterations = 20
         iteration_count = 0
         stream_recovery_count = 0
+        context_window_recovery_count = 0
         plan_completion_requested = False
         while True:
             if iteration_count >= max_iterations:
@@ -135,6 +138,39 @@ class ChatStreamingAgent(BaseAgent):
                         input_items=request_input_items,
                         exc=exc,
                     )
+                    context_window_recovery_count += 1
+                    recovery_result = self._build_context_window_recovery_input_items(
+                        input_items=input_items,
+                        exc=exc,
+                    )
+                    if (
+                        recovery_result is not None
+                        and context_window_recovery_count
+                        <= CONTEXT_WINDOW_RECOVERY_MAX_ATTEMPTS
+                    ):
+                        input_items = cast(
+                            list[dict[str, object]],
+                            recovery_result["input_items"],
+                        )
+                        output_input_items = self._apply_context_window_replacements(
+                            input_items=output_input_items,
+                            replacements=cast(
+                                dict[str, dict[str, object]],
+                                recovery_result["replacements"],
+                            ),
+                        )
+                        yield self._build_context_window_recovery_event(
+                            iteration=iteration_count,
+                            attempt=context_window_recovery_count,
+                            recovery_result=recovery_result,
+                        )
+                        yield SseEvent(
+                            event_type="agent.iteration.done",
+                            data={
+                                "iteration": iteration_count,
+                            },
+                        )
+                        continue
                 else:
                     self._write_response_error_debug(
                         invoke_input=invoke_input,
@@ -150,6 +186,39 @@ class ChatStreamingAgent(BaseAgent):
                         input_items=request_input_items,
                         exc=exc,
                     )
+                    context_window_recovery_count += 1
+                    recovery_result = self._build_context_window_recovery_input_items(
+                        input_items=input_items,
+                        exc=exc,
+                    )
+                    if (
+                        recovery_result is not None
+                        and context_window_recovery_count
+                        <= CONTEXT_WINDOW_RECOVERY_MAX_ATTEMPTS
+                    ):
+                        input_items = cast(
+                            list[dict[str, object]],
+                            recovery_result["input_items"],
+                        )
+                        output_input_items = self._apply_context_window_replacements(
+                            input_items=output_input_items,
+                            replacements=cast(
+                                dict[str, dict[str, object]],
+                                recovery_result["replacements"],
+                            ),
+                        )
+                        yield self._build_context_window_recovery_event(
+                            iteration=iteration_count,
+                            attempt=context_window_recovery_count,
+                            recovery_result=recovery_result,
+                        )
+                        yield SseEvent(
+                            event_type="agent.iteration.done",
+                            data={
+                                "iteration": iteration_count,
+                            },
+                        )
+                        continue
                 else:
                     self._write_response_error_debug(
                         invoke_input=invoke_input,
@@ -199,6 +268,7 @@ class ChatStreamingAgent(BaseAgent):
                 continue
 
             stream_recovery_count = 0
+            context_window_recovery_count = 0
             function_call_items = cast(
                 list[FunctionCall],
                 stream_result.get("function_call_items", []),
@@ -651,6 +721,192 @@ class ChatStreamingAgent(BaseAgent):
                 }
             ],
         }
+
+    def _build_context_window_recovery_input_items(
+        self,
+        *,
+        input_items: list[dict[str, object]],
+        exc: Exception,
+    ) -> dict[str, object] | None:
+        """context 초과 원인이 되는 큰 tool output을 축약하고 복구 지시를 추가합니다."""
+        replacements = self._build_context_window_replacements(input_items)
+        if not replacements:
+            return None
+
+        recovered_items = self._apply_context_window_replacements(
+            input_items=input_items,
+            replacements=replacements,
+        )
+        recovery_input = self._build_context_window_recovery_input(
+            exc=exc,
+            replacements=replacements,
+        )
+        return {
+            "input_items": [*recovered_items, recovery_input],
+            "replacements": replacements,
+        }
+
+    def _build_context_window_replacements(
+        self,
+        input_items: list[dict[str, object]],
+    ) -> dict[str, dict[str, object]]:
+        """큰 function_call_output을 call_id별 축약 payload로 변환합니다."""
+        call_name_by_id = self._read_function_call_names(input_items)
+        candidates: list[tuple[str, dict[str, object], int]] = []
+        for item in input_items:
+            if item.get("type") != "function_call_output":
+                continue
+            call_id = item.get("call_id")
+            output = item.get("output")
+            if not isinstance(call_id, str) or not isinstance(output, str):
+                continue
+            candidates.append((call_id, item, len(output)))
+
+        selected = [
+            candidate
+            for candidate in candidates
+            if candidate[2] > CONTEXT_WINDOW_RECOVERY_OUTPUT_CHARS
+        ]
+        if not selected and candidates:
+            selected = [max(candidates, key=lambda candidate: candidate[2])]
+
+        replacements: dict[str, dict[str, object]] = {}
+        for call_id, item, output_chars in selected:
+            replacements[call_id] = self._build_compacted_function_call_output(
+                item=item,
+                function_name=call_name_by_id.get(call_id),
+                output_chars=output_chars,
+            )
+        return replacements
+
+    def _read_function_call_names(
+        self,
+        input_items: list[dict[str, object]],
+    ) -> dict[str, str]:
+        """function_call_output을 어떤 tool 결과인지 식별하기 위해 call_id/name을 매핑합니다."""
+        names: dict[str, str] = {}
+        for item in input_items:
+            if item.get("type") != "function_call":
+                continue
+            call_id = item.get("call_id")
+            name = item.get("name")
+            if isinstance(call_id, str) and isinstance(name, str):
+                names[call_id] = name
+        return names
+
+    def _build_compacted_function_call_output(
+        self,
+        *,
+        item: dict[str, object],
+        function_name: str | None,
+        output_chars: int,
+    ) -> dict[str, object]:
+        """큰 tool output 대신 모델이 재계획할 수 있는 실패 결과를 같은 call_id로 제공합니다."""
+        compacted = {
+            "ok": False,
+            "error": (
+                "Tool output was omitted because it exceeded the model context window. "
+                "Retry with narrower arguments or request a smaller page of data."
+            ),
+            "data": {
+                "omitted_due_to_context_window": True,
+                "function_name": function_name,
+                "original_output_chars": output_chars,
+                "original_output_estimated_tokens": estimate_input_tokens(
+                    item.get("output", "")
+                ),
+                "guidance": self._context_window_tool_guidance(function_name),
+            },
+        }
+        replacement = {
+            key: value
+            for key, value in item.items()
+            if key in {"type", "call_id", "id", "status"}
+        }
+        replacement["output"] = json.dumps(compacted, ensure_ascii=False)
+        return replacement
+
+    def _context_window_tool_guidance(self, function_name: str | None) -> str:
+        """tool별로 context 초과 후 재시도할 범위 축소 방법을 안내합니다."""
+        if function_name == "get_dataset_info":
+            return (
+                "Call get_dataset_info again with file_limit=0 for metadata only, "
+                "or use small file_limit/file_offset pages only when file paths are needed."
+            )
+        return (
+            "Avoid returning broad data. Use narrower filters, smaller limits, "
+            "or summarize before requesting another LLM response."
+        )
+
+    def _apply_context_window_replacements(
+        self,
+        *,
+        input_items: list[dict[str, object]],
+        replacements: dict[str, dict[str, object]],
+    ) -> list[dict[str, object]]:
+        """저장/재사용 input에서도 큰 tool output을 동일한 축약 결과로 치환합니다."""
+        recovered_items: list[dict[str, object]] = []
+        for item in input_items:
+            call_id = item.get("call_id")
+            if item.get("type") == "function_call_output" and isinstance(call_id, str):
+                replacement = replacements.get(call_id)
+                if replacement is not None:
+                    recovered_items.append(replacement)
+                    continue
+            recovered_items.append(item)
+        return recovered_items
+
+    def _build_context_window_recovery_input(
+        self,
+        *,
+        exc: Exception,
+        replacements: dict[str, dict[str, object]],
+    ) -> dict[str, object]:
+        """context window 초과 사실과 축약된 tool 결과 목록을 다음 iteration에 전달합니다."""
+        payload = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "compacted_tool_output_count": len(replacements),
+            "compacted_call_ids": list(replacements.keys()),
+        }
+        text = (
+            "이전 LLM 호출은 input이 모델 context window를 초과해 실행되지 못했습니다. "
+            "큰 tool 결과는 같은 call_id의 축약된 실패 결과로 대체했습니다. "
+            "넓은 범위의 tool 호출을 반복하지 말고, 필요한 파일/행/컬럼만 작은 범위로 다시 조회하거나 "
+            "이미 가진 요약 정보를 바탕으로 다음 작업을 진행하세요.\n"
+            f"{json.dumps(payload, ensure_ascii=False, default=str)}"
+        )
+        return {
+            "type": "message",
+            "role": "developer",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": text,
+                }
+            ],
+        }
+
+    def _build_context_window_recovery_event(
+        self,
+        *,
+        iteration: int,
+        attempt: int,
+        recovery_result: dict[str, object],
+    ) -> SseEvent:
+        """context 초과를 내부 복구 대상으로 처리했음을 프론트 이벤트로 남깁니다."""
+        replacements = recovery_result.get("replacements")
+        compacted_count = len(replacements) if isinstance(replacements, dict) else 0
+        return SseEvent(
+            event_type="agent.iteration.interrupted",
+            data={
+                "iteration": iteration,
+                "attempt": attempt,
+                "max_attempts": CONTEXT_WINDOW_RECOVERY_MAX_ATTEMPTS,
+                "reason": "context_window_recovered",
+                "compacted_tool_output_count": compacted_count,
+            },
+        )
 
     def _append_stream_event_log(
         self,

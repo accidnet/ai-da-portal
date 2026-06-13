@@ -3,7 +3,12 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from core.config import get_settings
 from core.paths import ROOT_DIR
+from infrastructure.ai.model_catalog import (
+    get_model_context_window_tokens,
+    get_model_input_token_limit,
+)
 
 _BYTES_PER_GB = 1024 * 1024 * 1024
 _MEMORY_SAFETY_MARGIN_GB = 1.0
@@ -25,8 +30,22 @@ class RuntimeResourceSnapshot:
 def collect_runtime_resource_payload() -> dict[str, object]:
     """LLM developer message에 넣을 리소스 상태를 생성합니다."""
     snapshot = collect_runtime_resource_snapshot()
+    settings = get_settings()
     return {
         "runtime_resources": asdict(snapshot),
+        "llm_model": {
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            # 모델이 사용할 수 있는 전체 창과 실제 input trim 기준을 함께 제공합니다.
+            "context_window_tokens": get_model_context_window_tokens(
+                provider=settings.llm_provider,
+                model=settings.llm_model,
+            ),
+            "max_input_tokens": get_model_input_token_limit(
+                provider=settings.llm_provider,
+                model=settings.llm_model,
+            ),
+        },
     }
 
 

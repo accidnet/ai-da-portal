@@ -15,14 +15,30 @@ type InputItemGroup = tuple[dict[str, object], ...]
 
 def get_model_input_token_limit(*, provider: str, model: str) -> int:
     """models.dev catalog에서 provider/model의 input token 한도를 조회합니다."""
+    model_payload = _find_model_payload_by_provider(catalog_provider=provider, model=model)
+
+    limit = _read_input_limit(model_payload)
+    return limit or DEFAULT_INPUT_TOKEN_LIMIT
+
+
+def get_model_context_window_tokens(*, provider: str, model: str) -> int:
+    """models.dev catalog에서 provider/model의 context window 크기를 조회합니다."""
+    model_payload = _find_model_payload_by_provider(catalog_provider=provider, model=model)
+
+    context_window = _read_context_window(model_payload)
+    return context_window or get_model_input_token_limit(provider=provider, model=model)
+
+
+def _find_model_payload_by_provider(
+    *, catalog_provider: str, model: str
+) -> dict[str, Any] | None:
+    """provider 우선 조회 후 전체 catalog를 보조 조회합니다."""
     catalog = _load_models_dev_catalog()
-    provider_payload = _read_provider_payload(catalog, provider)
+    provider_payload = _read_provider_payload(catalog, catalog_provider)
     model_payload = _read_model_payload(provider_payload, model)
     if model_payload is None:
         model_payload = _find_model_payload(catalog, model)
-
-    limit = _read_limit(model_payload)
-    return limit or DEFAULT_INPUT_TOKEN_LIMIT
+    return model_payload
 
 
 def estimate_input_tokens(value: object) -> int:
@@ -179,7 +195,7 @@ def _find_model_payload(catalog: dict[str, Any], model: str) -> dict[str, Any] |
     return None
 
 
-def _read_limit(model_payload: dict[str, Any] | None) -> int | None:
+def _read_input_limit(model_payload: dict[str, Any] | None) -> int | None:
     """model payload에서 input token 한도를 읽습니다."""
     if model_payload is None:
         return None
@@ -195,6 +211,25 @@ def _read_limit(model_payload: dict[str, Any] | None) -> int | None:
     output_limit = _read_positive_int(limit.get("output")) or 0
     if context_limit is not None:
         return max(context_limit - output_limit, 1)
+    return None
+
+
+def _read_context_window(model_payload: dict[str, Any] | None) -> int | None:
+    """model payload에서 전체 context window token 수를 읽습니다."""
+    if model_payload is None:
+        return None
+    limit = model_payload.get("limit")
+    if not isinstance(limit, dict):
+        return None
+
+    context_limit = _read_positive_int(limit.get("context"))
+    if context_limit is not None:
+        return context_limit
+
+    input_limit = _read_positive_int(limit.get("input"))
+    output_limit = _read_positive_int(limit.get("output")) or 0
+    if input_limit is not None:
+        return input_limit + output_limit
     return None
 
 
